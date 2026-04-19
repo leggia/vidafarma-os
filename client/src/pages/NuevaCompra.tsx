@@ -47,6 +47,7 @@ export default function NuevaCompra() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [extracted, setExtracted] = useState(false);
 
+  const utils = trpc.useUtils();
   const uploadAndExtract = trpc.purchases.uploadAndExtract.useMutation();
   const createPurchase = trpc.purchases.create.useMutation();
 
@@ -122,6 +123,9 @@ export default function NuevaCompra() {
           imageKey: uploadAndExtract.data?.imageKey || null,
           confirmDirectly,
         });
+        // Invalidate caches so the list page shows the new purchase immediately
+        await utils.purchases.list.invalidate();
+        await utils.dashboard.stats.invalidate();
         if (confirmDirectly) {
           toast.success("Compra confirmada y completada exitosamente");
         } else {

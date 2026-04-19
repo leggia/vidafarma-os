@@ -66,3 +66,6 @@
 
 ## Bugs Reportados - 17/04/2026
 - [x] BUG CRÍTICO: Botón Confirmar generaba error "Failed query: insert into purchases" - RESUELTO: la migración ALTER TABLE para agregar 'completed' al enum de status no estaba aplicada en la base de datos real
+
+## Bugs Reportados - 19/04/2026
+- [x] BUG: Al crear nueva compra el registro no aparecía en el listado - RESUELTO: se agregó invalidación de caché (purchases.list y dashboard.stats) después de crear la compra/transferencia

@@ -47,6 +47,7 @@ export default function NuevaTransferencia() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [extracted, setExtracted] = useState(false);
 
+  const utils = trpc.useUtils();
   const uploadAndExtract = trpc.transfers.uploadAndExtract.useMutation();
   const createTransfer = trpc.transfers.create.useMutation();
 
@@ -117,6 +118,9 @@ export default function NuevaTransferencia() {
         imageKey: uploadAndExtract.data?.imageKey || null,
         confirmDirectly,
       });
+      // Invalidate caches so the list page shows the new transfer immediately
+      await utils.transfers.list.invalidate();
+      await utils.dashboard.stats.invalidate();
       if (confirmDirectly) {
         toast.success("Transferencia confirmada y completada exitosamente");
       } else {
