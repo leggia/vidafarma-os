@@ -21,6 +21,7 @@ import {
   Sparkles,
   Check,
   CheckCircle2,
+  Calendar,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ interface ExtractedItem {
   quantity: number;
   unitCost: number;
   subtotal: number;
+  expiryDate?: string | null;
 }
 
 export default function NuevaCompra() {
@@ -46,6 +48,7 @@ export default function NuevaCompra() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [extracted, setExtracted] = useState(false);
+  const [showExpiry, setShowExpiry] = useState(false);
 
   const utils = trpc.useUtils();
   const uploadAndExtract = trpc.purchases.uploadAndExtract.useMutation();
@@ -78,7 +81,7 @@ export default function NuevaCompra() {
             mimeType: file.type,
           });
           if (result.items && result.items.length > 0) {
-            setItems(result.items);
+            setItems(result.items.map((i: any) => ({ ...i, expiryDate: i.expiryDate || null })));
             if (result.supplier) setSupplier(result.supplier);
             if (result.receiptNumber) setReceiptNumber(result.receiptNumber);
             setExtracted(true);
@@ -118,12 +121,17 @@ export default function NuevaCompra() {
           receiptNumber,
           supplier,
           totalAmount,
-          items,
+          items: items.map(i => ({
+            productName: i.productName,
+            quantity: i.quantity,
+            unitCost: i.unitCost,
+            subtotal: i.subtotal,
+            expiryDate: i.expiryDate || null,
+          })),
           imageUrl: uploadAndExtract.data?.imageUrl || null,
           imageKey: uploadAndExtract.data?.imageKey || null,
           confirmDirectly,
         });
-        // Invalidate caches so the list page shows the new purchase immediately
         await utils.purchases.list.invalidate();
         await utils.dashboard.stats.invalidate();
         if (confirmDirectly) {
@@ -151,28 +159,15 @@ export default function NuevaCompra() {
       }
       setIsSubmitting(false);
     },
-    [
-      branchId,
-      items,
-      receiptNumber,
-      supplier,
-      createPurchase,
-      setLocation,
-      uploadAndExtract.data,
-    ]
+    [branchId, items, receiptNumber, supplier, createPurchase, setLocation, uploadAndExtract.data, utils]
   );
 
-  const updateItem = (
-    index: number,
-    field: keyof ExtractedItem,
-    value: any
-  ) => {
+  const updateItem = (index: number, field: keyof ExtractedItem, value: any) => {
     setItems((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
       if (field === "quantity" || field === "unitCost") {
-        updated[index].subtotal =
-          updated[index].quantity * updated[index].unitCost;
+        updated[index].subtotal = updated[index].quantity * updated[index].unitCost;
       }
       return updated;
     });
@@ -185,7 +180,7 @@ export default function NuevaCompra() {
   const addEmptyItem = () => {
     setItems((prev) => [
       ...prev,
-      { productName: "", quantity: 1, unitCost: 0, subtotal: 0 },
+      { productName: "", quantity: 1, unitCost: 0, subtotal: 0, expiryDate: null },
     ]);
   };
 
@@ -245,11 +240,7 @@ export default function NuevaCompra() {
                       ) : (
                         <Sparkles className="h-4 w-4" />
                       )}
-                      {isExtracting
-                        ? "Extrayendo..."
-                        : extracted
-                          ? "Extraído"
-                          : "Extraer con IA"}
+                      {isExtracting ? "Extrayendo..." : extracted ? "Extraído" : "Extraer con IA"}
                     </Button>
                     <Button
                       variant="outline"
@@ -272,9 +263,7 @@ export default function NuevaCompra() {
                 >
                   <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-3" />
                   <p className="text-sm font-medium">Haga clic para subir</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    JPG, PNG o PDF
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">JPG, PNG o PDF</p>
                 </div>
               )}
               <input
@@ -296,9 +285,7 @@ export default function NuevaCompra() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider">
-                  Sucursal
-                </Label>
+                <Label className="text-xs font-bold uppercase tracking-wider">Sucursal</Label>
                 <Select value={branchId} onValueChange={setBranchId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar sucursal" />
@@ -313,9 +300,7 @@ export default function NuevaCompra() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider">
-                  N° Comprobante
-                </Label>
+                <Label className="text-xs font-bold uppercase tracking-wider">N° Comprobante</Label>
                 <Input
                   value={receiptNumber}
                   onChange={(e) => setReceiptNumber(e.target.value)}
@@ -323,9 +308,7 @@ export default function NuevaCompra() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider">
-                  Proveedor
-                </Label>
+                <Label className="text-xs font-bold uppercase tracking-wider">Proveedor</Label>
                 <Input
                   value={supplier}
                   onChange={(e) => setSupplier(e.target.value)}
@@ -344,25 +327,37 @@ export default function NuevaCompra() {
                 <CardTitle className="text-sm font-bold uppercase tracking-wider">
                   Productos ({items.length})
                 </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={addEmptyItem}
-                  className="gap-1 text-xs uppercase tracking-wider font-semibold"
-                >
-                  <Plus className="h-3 w-3" />
-                  Agregar
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowExpiry(!showExpiry)}
+                    className={`gap-1 text-xs uppercase tracking-wider font-semibold ${showExpiry ? "bg-primary text-primary-foreground" : ""}`}
+                  >
+                    <Calendar className="h-3 w-3" />
+                    {showExpiry ? "Ocultar Venc." : "Fecha Venc."}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addEmptyItem}
+                    className="gap-1 text-xs uppercase tracking-wider font-semibold"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Agregar
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               {items.length > 0 ? (
                 <div className="space-y-2">
                   {/* Table Header */}
-                  <div className="grid grid-cols-12 gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-foreground/10">
-                    <div className="col-span-5">Producto</div>
+                  <div className={`grid gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-foreground/10 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}>
+                    <div className={showExpiry ? "col-span-4" : "col-span-5"}>Producto</div>
                     <div className="col-span-2">Cantidad</div>
                     <div className="col-span-2">Costo Unit.</div>
+                    {showExpiry && <div className="col-span-3">Vencimiento</div>}
                     <div className="col-span-2 text-right">Subtotal</div>
                     <div className="col-span-1" />
                   </div>
@@ -370,14 +365,12 @@ export default function NuevaCompra() {
                   {items.map((item, idx) => (
                     <div
                       key={idx}
-                      className="grid grid-cols-12 gap-2 items-center py-1"
+                      className={`grid gap-2 items-center py-1 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}
                     >
-                      <div className="col-span-5">
+                      <div className={showExpiry ? "col-span-4" : "col-span-5"}>
                         <Input
                           value={item.productName}
-                          onChange={(e) =>
-                            updateItem(idx, "productName", e.target.value)
-                          }
+                          onChange={(e) => updateItem(idx, "productName", e.target.value)}
                           className="text-sm h-9"
                           placeholder="Nombre del producto"
                         />
@@ -386,13 +379,7 @@ export default function NuevaCompra() {
                         <Input
                           type="number"
                           value={item.quantity}
-                          onChange={(e) =>
-                            updateItem(
-                              idx,
-                              "quantity",
-                              parseInt(e.target.value) || 0
-                            )
-                          }
+                          onChange={(e) => updateItem(idx, "quantity", parseInt(e.target.value) || 0)}
                           className="text-sm h-9"
                           min={0}
                         />
@@ -401,18 +388,22 @@ export default function NuevaCompra() {
                         <Input
                           type="number"
                           value={item.unitCost}
-                          onChange={(e) =>
-                            updateItem(
-                              idx,
-                              "unitCost",
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
+                          onChange={(e) => updateItem(idx, "unitCost", parseFloat(e.target.value) || 0)}
                           className="text-sm h-9"
                           min={0}
                           step="0.01"
                         />
                       </div>
+                      {showExpiry && (
+                        <div className="col-span-3">
+                          <Input
+                            type="date"
+                            value={item.expiryDate || ""}
+                            onChange={(e) => updateItem(idx, "expiryDate", e.target.value || null)}
+                            className="text-sm h-9"
+                          />
+                        </div>
+                      )}
                       <div className="col-span-2 text-right text-sm font-semibold">
                         {item.subtotal.toFixed(2)} BS
                       </div>
@@ -431,12 +422,8 @@ export default function NuevaCompra() {
                   {/* Total */}
                   <div className="border-t-2 border-foreground pt-3 mt-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold uppercase tracking-wider">
-                        Total
-                      </span>
-                      <span className="text-2xl font-black">
-                        {totalAmount.toFixed(2)} BS
-                      </span>
+                      <span className="text-sm font-bold uppercase tracking-wider">Total</span>
+                      <span className="text-2xl font-black">{totalAmount.toFixed(2)} BS</span>
                     </div>
                   </div>
                 </div>
@@ -485,7 +472,7 @@ export default function NuevaCompra() {
                 ) : (
                   <CheckCircle2 className="h-4 w-4" />
                 )}
-                Confirmar Compra
+                Confirmar y Sincronizar
               </Button>
             </div>
           )}

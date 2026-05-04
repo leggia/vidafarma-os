@@ -193,6 +193,7 @@ INSTRUCCIONES GENERALES:
             quantity: z.number(),
             unitCost: z.number(),
             subtotal: z.number(),
+            expiryDate: z.string().nullable().optional(),
           })
         ),
         imageUrl: z.string().nullable().optional(),
@@ -229,6 +230,7 @@ INSTRUCCIONES GENERALES:
               nombre: item.productName,
               cantidad: item.quantity,
               precio: item.unitCost,
+              fechaVencimiento: item.expiryDate || null,
             })),
             total: input.totalAmount || 0,
           });

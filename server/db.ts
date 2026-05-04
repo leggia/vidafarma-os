@@ -111,7 +111,7 @@ export async function createPurchase(data: {
   imageKey?: string | null;
   extractedData?: any;
   status?: string;
-  items: Array<{ productName: string; quantity: number; unitCost: number; subtotal: number }>;
+  items: Array<{ productName: string; quantity: number; unitCost: number; subtotal: number; expiryDate?: string | null }>;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -140,6 +140,7 @@ export async function createPurchase(data: {
         quantity: item.quantity,
         unitCost: String(item.unitCost),
         subtotal: String(item.subtotal),
+        expiryDate: item.expiryDate || null,
       }))
     );
   }

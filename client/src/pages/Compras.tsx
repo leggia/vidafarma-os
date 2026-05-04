@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, CheckCircle2, Image as ImageIcon, Loader2,
-  RefreshCw, AlertCircle, ExternalLink, Package
+  RefreshCw, AlertCircle, ExternalLink, Package, Zap
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ export default function Compras() {
   const utils = trpc.useUtils();
   const { data: purchases, isLoading } = trpc.purchases.list.useQuery();
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [retryingAll, setRetryingAll] = useState(false);
 
   const confirmMutation = trpc.purchases.confirm.useMutation({
     onSuccess: (data, variables) => {
@@ -45,11 +46,43 @@ export default function Compras() {
     toast.loading("Confirmando y sincronizando con inventarios365...", { id: `sync-${id}` });
     confirmMutation.mutate(
       { id },
-      {
-        onSettled: () => toast.dismiss(`sync-${id}`),
-      }
+      { onSettled: () => toast.dismiss(`sync-${id}`) }
     );
   };
+
+  // Reintentar sincronización para todas las compras con error
+  const handleRetryAll = async () => {
+    const withErrors = (purchases || []).filter(
+      (p: any) => p.status === "completed" && p.syncError
+    );
+    if (withErrors.length === 0) {
+      toast.info("No hay compras pendientes de sincronización");
+      return;
+    }
+    setRetryingAll(true);
+    toast.loading(`Reintentando sincronización de ${withErrors.length} compra(s)...`, { id: "retry-all" });
+    let ok = 0;
+    let fail = 0;
+    for (const p of withErrors) {
+      try {
+        const result = await confirmMutation.mutateAsync({ id: p.id });
+        if (result.syncSuccess) ok++;
+        else fail++;
+      } catch {
+        fail++;
+      }
+    }
+    toast.dismiss("retry-all");
+    toast.success(`Reintento completado: ${ok} sincronizadas, ${fail} con error`, { duration: 6000 });
+    await utils.purchases.list.invalidate();
+    await utils.dashboard.stats.invalidate();
+    setRetryingAll(false);
+  };
+
+  const errorCount = (purchases || []).filter(
+    (p: any) => p.status === "completed" && p.syncError
+  ).length;
+  const draftCount = (purchases || []).filter((p: any) => p.status === "draft").length;
 
   return (
     <div className="space-y-6">
@@ -60,14 +93,49 @@ export default function Compras() {
             Extracción automática por IA · Sincronización con inventarios365.com
           </p>
         </div>
-        <Button
-          onClick={() => setLocation("/compras/nueva")}
-          className="font-semibold uppercase tracking-wider text-sm gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva Compra
-        </Button>
+        <div className="flex gap-2">
+          {errorCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleRetryAll}
+              disabled={retryingAll}
+              className="gap-2 text-xs uppercase tracking-wider font-semibold border-orange-300 text-orange-700 hover:bg-orange-50"
+            >
+              {retryingAll ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Zap className="h-4 w-4" />
+              )}
+              Reintentar {errorCount} con error
+            </Button>
+          )}
+          <Button
+            onClick={() => setLocation("/compras/nueva")}
+            className="font-semibold uppercase tracking-wider text-sm gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva Compra
+          </Button>
+        </div>
       </div>
+
+      {/* Alertas de estado */}
+      {!isLoading && draftCount > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded p-3 flex items-center gap-2 text-sm text-yellow-800">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>
+            Tienes <strong>{draftCount}</strong> compra(s) en borrador sin confirmar. Confírmalas para sincronizarlas con inventarios365.com.
+          </span>
+        </div>
+      )}
+      {!isLoading && errorCount > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded p-3 flex items-center gap-2 text-sm text-orange-800">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>
+            <strong>{errorCount}</strong> compra(s) no se sincronizaron con inventarios365.com. Usa el botón "Reintentar" para reenviarlas.
+          </span>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -81,7 +149,7 @@ export default function Compras() {
             <Card
               key={p.id}
               className={`border-foreground/10 hover:border-foreground/20 transition-colors ${
-                p.status === "error" || p.syncError ? "border-red-300 bg-red-50/30" : ""
+                p.status === "error" || p.syncError ? "border-orange-300 bg-orange-50/20" : ""
               }`}
             >
               <CardContent className="py-4">
@@ -101,12 +169,13 @@ export default function Compras() {
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
                         {p.supplier || "Sin proveedor"} — {p.branchName || "Central"}
+                        {p.itemCount ? ` — ${p.itemCount} productos` : ""}
                       </p>
-                      {/* Mostrar error de sincronización si existe */}
+                      {/* Error de sincronización */}
                       {p.syncError && (
-                        <p className="text-xs text-red-600 mt-0.5 flex items-center gap-1">
+                        <p className="text-xs text-orange-700 mt-0.5 flex items-center gap-1">
                           <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate max-w-xs">{p.syncError}</span>
+                          <span className="truncate max-w-sm">{p.syncError}</span>
                         </p>
                       )}
                     </div>
@@ -124,7 +193,7 @@ export default function Compras() {
                     </div>
                     <StatusBadge status={p.status} syncError={p.syncError} />
 
-                    {/* Botón Confirmar (borrador) */}
+                    {/* Confirmar borrador */}
                     {p.status === "draft" && (
                       <Button
                         size="sm"
@@ -141,14 +210,14 @@ export default function Compras() {
                       </Button>
                     )}
 
-                    {/* Botón Reintentar sync (si hay error) */}
+                    {/* Reintentar sync */}
                     {p.status === "completed" && p.syncError && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleConfirm(p.id)}
-                        disabled={confirmingId === p.id}
-                        className="gap-1 text-xs uppercase tracking-wider font-semibold border-red-300 text-red-600 hover:bg-red-50"
+                        disabled={confirmingId === p.id || retryingAll}
+                        className="gap-1 text-xs uppercase tracking-wider font-semibold border-orange-300 text-orange-700 hover:bg-orange-50"
                       >
                         {confirmingId === p.id ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
@@ -159,7 +228,7 @@ export default function Compras() {
                       </Button>
                     )}
 
-                    {/* Link a inventarios365 si está completado y sincronizado */}
+                    {/* Link a inventarios365 si sincronizado */}
                     {p.status === "completed" && !p.syncError && (
                       <a
                         href="https://vidafarmacia.inventarios365.com/main#/ingreso"
@@ -199,7 +268,6 @@ export default function Compras() {
 }
 
 function StatusBadge({ status, syncError }: { status: string; syncError?: string | null }) {
-  // Si está completado pero con error de sync, mostrar advertencia
   if (status === "completed" && syncError) {
     return (
       <Badge variant="outline" className="text-xs uppercase tracking-wider font-medium bg-orange-50 text-orange-700 border-orange-300">
@@ -208,11 +276,11 @@ function StatusBadge({ status, syncError }: { status: string; syncError?: string
     );
   }
   const config: Record<string, { label: string; className: string }> = {
-    draft:        { label: "Borrador",    className: "bg-gray-100 text-gray-600 border-gray-300" },
-    pending_sync: { label: "Pendiente",   className: "bg-yellow-50 text-yellow-700 border-yellow-300" },
-    synced:       { label: "Sincronizado",className: "bg-blue-50 text-blue-700 border-blue-300" },
+    draft:        { label: "Borrador",       className: "bg-gray-100 text-gray-600 border-gray-300" },
+    pending_sync: { label: "Pendiente",      className: "bg-yellow-50 text-yellow-700 border-yellow-300" },
+    synced:       { label: "Sincronizado",   className: "bg-blue-50 text-blue-700 border-blue-300" },
     completed:    { label: "✓ Sincronizado", className: "bg-green-50 text-green-700 border-green-300" },
-    error:        { label: "Error",       className: "bg-red-50 text-red-700 border-red-300" },
+    error:        { label: "Error",          className: "bg-red-50 text-red-700 border-red-300" },
   };
   const c = config[status] || { label: status, className: "bg-gray-100 text-gray-600 border-gray-300" };
   return (
