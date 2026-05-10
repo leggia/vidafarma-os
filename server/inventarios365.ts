@@ -90,7 +90,7 @@ class Inventarios365Service {
   constructor() {
     this.client = axios.create({
       baseURL: BASE_URL,
-      timeout: 30000,
+      timeout: 60000, // 60s — inventarios365.com puede tardar hasta 15s en el GET de login
       // No seguir redirecciones automáticamente para capturar cookies
       maxRedirects: 0,
       validateStatus: (status) => status < 500,
@@ -144,6 +144,7 @@ class Inventarios365Service {
       // ── Paso 1: GET / para obtener CSRF token y cookies iniciales ──────────
       const getResp = await axios.get(`${BASE_URL}/`, {
         maxRedirects: 5,
+        timeout: 60000,
         validateStatus: () => true,
         headers: {
           "User-Agent":
@@ -189,6 +190,7 @@ class Inventarios365Service {
 
       const postResp = await axios.post(`${BASE_URL}/`, formData.toString(), {
         maxRedirects: 0,
+        timeout: 60000,
         validateStatus: (s) => s < 400,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",

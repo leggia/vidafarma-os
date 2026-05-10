@@ -1,0 +1,55 @@
+{
+  "query": "SELECT p.id, p.supplier, p.receiptNumber, p.status, p.syncError, p.totalAmount,\n       GROUP_CONCAT(pi.productName, '|', pi.quantity, '|', pi.unitCost SEPARATOR ';;') as items\nFROM purchases p\nLEFT JOIN purchase_items pi ON pi.purchaseId = p.id\nGROUP BY p.id\nORDER BY p.id DESC\nLIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3C3YedTYyRZ9gp1.root --database ELm6QT6PJVYqbTF7mNfFga --execute SELECT p.id, p.supplier, p.receiptNumber, p.status, p.syncError, p.totalAmount,\n       GROUP_CONCAT(pi.productName, '|', pi.quantity, '|', pi.unitCost SEPARATOR ';;') as items\nFROM purchases p\nLEFT JOIN purchase_items pi ON pi.purchaseId = p.id\nGROUP BY p.id\nORDER BY p.id DESC\nLIMIT 5;",
+  "rows": [
+    {
+      "id": "240001",
+      "supplier": "LABORATORIOS BAGO DE BOLIVIA S.A.",
+      "receiptNumber": "11122222",
+      "status": "completed",
+      "syncError": "NULL",
+      "totalAmount": "2053.50",
+      "items": "ACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|0.4950;;ASPIRINETAS x 98 cpr|588|0.5918;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000"
+    },
+    {
+      "id": "210001",
+      "supplier": "LABORATORIOS BAGO DE BOLIVIA S.A.",
+      "receiptNumber": "223344",
+      "status": "completed",
+      "syncError": "NULL",
+      "totalAmount": "2053.50",
+      "items": "ACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|4.9500;;ASPIRINETAS x 98 cpr|588|0.5918;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000"
+    },
+    {
+      "id": "180001",
+      "supplier": "LABORATORIOS BAGO DE BOLIVIA S.A.",
+      "receiptNumber": "2222333",
+      "status": "completed",
+      "syncError": "NULL",
+      "totalAmount": "10950.00",
+      "items": "BLOCAR 6,25 mg x 30 Comp|120|3.0333;;CLOFENAC 75 x 150 Comp|150|3.1933;;CLOFENAC RELAX FORTE x 30 Cap|60|6.6167;;CLOFENAC RETARD 100 x 30 Comp|90|4.3333;;CLOFENAC B1B6B12 x 100 Comp|100|6.2400;;CORTYPIREN x 20 Comp|80|2.8500;;CRONOCORTEROID Iny x 1 Fco|4|131.5000;;DIOXADOL Jbe x 50 ml|4|69.5000;;ESPASMO DIOXADOL PLUS x 100 Comp|100|6.4550;;ESTREPTOCARBOCAFTIAZOL x 100 Comp|200|4.3200;;GLEMAZ MET 4/1000 x 30 Comp|30|10.1167;;GLICENEX DUO 500/5 x 30 Comp|120|3.1333;;HUMORAP 20 mg x 30 Comp|90|9.7667;;MIGRANOL x 100 Comp|200|7.4300;;PIRONAL FLU ADVANCE Susp x 100 ml|4|110.0000;;PIRONAL FLU ADVANCE x 12 Comp|48|10.9167;;PIRONAL FLU FORTE x 12 Comp|48|10.4167;;PIRONAL FLU FORTE Susp x 100 ml|4|105.0000;;PIRONAL FORTE Susp x 100 ml|4|83.0000;;REMITEX 10 mg x 10 Comp|20|8.9000;;TALFLEX B1 B6 B12 FTE x 1/1 Amp/Amp|8|89.5000"
+    },
+    {
+      "id": "150001",
+      "supplier": "LABORATORIOS BAGO DE BOLIVIA S.A.",
+      "receiptNumber": "112233",
+      "status": "completed",
+      "syncError": "NULL",
+      "totalAmount": "2053.50",
+      "items": "ACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|0.4950;;ASPIRINETAS x 98 cpr|588|0.5918;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000"
+    },
+    {
+      "id": "120002",
+      "supplier": "LABORATORIOS BAGO DE BOLIVIA S.A.",
+      "receiptNumber": "139167",
+      "status": "completed",
+      "syncError": "No se encontró ningún artículo en inventarios365.com. No encontrados: ACTRON 400 mg x 10 Caps., ACTRON 600 mg x 10 Caps., ASPIRINA TABL 500 MG x 100, ASPIRINETAS x 98 cpr, CARDIO ASPIRINA x 20 cpr, REDOXON TABL EFE LIM 2 G x 10",
+      "totalAmount": "2053.50",
+      "items": "ACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|0.4950;;ASPIRINETAS x 98 cpr|588|0.5800;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsupplier\treceiptNumber\tstatus\tsyncError\ttotalAmount\titems\n240001\tLABORATORIOS BAGO DE BOLIVIA S.A.\t11122222\tcompleted\tNULL\t2053.50\tACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|0.4950;;ASPIRINETAS x 98 cpr|588|0.5918;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000\n210001\tLABORATORIOS BAGO DE BOLIVIA S.A.\t223344\tcompleted\tNULL\t2053.50\tACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|4.9500;;ASPIRINETAS x 98 cpr|588|0.5918;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000\n180001\tLABORATORIOS BAGO DE BOLIVIA S.A.\t2222333\tcompleted\tNULL\t10950.00\tBLOCAR 6,25 mg x 30 Comp|120|3.0333;;CLOFENAC 75 x 150 Comp|150|3.1933;;CLOFENAC RELAX FORTE x 30 Cap|60|6.6167;;CLOFENAC RETARD 100 x 30 Comp|90|4.3333;;CLOFENAC B1B6B12 x 100 Comp|100|6.2400;;CORTYPIREN x 20 Comp|80|2.8500;;CRONOCORTEROID Iny x 1 Fco|4|131.5000;;DIOXADOL Jbe x 50 ml|4|69.5000;;ESPASMO DIOXADOL PLUS x 100 Comp|100|6.4550;;ESTREPTOCARBOCAFTIAZOL x 100 Comp|200|4.3200;;GLEMAZ MET 4/1000 x 30 Comp|30|10.1167;;GLICENEX DUO 500/5 x 30 Comp|120|3.1333;;HUMORAP 20 mg x 30 Comp|90|9.7667;;MIGRANOL x 100 Comp|200|7.4300;;PIRONAL FLU ADVANCE Susp x 100 ml|4|110.0000;;PIRONAL FLU ADVANCE x 12 Comp|48|10.9167;;PIRONAL FLU FORTE x 12 Comp|48|10.4167;;PIRONAL FLU FORTE Susp x 100 ml|4|105.0000;;PIRONAL FORTE Susp x 100 ml|4|83.0000;;REMITEX 10 mg x 10 Comp|20|8.9000;;TALFLEX B1 B6 B12 FTE x 1/1 Amp/Amp|8|89.5000\n150001\tLABORATORIOS BAGO DE BOLIVIA S.A.\t112233\tcompleted\tNULL\t2053.50\tACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|0.4950;;ASPIRINETAS x 98 cpr|588|0.5918;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000\n120002\tLABORATORIOS BAGO DE BOLIVIA S.A.\t139167\tcompleted\tNo se encontró ningún artículo en inventarios365.com. No encontrados: ACTRON 400 mg x 10 Caps., ACTRON 600 mg x 10 Caps., ASPIRINA TABL 500 MG x 100, ASPIRINETAS x 98 cpr, CARDIO ASPIRINA x 20 cpr, REDOXON TABL EFE LIM 2 G x 10\t2053.50\tACTRON 400 mg x 10 Caps.|150|2.2000;;ACTRON 600 mg x 10 Caps.|150|4.0500;;ASPIRINA TABL 500 MG x 100|600|0.4950;;ASPIRINETAS x 98 cpr|588|0.5800;;CARDIO ASPIRINA x 20 cpr|120|2.3250;;REDOXON TABL EFE LIM 2 G x 10|40|4.8000\n",
+  "stderr": "",
+  "execution_time_ms": 657
+}
