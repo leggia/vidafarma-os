@@ -77,3 +77,16 @@
 - [ ] Conectar sincronización al flujo de confirmación de transferencias
 - [ ] Mostrar estado de sincronización en tiempo real en el frontend
 - [ ] Guardar credenciales de inventarios365.com de forma segura en variables de entorno
+
+
+## Optimización de Recursos - 14/05/2026
+- [x] Remover notificaciones por correo en flujo de compras (innecesarias, gastan recursos)
+- [x] Remover notificaciones por correo en flujo de transferencias
+- [x] Verificar que sincronización funciona correctamente (prueba end-to-end exitosa: Ingreso ID 27)
+- [x] Documentar el problema: la sincronización es asíncrona y tarda ~30 segundos
+
+## Próximas Mejoras
+- [ ] Implementar selector de sucursales/almacenes en formulario de compras
+- [ ] Crear UI de mapeo manual de artículos cuando la búsqueda automática falla
+- [ ] Agregar historial y logs detallados de sincronización
+- [ ] Crear documentación para desplegar en servidor propio (Docker, VPS, etc.)

@@ -5,7 +5,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
 import { storagePut } from "./storage";
-import { notifyOwner } from "./_core/notification";
+
 import { nanoid } from "nanoid";
 import * as db from "./db";
 import { inventarios365 } from "./inventarios365";
@@ -242,10 +242,6 @@ INSTRUCCIONES GENERALES:
             syncMessage = `Compra registrada en inventarios365.com (Ingreso ID: ${syncResult.ingresoId})`;
             syncIngresoId = syncResult.ingresoId;
             await db.updatePurchaseSyncStatus(purchaseId, "completed");
-            await notifyOwner({
-              title: "Compra sincronizada con inventarios365 ✓",
-              content: `Compra #${purchaseId} registrada en inventarios365.com (Ingreso ID: ${syncResult.ingresoId})`,
-            }).catch(() => {});
           } else {
             syncSuccess = false;
             syncMessage = syncResult.message;
@@ -259,15 +255,7 @@ INSTRUCCIONES GENERALES:
           await db.updatePurchaseSyncError(purchaseId, errMsg).catch(() => {});
         }
       }
-      // Notificar al dueño inmediatamente
-      try {
-        await notifyOwner({
-          title: `Compra ${input.confirmDirectly ? "CONFIRMADA" : "en borrador"}`,
-          content: `Compra #${result.id} — ${input.items.length} productos — ${input.totalAmount || 0} BS${input.confirmDirectly ? " — sincronizando con inventarios365..." : ""}`,
-        });
-      } catch (e) {
-        console.warn("[Notification] Failed:", e);
-      }
+
       return {
         ...result,
         syncSuccess,
@@ -311,18 +299,10 @@ INSTRUCCIONES GENERALES:
             syncMessage2 = `Compra registrada en inventarios365.com (Ingreso ID: ${syncResult.ingresoId})`;
             syncIngresoId2 = syncResult.ingresoId;
             await db.updatePurchaseSyncStatus(purchaseId, "completed");
-            await notifyOwner({
-              title: "Compra sincronizada con inventarios365 ✓",
-              content: `Compra #${purchaseId} registrada en inventarios365.com (Ingreso ID: ${syncResult.ingresoId})`,
-            }).catch(() => {});
           } else {
             syncSuccess2 = false;
             syncMessage2 = syncResult.message;
             await db.updatePurchaseSyncError(purchaseId, syncResult.message);
-            await notifyOwner({
-              title: "Error al sincronizar compra",
-              content: `Compra #${purchaseId}: ${syncResult.message}`,
-            }).catch(() => {});
           }
         } catch (syncError: any) {
           const errMsg = syncError?.message || "Error desconocido";
@@ -492,16 +472,6 @@ INSTRUCCIONES IMPORTANTES:
         status,
       });
 
-      try {
-        const statusLabel = input.confirmDirectly ? "CONFIRMADA" : "en borrador";
-        await notifyOwner({
-          title: `Transferencia ${statusLabel}`,
-          content: `Transferencia #${result.id} — ${input.items.length} medicamentos`,
-        });
-      } catch (e) {
-        console.warn("[Notification] Failed:", e);
-      }
-
       return result;
     }),
 
@@ -509,14 +479,6 @@ INSTRUCCIONES IMPORTANTES:
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const result = await db.confirmTransfer(input.id, ctx.user.id);
-      try {
-        await notifyOwner({
-          title: "Transferencia confirmada",
-          content: `Transferencia #${input.id} ha sido confirmada y completada.`,
-        });
-      } catch (e) {
-        console.warn("[Notification] Failed:", e);
-      }
       return result;
     }),
 });
