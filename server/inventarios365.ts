@@ -581,12 +581,12 @@ class Inventarios365Service {
       };
 
       console.log(
-        "[Inventarios365] POST /inventarios/registrar →",
+        "[Inventarios365] POST /ingreso/registrar →",
         JSON.stringify(payload, null, 2)
       );
 
       const respData = await this.post<{ id?: number; error?: string; message?: string }>(
-        "/inventarios/registrar",
+        "/ingreso/registrar",
         payload
       );
 
