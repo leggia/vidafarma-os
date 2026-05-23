@@ -49,7 +49,7 @@ export interface RegistrarCompraPayload {
   num_comprobante: string;
   impuesto: number;
   total: number;
-  inventarios: DetalleCompra[];  // Cambiar de data a inventarios
+  data: DetalleCompra[];
 }
 
 // Estructura de artículo devuelto por la API
@@ -577,7 +577,7 @@ class Inventarios365Service {
         num_comprobante: params.numComprobante,
         impuesto: 0.18,  // Impuesto por defecto
         total: totalFinal,
-        inventarios: arrayDetalle,  // Cambiar de data a inventarios
+        data: arrayDetalle,
       };
 
       console.log(
