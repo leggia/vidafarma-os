@@ -103,6 +103,7 @@ class ProductosCacheService {
 
     const tokenize = (s: string) =>
       s.toUpperCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar tildes
         .replace(/[^A-Z0-9\s]/g, " ")
         .split(/\s+/)
         .filter((t) => t.length > 1);
@@ -110,23 +111,44 @@ class ProductosCacheService {
     const tokensNombre = tokenize(nombre);
     if (tokensNombre.length === 0) return null;
 
+    // El primer token es el nombre principal del medicamento — debe coincidir obligatoriamente
+    const tokenPrincipal = tokensNombre[0];
+
     let mejorMatch: { art: ArticuloAPI; score: number } | null = null;
 
     for (const art of this.cache.productos) {
       const tokensCandidato = tokenize(art.nombre);
+
+      // REGLA 1: El token principal DEBE estar presente en el candidato
+      const tokenPrincipalPresente = tokensCandidato.some(
+        (c) => c.startsWith(tokenPrincipal) || tokenPrincipal.startsWith(c)
+      );
+      if (!tokenPrincipalPresente) continue;
+
+      // REGLA 2: Calcular score basado en tokens coincidentes
       let matches = 0;
       for (const t of tokensNombre) {
         if (tokensCandidato.some((c) => c.startsWith(t) || t.startsWith(c))) matches++;
       }
-      const score = matches / tokensNombre.length;
+
+      // REGLA 3: Score bidireccional — penalizar si el candidato tiene muchos tokens extra
+      const scoreAdelante = matches / tokensNombre.length;
+      const scoreAtras = matches / tokensCandidato.length;
+      const score = (scoreAdelante + scoreAtras) / 2;
+
       if (score > 0 && (!mejorMatch || score > mejorMatch.score)) {
         mejorMatch = { art, score };
       }
     }
 
-    if (mejorMatch && mejorMatch.score >= 0.5) {
+    // REGLA 4: Umbral mínimo alto — 0.75 para evitar falsos positivos
+    if (mejorMatch && mejorMatch.score >= 0.75) {
       console.log(`[Cache] "${nombre}" → "${mejorMatch.art.nombre}" (score:${mejorMatch.score.toFixed(2)})`);
       return mejorMatch.art;
+    }
+
+    if (mejorMatch) {
+      console.warn(`[Cache] "${nombre}" → mejor candidato "${mejorMatch.art.nombre}" (score:${mejorMatch.score.toFixed(2)}) — descartado por score bajo`);
     }
 
     return null;
