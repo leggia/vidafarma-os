@@ -432,11 +432,24 @@ class Inventarios365Service {
    */
   async buscarProveedor(nombre: string): Promise<ProveedorAPI | null> {
     try {
-      const data = await this.get<{ proveedores: ProveedorAPI[] }>(
-        `/proveedor/selectProveedor?filtro=${encodeURIComponent(nombre)}`
-      );
-      const proveedores: ProveedorAPI[] = data?.proveedores || [];
-      return proveedores.length > 0 ? proveedores[0] : null;
+      // Generar términos de búsqueda progresivamente más cortos
+      const terminos = this.extractSearchTerms(nombre);
+      const intentos = [nombre, ...terminos].slice(0, 5);
+
+      for (const termino of intentos) {
+        if (termino.length < 3) continue;
+        const data = await this.get<{ proveedores: ProveedorAPI[] }>(
+          `/proveedor/selectProveedor?filtro=${encodeURIComponent(termino)}`
+        );
+        const proveedores: ProveedorAPI[] = data?.proveedores || [];
+        if (proveedores.length > 0) {
+          console.log(`[Inventarios365] Proveedor "${nombre}" → término:"${termino}" | match:"${proveedores[0].nombre}" (ID:${proveedores[0].id})`);
+          return proveedores[0];
+        }
+      }
+
+      console.warn(`[Inventarios365] Proveedor "${nombre}" no encontrado, usando ID 0`);
+      return null;
     } catch (error) {
       console.error(`[Inventarios365] Error buscando proveedor "${nombre}":`, error);
       return null;
