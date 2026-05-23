@@ -69,6 +69,16 @@ export async function listBranches() {
   return db.select().from(branches).orderBy(desc(branches.isMain));
 }
 
+export async function upsertBranchByName(name: string, isMain = 0) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(branches).where(eq(branches.name, name)).limit(1);
+  if (existing.length === 0) {
+    await db.insert(branches).values({ name, isMain, isActive: 1 });
+    console.log(`[DB] Sucursal creada: ${name}`);
+  }
+}
+
 export async function getBranchById(id: number) {
   const db = await getDb();
   if (!db) return null;

@@ -35,9 +35,22 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // Servir archivos subidos localmente
-  app.use("/api/storage", (await import("express")).default.static(
+  app.use("/api/storage", express.static(
     (await import("path")).default.join(process.cwd(), "uploads")
   ));
+
+  // Sincronizar almacenes desde inventarios365 al arrancar
+  try {
+    const almacenes = await inventarios365.listarAlmacenes();
+    const { upsertBranchByName } = await import("../db");
+    for (let i = 0; i < almacenes.length; i++) {
+      const a = almacenes[i] as any;
+      await upsertBranchByName(a.nombre_almacen, i === 0 ? 1 : 0);
+    }
+    console.log(`[Sync] ${almacenes.length} almacenes sincronizados`);
+  } catch (e) {
+    console.warn("[Sync] No se pudieron sincronizar almacenes:", e);
+  }
 
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
