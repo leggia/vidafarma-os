@@ -335,6 +335,13 @@ class Inventarios365Service {
    */
   async buscarArticulo(nombre: string): Promise<ArticuloAPI | null> {
     try {
+      // 1. Buscar primero en cache local (instantáneo)
+      const { productosCache } = await import("./productos-cache");
+      const local = productosCache.buscarLocal(nombre);
+      if (local) return local;
+
+      // 2. Fallback: buscar en API si no está en cache
+      console.log(`[Inventarios365] "${nombre}" no en cache, buscando en API...`);
       const terms = [nombre, ...this.extractSearchTerms(nombre)];
       let bestOverall: { art: ArticuloAPI; score: number; term: string } | null = null;
 

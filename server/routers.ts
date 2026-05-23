@@ -513,6 +513,23 @@ const dashboardRouter = router({
   }),
 });
 
+// ─── Cache Router ─────────────────────────────────────────────────────────────
+const cacheRouter = router({
+  estadisticas: publicProcedure.query(async () => {
+    const { productosCache } = await import("./productos-cache");
+    return productosCache.estadisticas();
+  }),
+  actualizar: publicProcedure.mutation(async () => {
+    const { productosCache } = await import("./productos-cache");
+    await productosCache.actualizar(true);
+    return { success: true, message: "Cache actualizado exitosamente" };
+  }),
+  listar: publicProcedure.query(async () => {
+    const { productosCache } = await import("./productos-cache");
+    return productosCache.obtenerTodos();
+  }),
+});
+
 // ─── App Router ──────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
@@ -530,6 +547,7 @@ export const appRouter = router({
   transfers: transfersRouter,
   taskQueue: taskQueueRouter,
   operationHistory: operationHistoryRouter,
+  cache: cacheRouter,
 });
 
 export type AppRouter = typeof appRouter;
