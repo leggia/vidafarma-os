@@ -33,9 +33,9 @@ export interface DetalleCompra {
   idalmacen: number;
   codigo: string;
   articulo: string;
-  precio: number;
-  precio_paquete: number;
-  precio_venta: number;
+  precio: string;  // STRING para mantener precisión decimal
+  precio_paquete: string;  // STRING
+  precio_venta: string;  // STRING
   unidad_x_paquete: number;
   fecha_vencimiento: string | null;
   cantidad: number;
@@ -49,7 +49,7 @@ export interface RegistrarCompraPayload {
   num_comprobante: string;
   impuesto: number;
   total: number;
-  inventarios: DetalleCompra[];
+  inventarios: DetalleCompra[];  // Cambiar de data a inventarios
 }
 
 // Estructura de artículo devuelto por la API
@@ -272,6 +272,7 @@ class Inventarios365Service {
         Referer: `${BASE_URL}/main`,
       },
     });
+    console.log(`[Inventarios365] POST ${path} response:`, JSON.stringify(resp.data));
     return resp.data;
   }
 
@@ -487,7 +488,7 @@ class Inventarios365Service {
       }
 
       // 2. Buscar el proveedor
-      let idproveedor = 1;
+      let idproveedor = 0;  // Usar 0 como valor por defecto (como hace la interfaz web)
       const proveedor = await this.buscarProveedor(params.proveedor);
       if (proveedor) {
         idproveedor = proveedor.id;
@@ -496,7 +497,7 @@ class Inventarios365Service {
         );
       } else {
         console.warn(
-          `[Inventarios365] Proveedor "${params.proveedor}" no encontrado, usando ID 1`
+          `[Inventarios365] Proveedor "${params.proveedor}" no encontrado, usando ID 0`
         );
       }
 
@@ -508,15 +509,15 @@ class Inventarios365Service {
         const articulo = await this.buscarArticulo(item.nombre);
         if (articulo) {
           const precioCosto =
-            item.precio ?? parseFloat(String(articulo.precio_costo_unid)) ?? 0;
+            item.precio ?? parseFloat(String(articulo.precio_costo_unid)) ?? 0;  // Esto es un número
           arrayDetalle.push({
             idarticulo: articulo.id,
             idalmacen,
             codigo: articulo.codigo,
             articulo: articulo.nombre,
-            precio: precioCosto,
-            precio_paquete: parseFloat(String(articulo.precio_costo_paq)) ?? 0,
-            precio_venta: parseFloat(String(articulo.precio_uno)) ?? 0,
+            precio: String(precioCosto.toFixed(4)),  // Convertir a STRING con 4 decimales
+            precio_paquete: String((parseFloat(String(articulo.precio_costo_paq)) ?? 0).toFixed(4)),  // STRING
+            precio_venta: String((parseFloat(String(articulo.precio_uno)) ?? 0).toFixed(4)),  // STRING
             unidad_x_paquete: articulo.unidad_envase ?? 1,
             fecha_vencimiento: item.fechaVencimiento ?? null,
             cantidad: item.cantidad,
@@ -544,7 +545,7 @@ class Inventarios365Service {
         params.total > 0
           ? params.total
           : arrayDetalle.reduce(
-              (sum, d) => sum + d.precio * d.cantidad,
+              (sum, d) => sum + parseFloat(d.precio) * d.cantidad,
               0
             );
 
@@ -552,20 +553,20 @@ class Inventarios365Service {
       const payload: RegistrarCompraPayload = {
         idproveedor,
         idalmacen,
-        tipo_comprobante: params.tipoComprobante || "BOLETA",
+        tipo_comprobante: params.tipoComprobante,
         num_comprobante: params.numComprobante,
-        impuesto: 0,
+        impuesto: 0.18,  // Impuesto por defecto
         total: totalFinal,
-        inventarios: arrayDetalle,
+        inventarios: arrayDetalle,  // Cambiar de data a inventarios
       };
 
       console.log(
-        "[Inventarios365] POST /ingreso/registrar →",
+        "[Inventarios365] POST /inventarios/registrar →",
         JSON.stringify(payload, null, 2)
       );
 
       const respData = await this.post<{ id?: number; error?: string; message?: string }>(
-        "/ingreso/registrar",
+        "/inventarios/registrar",
         payload
       );
 

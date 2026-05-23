@@ -85,15 +85,17 @@
 - [x] Verificar que sincronización funciona correctamente (prueba end-to-end exitosa: Ingreso ID 27)
 - [x] Documentar el problema: la sincronización es asíncrona y tarda ~30 segundos
 
-## Correcciones Críticas - 17/05/2026
+## Correcciones Críticas - 22/05/2026 - ¡¡¡SINCRONIZACIÓN FUNCIONANDO!!!
 - [x] Agregar selector de tipo de comprobante (FACTURA/BOLETA) en formulario de compras
 - [x] Agregar selector de almacén/sucursal en formulario de compras
 - [x] Pasar receiptType y almacenNombre desde el frontend al backend
 - [x] Remover notificaciones por correo innecesarias
 - [x] Diagnosticar fallo de sincronización: faltaba header X-CSRF-TOKEN
-- [x] Cambiar payload de data a inventarios (estructura correcta de API)
-- [x] Manejar ambos tipos de respuesta del servidor (id y message)
-- [x] Verificar sincronización con tipo FACTURA (Ingreso ID 41 registrado exitosamente)
+- [x] Encontrar ruta correcta: /inventarios/registrar (no /ingreso/registrar ni /registrar)
+- [x] Usar payload con estructura inventarios[] (no data[])
+- [x] Convertir precios a strings en el payload
+- [x] Usar idproveedor: 0
+- [x] Verificación exitosa: TEST-MANUAL-FINAL-001 registrado en inventarios365.com
 
 ## Próximas Mejoras
 - [ ] Crear UI de mapeo manual de artículos cuando la búsqueda automática falla
