@@ -91,18 +91,51 @@ INSTRUCCIONES GENERALES:
           image_url: { url: imageUrl, detail: "high" },
         });
       } else if (isPdf) {
-        // Groq no soporta PDFs directamente — convertir a base64 y enviar como imagen
-        const pdfPath = (await import("path")).default.join(process.cwd(), "uploads", fileKey);
-        const pdfBuffer = (await import("fs")).default.readFileSync(pdfPath);
-        const base64Pdf = pdfBuffer.toString("base64");
-        // Enviar como imagen usando data URL — Groq leerá el contenido del PDF como texto
-        userContent.push({
-          type: "image_url",
-          image_url: {
-            url: `data:image/jpeg;base64,${base64Pdf}`,
-            detail: "high"
-          },
-        });
+        // Convertir PDF a imagen PNG usando pdf2pic
+        try {
+          const pathMod = (await import("path")).default;
+          const fsMod = (await import("fs")).default;
+          const { fromPath } = await import("pdf2pic");
+          
+          const pdfPath = pathMod.join(process.cwd(), "uploads", fileKey);
+          const outputDir = pathMod.join(process.cwd(), "uploads", "pdf-pages");
+          
+          if (!fsMod.existsSync(outputDir)) {
+            fsMod.mkdirSync(outputDir, { recursive: true });
+          }
+
+          const converter = fromPath(pdfPath, {
+            density: 150,
+            saveFilename: pathMod.basename(fileKey, ".pdf"),
+            savePath: outputDir,
+            format: "png",
+            width: 1200,
+            height: 1600,
+          });
+
+          // Convertir primera página
+          const result = await converter(1);
+          const imagePath = result.path;
+
+          if (imagePath && fsMod.existsSync(imagePath)) {
+            const imageBuffer = fsMod.readFileSync(imagePath);
+            const base64Image = imageBuffer.toString("base64");
+            userContent.push({
+              type: "image_url",
+              image_url: {
+                url: `data:image/png;base64,${base64Image}`,
+                detail: "high",
+              },
+            });
+            // Limpiar imagen temporal
+            try { fsMod.unlinkSync(imagePath); } catch {}
+          } else {
+            throw new Error("No se pudo convertir PDF a imagen");
+          }
+        } catch (pdfError) {
+          console.error("[PDF] Error convirtiendo PDF:", pdfError);
+          throw new Error("No se pudo procesar el PDF. Intenta con una imagen JPG o PNG.");
+        }
       }
 
       const llmResult = await invokeLLM({
