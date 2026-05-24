@@ -334,11 +334,16 @@ class Inventarios365Service {
    * El endpoint /articulo/buscarArticulo no devuelve resultados (bug del sistema).
    */
   async buscarArticulo(nombre: string, idProveedor?: number, proveedor?: string): Promise<ArticuloAPI | null> {
+    // Limpiar código numérico del inicio del nombre (ej: "400180 QUETOROL" → "QUETOROL")
+    const nombreLimpio = nombre.replace(/^\d+\s+/, "").trim();
+    const nombreBuscar = nombreLimpio || nombre;
+
     try {
       // 0. Buscar en confirmaciones aprendidas (máxima prioridad)
       if (proveedor) {
         const { confirmacionesService } = await import("./confirmaciones");
-        const confirmacion = confirmacionesService.buscar(proveedor, nombre);
+        const confirmacion = await confirmacionesService.buscar(proveedor, nombreBuscar);
+        if (!confirmacion) await confirmacionesService.buscar(proveedor, nombre); // fallback nombre original
         if (confirmacion) {
           return {
             id: confirmacion.id,
@@ -350,12 +355,12 @@ class Inventarios365Service {
 
       // 1. Buscar en cache local filtrando por proveedor (MySQL)
       const { productosCache } = await import("./productos-cache");
-      const local = await productosCache.buscarLocalAsync(nombre, idProveedor);
+      const local = await productosCache.buscarLocalAsync(nombreBuscar, idProveedor);
       if (local) return local;
 
       // 2. Fallback: buscar en API si no está en cache
-      console.log(`[Inventarios365] "${nombre}" no en cache, buscando en API...`);
-      const terms = [nombre, ...this.extractSearchTerms(nombre)];
+      console.log(`[Inventarios365] "${nombreBuscar}" no en cache, buscando en API...`);
+      const terms = [nombreBuscar, ...this.extractSearchTerms(nombreBuscar)];
       let bestOverall: { art: ArticuloAPI; score: number; term: string } | null = null;
       const proveedorParam = idProveedor ? String(idProveedor) : "";
 
