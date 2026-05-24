@@ -42,6 +42,22 @@ interface ProductoNoEncontrado {
   busqueda?: string;
 }
 
+// Convierte fecha MM/YYYY o DD/MM/YYYY a formato YYYY-MM-DD para input date
+function convertExpiryDate(date: string | null | undefined): string | null {
+  if (!date) return null;
+  // Formato MM/YYYY → último día del mes YYYY-MM-DD
+  const mmYYYY = date.match(/^(\d{2})\/(\d{4})$/);
+  if (mmYYYY) {
+    return `${mmYYYY[2]}-${mmYYYY[1]}-01`;
+  }
+  // Formato DD/MM/YYYY → YYYY-MM-DD
+  const ddMMYYYY = date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (ddMMYYYY) {
+    return `${ddMMYYYY[3]}-${ddMMYYYY[2]}-${ddMMYYYY[1]}`;
+  }
+  return date;
+}
+
 export default function NuevaCompra() {
   const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,7 +113,12 @@ export default function NuevaCompra() {
             mimeType: file.type,
           });
           if (result.items && result.items.length > 0) {
-            setItems(result.items.map((i: any) => ({ ...i, expiryDate: i.expiryDate || null })));
+            const mappedItems = result.items.map((i: any) => ({ ...i, expiryDate: convertExpiryDate(i.expiryDate) || null }));
+        setItems(mappedItems);
+        // Auto-mostrar columna de vencimiento si hay fechas extraídas
+        if (mappedItems.some((i: any) => i.expiryDate)) {
+          setShowExpiry(true);
+        }
             if (result.supplier) setSupplier(result.supplier);
             if (result.receiptNumber) setReceiptNumber(result.receiptNumber);
             setExtracted(true);
