@@ -348,9 +348,9 @@ class Inventarios365Service {
         }
       }
 
-      // 1. Buscar en cache local filtrando por proveedor
+      // 1. Buscar en cache local filtrando por proveedor (MySQL)
       const { productosCache } = await import("./productos-cache");
-      const local = productosCache.buscarLocal(nombre, idProveedor);
+      const local = await productosCache.buscarLocalAsync(nombre, idProveedor);
       if (local) return local;
 
       // 2. Fallback: buscar en API si no está en cache

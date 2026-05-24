@@ -1,62 +1,14 @@
 /**
- * Sistema de Confirmaciones Aprendidas
- *
- * Guarda emparejamientos confirmados por el usuario:
- * Proveedor + Nombre en factura → ID del producto en el sistema
- *
- * Con el tiempo el sistema aprende y no necesita matching fuzzy.
+ * Sistema de Confirmaciones Aprendidas — usando MySQL
+ * Persiste aunque el Codespace se reinicie
  */
 
-import fs from "fs";
-import path from "path";
-import { inventarios365, ArticuloAPI } from "./inventarios365";
-
-const CONFIRMACIONES_FILE = path.join(process.cwd(), "confirmaciones.json");
-
-interface Confirmacion {
-  id: number;
-  nombreSistema: string;
-  codigo: string;
-  confirmadoEn: string;
-  valido: boolean;
-}
-
-interface ConfirmacionesData {
-  [proveedor: string]: {
-    [nombreFactura: string]: Confirmacion;
-  };
-}
+import { getDb } from "./db";
+import { confirmaciones as confirmacionesTable } from "../drizzle/schema";
+import { eq, and } from "drizzle-orm";
+import { ArticuloAPI } from "./inventarios365";
 
 class ConfirmacionesService {
-  private data: ConfirmacionesData = {};
-
-  constructor() {
-    this.cargar();
-  }
-
-  private cargar(): void {
-    try {
-      if (fs.existsSync(CONFIRMACIONES_FILE)) {
-        const raw = fs.readFileSync(CONFIRMACIONES_FILE, "utf-8");
-        this.data = JSON.parse(raw);
-        const total = Object.values(this.data).reduce(
-          (acc, proveedor) => acc + Object.keys(proveedor).length, 0
-        );
-        console.log(`[Confirmaciones] Cargadas: ${total} confirmaciones de ${Object.keys(this.data).length} proveedores`);
-      }
-    } catch {
-      console.warn("[Confirmaciones] No se pudo cargar, iniciando vacío");
-      this.data = {};
-    }
-  }
-
-  private guardar(): void {
-    try {
-      fs.writeFileSync(CONFIRMACIONES_FILE, JSON.stringify(this.data, null, 2), "utf-8");
-    } catch (error) {
-      console.error("[Confirmaciones] Error guardando:", error);
-    }
-  }
 
   private normalizar(s: string): string {
     return s.toUpperCase().trim()
@@ -64,129 +16,158 @@ class ConfirmacionesService {
       .replace(/\s+/g, " ");
   }
 
-  /**
-   * Buscar confirmación existente para un producto de un proveedor
-   */
-  buscar(proveedor: string, nombreFactura: string): Confirmacion | null {
-    const provNorm = this.normalizar(proveedor);
-    const nombreNorm = this.normalizar(nombreFactura);
+  async buscar(proveedor: string, nombreFactura: string): Promise<{ id: number; nombreSistema: string; codigo: string } | null> {
+    try {
+      const db = await getDb();
+      if (!db) return null;
 
-    // Buscar por proveedor normalizado
-    for (const [prov, productos] of Object.entries(this.data)) {
-      if (this.normalizar(prov) !== provNorm) continue;
-      for (const [nombre, conf] of Object.entries(productos)) {
-        if (this.normalizar(nombre) === nombreNorm && conf.valido) {
-          console.log(`[Confirmaciones] ✅ "${nombreFactura}" (${proveedor}) → "${conf.nombreSistema}" (ID:${conf.id})`);
-          return conf;
+      const provNorm = this.normalizar(proveedor);
+      const nombreNorm = this.normalizar(nombreFactura);
+
+      // Buscar por proveedor y nombre normalizados
+      const rows = await db.select().from(confirmacionesTable)
+        .where(and(
+          eq(confirmacionesTable.valido, 1)
+        ));
+
+      for (const row of rows) {
+        if (
+          this.normalizar(row.proveedor) === provNorm &&
+          this.normalizar(row.nombreFactura) === nombreNorm
+        ) {
+          console.log(`[Confirmaciones] ✅ "${nombreFactura}" (${proveedor}) → "${row.articuloNombre}" (ID:${row.articuloId})`);
+          return {
+            id: row.articuloId,
+            nombreSistema: row.articuloNombre,
+            codigo: row.articuloCodigo || "",
+          };
         }
       }
+      return null;
+    } catch (error) {
+      console.error("[Confirmaciones] Error buscando:", error);
+      return null;
     }
-    return null;
   }
 
-  /**
-   * Guardar una nueva confirmación
-   */
-  confirmar(
-    proveedor: string,
-    nombreFactura: string,
-    articulo: ArticuloAPI
-  ): void {
-    if (!this.data[proveedor]) {
-      this.data[proveedor] = {};
+  async confirmar(proveedor: string, nombreFactura: string, articulo: ArticuloAPI): Promise<void> {
+    try {
+      const db = await getDb();
+      if (!db) return;
+
+      // Verificar si ya existe
+      const rows = await db.select().from(confirmacionesTable)
+        .where(and(
+          eq(confirmacionesTable.proveedor, proveedor),
+          eq(confirmacionesTable.nombreFactura, nombreFactura)
+        ));
+
+      if (rows.length > 0) {
+        // Actualizar existente
+        await db.update(confirmacionesTable)
+          .set({
+            articuloId: articulo.id,
+            articuloNombre: articulo.nombre,
+            articuloCodigo: articulo.codigo,
+            valido: 1,
+          })
+          .where(eq(confirmacionesTable.id, rows[0].id));
+      } else {
+        // Insertar nuevo
+        await db.insert(confirmacionesTable).values({
+          proveedor,
+          nombreFactura,
+          articuloId: articulo.id,
+          articuloNombre: articulo.nombre,
+          articuloCodigo: articulo.codigo,
+          valido: 1,
+        });
+      }
+
+      console.log(`[Confirmaciones] 💾 Guardado: "${nombreFactura}" (${proveedor}) → "${articulo.nombre}" (ID:${articulo.id})`);
+    } catch (error) {
+      console.error("[Confirmaciones] Error guardando:", error);
     }
-    this.data[proveedor][nombreFactura] = {
-      id: articulo.id,
-      nombreSistema: articulo.nombre,
-      codigo: articulo.codigo,
-      confirmadoEn: new Date().toISOString().split("T")[0],
-      valido: true,
-    };
-    this.guardar();
-    console.log(`[Confirmaciones] 💾 Guardado: "${nombreFactura}" (${proveedor}) → "${articulo.nombre}" (ID:${articulo.id})`);
   }
 
-  /**
-   * Invalidar una confirmación (si el producto cambia)
-   */
-  invalidar(proveedor: string, nombreFactura: string): void {
-    if (this.data[proveedor]?.[nombreFactura]) {
-      this.data[proveedor][nombreFactura].valido = false;
-      this.guardar();
+  async invalidar(proveedor: string, nombreFactura: string): Promise<void> {
+    try {
+      const db = await getDb();
+      if (!db) return;
+      await db.update(confirmacionesTable)
+        .set({ valido: 0 })
+        .where(and(
+          eq(confirmacionesTable.proveedor, proveedor),
+          eq(confirmacionesTable.nombreFactura, nombreFactura)
+        ));
       console.log(`[Confirmaciones] ❌ Invalidado: "${nombreFactura}" (${proveedor})`);
+    } catch (error) {
+      console.error("[Confirmaciones] Error invalidando:", error);
     }
   }
 
-  /**
-   * Verificar que todos los IDs guardados siguen siendo válidos
-   * Se ejecuta periódicamente
-   */
   async verificar(): Promise<{ verificados: number; invalidos: number }> {
-    console.log("[Confirmaciones] Iniciando verificación periódica...");
+    const { inventarios365 } = await import("./inventarios365");
+    const db = await getDb();
+    if (!db) return { verificados: 0, invalidos: 0 };
+
+    const rows = await db.select().from(confirmacionesTable)
+      .where(eq(confirmacionesTable.valido, 1));
+
     let verificados = 0;
     let invalidos = 0;
 
-    for (const [proveedor, productos] of Object.entries(this.data)) {
-      for (const [nombreFactura, conf] of Object.entries(productos)) {
-        if (!conf.valido) continue;
-        try {
-          // Verificar que el artículo sigue existiendo
-          const articulos = await inventarios365.listarArticulos(conf.nombreSistema.split(" ")[0]);
-          const existe = articulos.some(a => a.id === conf.id);
-          if (!existe) {
-            console.warn(`[Confirmaciones] ID ${conf.id} (${conf.nombreSistema}) ya no existe — invalidando`);
-            this.data[proveedor][nombreFactura].valido = false;
-            invalidos++;
-          } else {
-            verificados++;
-          }
-        } catch {
-          // Error de red — no invalidar
+    for (const row of rows) {
+      try {
+        const articulos = await inventarios365.listarArticulos(row.articuloNombre.split(" ")[0]);
+        const existe = articulos.some(a => a.id === row.articuloId);
+        if (!existe) {
+          await db.update(confirmacionesTable)
+            .set({ valido: 0 })
+            .where(eq(confirmacionesTable.id, row.id));
+          invalidos++;
+          console.warn(`[Confirmaciones] ID ${row.articuloId} ya no existe — invalidado`);
+        } else {
+          verificados++;
         }
-        await new Promise(r => setTimeout(r, 100));
-      }
+      } catch {}
+      await new Promise(r => setTimeout(r, 100));
     }
 
-    this.guardar();
-    console.log(`[Confirmaciones] Verificación completa: ${verificados} válidos, ${invalidos} invalidados`);
+    console.log(`[Confirmaciones] Verificación: ${verificados} válidos, ${invalidos} invalidados`);
     return { verificados, invalidos };
   }
 
-  /**
-   * Estadísticas del sistema de confirmaciones
-   */
-  estadisticas(): object {
-    const porProveedor: Record<string, number> = {};
-    let totalValidas = 0;
-    let totalInvalidas = 0;
-
-    for (const [proveedor, productos] of Object.entries(this.data)) {
-      const validas = Object.values(productos).filter(c => c.valido).length;
-      porProveedor[proveedor] = validas;
-      totalValidas += validas;
-      totalInvalidas += Object.values(productos).filter(c => !c.valido).length;
+  async estadisticas(): Promise<object> {
+    try {
+      const db = await getDb();
+      if (!db) return {};
+      const rows = await db.select().from(confirmacionesTable);
+      const porProveedor: Record<string, number> = {};
+      let totalValidas = 0;
+      let totalInvalidas = 0;
+      for (const row of rows) {
+        if (row.valido) {
+          porProveedor[row.proveedor] = (porProveedor[row.proveedor] || 0) + 1;
+          totalValidas++;
+        } else {
+          totalInvalidas++;
+        }
+      }
+      return { totalValidas, totalInvalidas, proveedores: Object.keys(porProveedor).length, porProveedor };
+    } catch {
+      return {};
     }
-
-    return {
-      totalValidas,
-      totalInvalidas,
-      proveedores: Object.keys(this.data).length,
-      porProveedor,
-    };
   }
 
-  /**
-   * Listar todas las confirmaciones de un proveedor
-   */
-  listarPorProveedor(proveedor: string): Record<string, Confirmacion> {
-    return this.data[proveedor] || {};
-  }
-
-  /**
-   * Obtener todos los datos
-   */
-  todos(): ConfirmacionesData {
-    return this.data;
+  async todos(): Promise<any[]> {
+    try {
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(confirmacionesTable).where(eq(confirmacionesTable.valido, 1));
+    } catch {
+      return [];
+    }
   }
 }
 

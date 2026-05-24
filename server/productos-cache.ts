@@ -1,174 +1,184 @@
 /**
- * Cache local de productos de inventarios365.com
- *
- * - Se actualiza automáticamente cada 24 horas
- * - Se actualiza manualmente cuando se crea/edita un producto
- * - Permite matching fuzzy local sin llamadas a la API por cada búsqueda
+ * Cache local de productos — usando MySQL
+ * Persiste aunque el Codespace se reinicie
  */
 
-import fs from "fs";
-import path from "path";
+import { getDb } from "./db";
+import { productosCache as productosCacheTable } from "../drizzle/schema";
+import { eq, like, sql } from "drizzle-orm";
 import { inventarios365, ArticuloAPI } from "./inventarios365";
 
-const CACHE_FILE = path.join(process.cwd(), "productos-cache.json");
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
-
-interface CacheData {
-  productos: ArticuloAPI[];
-  ultimaActualizacion: number;
-  total: number;
-}
+let ultimaActualizacion: number = 0;
+let actualizando = false;
 
 class ProductosCacheService {
-  private cache: CacheData | null = null;
-  private actualizando = false;
 
-  private cargarDesdeDisco(): void {
-    try {
-      if (fs.existsSync(CACHE_FILE)) {
-        const raw = fs.readFileSync(CACHE_FILE, "utf-8");
-        this.cache = JSON.parse(raw);
-        console.log(
-          `[Cache] Cargado desde disco: ${this.cache?.total} productos (${new Date(this.cache?.ultimaActualizacion || 0).toLocaleString()})`
-        );
+  async estaDesactualizado(): Promise<boolean> {
+    if (ultimaActualizacion === 0) {
+      // Verificar si hay datos en la base de datos
+      try {
+        const db = await getDb();
+        if (!db) return true;
+        const count = await db.select({ count: sql<number>`count(*)` }).from(productosCacheTable);
+        if (count[0]?.count === 0) return true;
+        ultimaActualizacion = Date.now() - (CACHE_TTL_MS / 2); // Asume que fue hace 12h
+      } catch {
+        return true;
       }
-    } catch {
-      console.warn("[Cache] No se pudo cargar desde disco");
     }
-  }
-
-  private guardarEnDisco(): void {
-    try {
-      fs.writeFileSync(CACHE_FILE, JSON.stringify(this.cache, null, 2), "utf-8");
-      console.log(`[Cache] Guardado en disco: ${this.cache?.total} productos`);
-    } catch (error) {
-      console.error("[Cache] Error guardando en disco:", error);
-    }
-  }
-
-  private estaDesactualizado(): boolean {
-    if (!this.cache) return true;
-    return Date.now() - this.cache.ultimaActualizacion > CACHE_TTL_MS;
+    return Date.now() - ultimaActualizacion > CACHE_TTL_MS;
   }
 
   async actualizar(forzar = false): Promise<void> {
-    if (this.actualizando) {
-      while (this.actualizando) await new Promise((r) => setTimeout(r, 500));
+    if (actualizando) {
+      while (actualizando) await new Promise(r => setTimeout(r, 500));
       return;
     }
-    if (!forzar && !this.estaDesactualizado()) {
+    if (!forzar && !(await this.estaDesactualizado())) {
       console.log("[Cache] Cache vigente");
       return;
     }
 
-    this.actualizando = true;
+    actualizando = true;
     console.log("[Cache] Descargando todos los productos...");
 
     try {
-      const todos: ArticuloAPI[] = [];
+      const db = await getDb();
+      if (!db) return;
 
-      // Descargar con búsqueda vacía primero
+      const todos: ArticuloAPI[] = [];
       const base = await inventarios365.listarArticulos("");
       todos.push(...base);
 
-      // Si parece paginado, buscar por letra
       if (base.length < 200) {
         const letras = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split("");
         for (const letra of letras) {
           const pagina = await inventarios365.listarArticulos(letra);
           for (const art of pagina) {
-            if (!todos.find((a) => a.id === art.id)) todos.push(art);
+            if (!todos.find(a => a.id === art.id)) todos.push(art);
           }
-          await new Promise((r) => setTimeout(r, 150));
+          await new Promise(r => setTimeout(r, 150));
         }
       }
 
-      this.cache = {
-        productos: todos,
-        ultimaActualizacion: Date.now(),
-        total: todos.length,
-      };
+      // Guardar en MySQL en lotes de 100
+      for (let i = 0; i < todos.length; i += 100) {
+        const lote = todos.slice(i, i + 100);
+        for (const art of lote) {
+          await db.insert(productosCacheTable).values({
+            articuloId: art.id,
+            nombre: art.nombre,
+            codigo: art.codigo || "",
+            idProveedor: (art as any).idproveedor || null,
+            nombreProveedor: (art as any).proveedor || null,
+            precioCostoUnid: String(art.precio_costo_unid || 0),
+            precioCostoPaq: String(art.precio_costo_paq || 0),
+            precioUno: String(art.precio_uno || 0),
+            unidadEnvase: art.unidad_envase || 1,
+          }).onDuplicateKeyUpdate({
+            set: {
+              nombre: art.nombre,
+              codigo: art.codigo || "",
+              idProveedor: (art as any).idproveedor || null,
+              precioCostoUnid: String(art.precio_costo_unid || 0),
+            }
+          });
+        }
+      }
 
-      this.guardarEnDisco();
-      console.log(`[Cache] ✅ ${todos.length} productos descargados`);
+      ultimaActualizacion = Date.now();
+      console.log(`[Cache] ✅ ${todos.length} productos guardados en MySQL`);
     } catch (error) {
       console.error("[Cache] Error actualizando:", error);
     } finally {
-      this.actualizando = false;
+      actualizando = false;
     }
   }
 
   buscarLocal(nombre: string, idProveedor?: number): ArticuloAPI | null {
-    // Filtrar por proveedor si está disponible para mayor precisión
-    const pool = idProveedor && this.cache
-      ? this.cache.productos.filter(p => (p as any).idproveedor === idProveedor)
-      : this.cache?.productos || [];
-    const useFiltered = pool.length > 0;
-    if (!this.cache || this.cache.productos.length === 0) return null;
-    if (!this.cache || this.cache.productos.length === 0) return null;
-
-    const tokenize = (s: string) =>
-      s.toUpperCase()
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar tildes
-        .replace(/[^A-Z0-9\s]/g, " ")
-        .split(/\s+/)
-        .filter((t) => t.length > 1);
-
-    const tokensNombre = tokenize(nombre);
-    if (tokensNombre.length === 0) return null;
-
-    // El primer token es el nombre principal del medicamento — debe coincidir obligatoriamente
-    const tokenPrincipal = tokensNombre[0];
-
-    let mejorMatch: { art: ArticuloAPI; score: number } | null = null;
-
-    const searchPool = useFiltered ? pool : this.cache.productos;
-    for (const art of searchPool) {
-      const tokensCandidato = tokenize(art.nombre);
-
-      // REGLA 1: El token principal DEBE estar presente en el candidato
-      const tokenPrincipalPresente = tokensCandidato.some(
-        (c) => c.startsWith(tokenPrincipal) || tokenPrincipal.startsWith(c)
-      );
-      if (!tokenPrincipalPresente) continue;
-
-      // REGLA 2: Calcular score basado en tokens coincidentes
-      let matches = 0;
-      for (const t of tokensNombre) {
-        if (tokensCandidato.some((c) => c.startsWith(t) || t.startsWith(c))) matches++;
-      }
-
-      // REGLA 3: Score bidireccional — penalizar si el candidato tiene muchos tokens extra
-      const scoreAdelante = matches / tokensNombre.length;
-      const scoreAtras = matches / tokensCandidato.length;
-      const score = (scoreAdelante + scoreAtras) / 2;
-
-      if (score > 0 && (!mejorMatch || score > mejorMatch.score)) {
-        mejorMatch = { art, score };
-      }
-    }
-
-    // REGLA 4: Umbral mínimo alto — 0.75 para evitar falsos positivos
-    if (mejorMatch && mejorMatch.score >= 0.65) {
-      console.log(`[Cache] "${nombre}" → "${mejorMatch.art.nombre}" (score:${mejorMatch.score.toFixed(2)})`);
-      return mejorMatch.art;
-    }
-
-    if (mejorMatch) {
-      console.warn(`[Cache] "${nombre}" → mejor candidato "${mejorMatch.art.nombre}" (score:${mejorMatch.score.toFixed(2)}) — descartado por score bajo`);
-    }
-
+    // Este método ahora es async pero lo mantenemos sync para compatibilidad
+    // La búsqueda real se hace en buscarLocalAsync
     return null;
   }
 
-  async obtenerTodos(): Promise<ArticuloAPI[]> {
-    await this.inicializar();
-    return this.cache?.productos || [];
+  async buscarLocalAsync(nombre: string, idProveedor?: number): Promise<ArticuloAPI | null> {
+    try {
+      const db = await getDb();
+      if (!db) return null;
+
+      const tokenize = (s: string) =>
+        s.toUpperCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^A-Z0-9\s]/g, " ")
+          .split(/\s+/)
+          .filter(t => t.length > 1);
+
+      const tokensNombre = tokenize(nombre);
+      if (tokensNombre.length === 0) return null;
+
+      const tokenPrincipal = tokensNombre[0];
+
+      // Buscar en MySQL con el token principal
+      let query = db.select().from(productosCacheTable)
+        .where(like(productosCacheTable.nombre, `%${tokenPrincipal}%`));
+
+      const candidatos = await query.limit(100);
+
+      let mejorMatch: { art: any; score: number } | null = null;
+
+      for (const art of candidatos) {
+        // Filtrar por proveedor si está disponible
+        if (idProveedor && art.idProveedor && art.idProveedor !== idProveedor) continue;
+
+        const tokensCandidato = tokenize(art.nombre);
+        const tokenPrincipalPresente = tokensCandidato.some(
+          c => c.startsWith(tokenPrincipal) || tokenPrincipal.startsWith(c)
+        );
+        if (!tokenPrincipalPresente) continue;
+
+        let matches = 0;
+        for (const t of tokensNombre) {
+          if (tokensCandidato.some(c => c.startsWith(t) || t.startsWith(c))) matches++;
+        }
+
+        const scoreAdelante = matches / tokensNombre.length;
+        const scoreAtras = matches / tokensCandidato.length;
+        const score = (scoreAdelante + scoreAtras) / 2;
+
+        if (score > 0 && (!mejorMatch || score > mejorMatch.score)) {
+          mejorMatch = { art, score };
+        }
+      }
+
+      if (mejorMatch && mejorMatch.score >= 0.65) {
+        console.log(`[Cache] "${nombre}" → "${mejorMatch.art.nombre}" (score:${mejorMatch.score.toFixed(2)})`);
+        return {
+          id: mejorMatch.art.articuloId,
+          nombre: mejorMatch.art.nombre,
+          codigo: mejorMatch.art.codigo,
+          precio_costo_unid: parseFloat(mejorMatch.art.precioCostoUnid || "0"),
+          precio_costo_paq: parseFloat(mejorMatch.art.precioCostoPaq || "0"),
+          precio_uno: parseFloat(mejorMatch.art.precioUno || "0"),
+          unidad_envase: mejorMatch.art.unidadEnvase,
+        } as any;
+      }
+
+      return null;
+    } catch (error) {
+      console.error("[Cache] Error buscando:", error);
+      return null;
+    }
+  }
+
+  async obtenerTodos(): Promise<any[]> {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(productosCacheTable);
   }
 
   async inicializar(): Promise<void> {
-    if (!this.cache) this.cargarDesdeDisco();
-    if (this.estaDesactualizado()) {
+    if (await this.estaDesactualizado()) {
       this.actualizar().catch(console.error);
     }
   }
@@ -180,17 +190,21 @@ class ProductosCacheService {
     }, CACHE_TTL_MS);
   }
 
-  estadisticas(): object {
-    return {
-      total: this.cache?.total || 0,
-      ultimaActualizacion: this.cache?.ultimaActualizacion
-        ? new Date(this.cache.ultimaActualizacion).toLocaleString()
-        : "Nunca",
-      proximaActualizacion: this.cache?.ultimaActualizacion
-        ? new Date(this.cache.ultimaActualizacion + CACHE_TTL_MS).toLocaleString()
-        : "Pendiente",
-      vigente: !this.estaDesactualizado(),
-    };
+  async estadisticas(): Promise<object> {
+    try {
+      const db = await getDb();
+      if (!db) return {};
+      const count = await db.select({ count: sql<number>`count(*)` }).from(productosCacheTable);
+      return {
+        total: count[0]?.count || 0,
+        ultimaActualizacion: ultimaActualizacion
+          ? new Date(ultimaActualizacion).toLocaleString()
+          : "Pendiente",
+        vigente: !(await this.estaDesactualizado()),
+      };
+    } catch {
+      return {};
+    }
   }
 }
 

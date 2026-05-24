@@ -155,3 +155,37 @@ export const operationHistory = mysqlTable("operation_history", {
 
 export type OperationHistoryItem = typeof operationHistory.$inferSelect;
 export type InsertOperationHistoryItem = typeof operationHistory.$inferInsert;
+
+// ─── Confirmaciones (Emparejamientos aprendidos) ─────────────────────────────
+export const confirmaciones = mysqlTable("confirmaciones", {
+  id: int("id").autoincrement().primaryKey(),
+  proveedor: varchar("proveedor", { length: 255 }).notNull(),
+  nombreFactura: varchar("nombreFactura", { length: 500 }).notNull(),
+  articuloId: int("articuloId").notNull(),
+  articuloNombre: varchar("articuloNombre", { length: 500 }).notNull(),
+  articuloCodigo: varchar("articuloCodigo", { length: 100 }),
+  valido: int("valido").default(1).notNull(),
+  confirmadoEn: timestamp("confirmadoEn").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Confirmacion = typeof confirmaciones.$inferSelect;
+export type InsertConfirmacion = typeof confirmaciones.$inferInsert;
+
+// ─── Productos Cache (Cache de artículos de inventarios365) ──────────────────
+export const productosCache = mysqlTable("productos_cache", {
+  id: int("id").autoincrement().primaryKey(),
+  articuloId: int("articuloId").notNull().unique(),
+  nombre: varchar("nombre", { length: 500 }).notNull(),
+  codigo: varchar("codigo", { length: 100 }),
+  idProveedor: int("idProveedor"),
+  nombreProveedor: varchar("nombreProveedor", { length: 255 }),
+  precioCostoUnid: decimal("precioCostoUnid", { precision: 12, scale: 4 }).default("0"),
+  precioCostoPaq: decimal("precioCostoPaq", { precision: 12, scale: 4 }).default("0"),
+  precioUno: decimal("precioUno", { precision: 12, scale: 4 }).default("0"),
+  unidadEnvase: int("unidadEnvase").default(1),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProductoCache = typeof productosCache.$inferSelect;
+export type InsertProductoCache = typeof productosCache.$inferInsert;
