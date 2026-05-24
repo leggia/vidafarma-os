@@ -173,6 +173,8 @@ INSTRUCCIONES GENERALES:
         console.error("[LLM] Failed to parse extraction result:", e);
       }
 
+      console.log("[LLM] Extracción completada:", JSON.stringify(extracted, null, 2).substring(0, 500));
+
       return {
         imageUrl,
         imageKey,
@@ -186,6 +188,7 @@ INSTRUCCIONES GENERALES:
             0,
             item.subtotal || (item.quantity || 1) * (item.unitCost || 0)
           ),
+          expiryDate: item.expiryDate || null,
         })),
       };
     }),
