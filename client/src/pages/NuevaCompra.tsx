@@ -36,6 +36,7 @@ interface ExtractedItem {
 
 interface ProductoNoEncontrado {
   nombre: string;
+  nombreLimpio?: string;
   cantidad: number;
   precio?: number;
   busqueda?: string;
@@ -551,8 +552,11 @@ export default function NuevaCompra() {
                 {/* Datos del producto en la factura */}
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-sm">📄 En factura: {p.nombre}</p>
-                    <p className="text-xs text-muted-foreground">Cant: {p.cantidad}{p.precio ? ` | Precio: ${p.precio}` : ""}</p>
+                    <p className="font-semibold text-sm">📄 {p.nombreLimpio || p.nombre.replace(/^\d+\s+/, "")}</p>
+                    {p.nombreLimpio && p.nombreLimpio !== p.nombre && (
+                      <p className="text-xs text-muted-foreground">Código factura: {p.nombre.match(/^\d+/)?.[0]}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Cant: {p.cantidad}{p.precio ? ` | Precio unit: Bs. ${p.precio}` : ""}</p>
                   </div>
                   <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">No encontrado</span>
                 </div>
@@ -562,7 +566,7 @@ export default function NuevaCompra() {
                   <Input
                     placeholder="Buscar término alternativo..."
                     className="h-8 text-xs"
-                    value={busquedaProducto[idx] || ""}
+                    value={busquedaProducto[idx] ?? (p.nombreLimpio || p.nombre.replace(/^\d+\s+/, ""))}
                     onChange={(e) => setBusquedaProducto(prev => ({ ...prev, [idx]: e.target.value }))}
                     onKeyDown={async (e) => {
                       if (e.key === "Enter") {

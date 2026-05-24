@@ -568,8 +568,10 @@ class Inventarios365Service {
           );
         } else {
           erroresArticulos.push(item.nombre);
+          const nombreLimpio = item.nombre.replace(/^\d+\s+/, "").trim();
           productosNoEncontrados.push({
             nombre: item.nombre,
+            nombreLimpio: nombreLimpio !== item.nombre ? nombreLimpio : undefined,
             cantidad: item.cantidad,
             precio: item.precio,
           });
