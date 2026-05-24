@@ -226,6 +226,7 @@ INSTRUCCIONES GENERALES:
       let syncSuccess = false;
       let syncMessage = "";
       let syncIngresoId: number | undefined;
+      let syncResultData: any = null;
       if (input.confirmDirectly) {
         const purchaseId = result.id;
         try {
@@ -244,6 +245,7 @@ INSTRUCCIONES GENERALES:
             total: input.totalAmount || 0,
           });
           console.log(`[Sync] Resultado compra #${purchaseId}:`, syncResult);
+          syncResultData = syncResult;
           if (syncResult.success) {
             syncSuccess = true;
             syncMessage = `Compra registrada en inventarios365.com (Ingreso ID: ${syncResult.ingresoId})`;
@@ -272,7 +274,7 @@ INSTRUCCIONES GENERALES:
         syncSuccess,
         syncMessage,
         syncIngresoId,
-        productosNoEncontrados: (syncResult as any)?.productosNoEncontrados || [],
+        productosNoEncontrados: syncResultData?.productosNoEncontrados || [],
       };
     }),
 
