@@ -89,7 +89,7 @@ Extrae la siguiente información en formato JSON:
   "receiptNumber": "número de comprobante/factura si es visible",
   "items": [
     {
-      "productName": "nombre exacto del producto/medicamento",
+      "productName": "nombre comercial del medicamento SIN códigos numéricos del proveedor",
       "quantity": número_entero_de_unidades_TOTALES,
       "unitCost": costo_unitario_decimal_por_unidad,
       "subtotal": subtotal_decimal,
@@ -97,6 +97,10 @@ Extrae la siguiente información en formato JSON:
     }
   ]
 }
+
+INSTRUCCIONES PARA NOMBRE DEL PRODUCTO:
+- Extrae SOLO el nombre comercial. Si la fila tiene un código numérico al inicio (ej: "400180 QUETOROL 20 TAB"), extrae SOLO "QUETOROL 20 TAB" sin el código.
+- Ignora códigos internos del proveedor, códigos de barras o referencias numéricas al inicio del nombre.
 
 INSTRUCCIONES PARA FECHA DE VENCIMIENTO:
 - Busca columnas como "Venc.", "Vencimiento", "Fecha Venc.", "Exp.", "Expiry"
