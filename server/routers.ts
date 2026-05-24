@@ -92,10 +92,18 @@ Extrae la siguiente información en formato JSON:
       "productName": "nombre exacto del producto/medicamento",
       "quantity": número_entero_de_unidades_TOTALES,
       "unitCost": costo_unitario_decimal_por_unidad,
-      "subtotal": subtotal_decimal
+      "subtotal": subtotal_decimal,
+      "expiryDate": "fecha de vencimiento en formato MM/YYYY o DD/MM/YYYY si aparece, sino null"
     }
   ]
 }
+
+INSTRUCCIONES PARA FECHA DE VENCIMIENTO:
+- Busca columnas como "Venc.", "Vencimiento", "Fecha Venc.", "Exp.", "Expiry"
+- Si la factura tiene una columna de vencimiento, extrae la fecha para cada producto
+- Formato preferido: MM/YYYY (ej: 12/2026) o DD/MM/YYYY (ej: 31/12/2026)
+- Si un producto no tiene fecha de vencimiento visible, usa null
+- NO inventes fechas — si no está visible, usa null
 
 INSTRUCCIONES CRÍTICAS PARA CANTIDADES FARMACÉUTICAS:
 - La "quantity" debe ser el NÚMERO TOTAL DE UNIDADES INDIVIDUALES (comprimidos, cápsulas, ampollas, frascos, etc.)
