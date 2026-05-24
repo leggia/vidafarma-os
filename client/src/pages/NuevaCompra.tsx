@@ -60,10 +60,14 @@ export default function NuevaCompra() {
   const [almacenNombre, setAlmacenNombre] = useState("ALMACEN PRINCIPAL");
   const [productosNoEncontrados, setProductosNoEncontrados] = useState<ProductoNoEncontrado[]>([]);
   const [busquedaProducto, setBusquedaProducto] = useState<Record<number, string>>({});
+  const [resultadosBusqueda, setResultadosBusqueda] = useState<Record<number, any[]>>({});
+  const [buscando, setBuscando] = useState<Record<number, boolean>>({});
 
   const utils = trpc.useUtils();
   const uploadAndExtract = trpc.purchases.uploadAndExtract.useMutation();
   const createPurchase = trpc.purchases.create.useMutation();
+  const confirmarEmparejamiento = trpc.confirmaciones.confirmar.useMutation();
+  const buscarArticuloQuery = trpc.confirmaciones.buscarArticulo.useQuery;
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -534,64 +538,109 @@ export default function NuevaCompra() {
             <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 text-sm uppercase tracking-wider">
               ⚠️ {productosNoEncontrados.length} Producto(s) No Encontrados en el Sistema
             </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setProductosNoEncontrados([])}
-              className="text-yellow-700 hover:text-yellow-900 text-xs"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setProductosNoEncontrados([])} className="text-yellow-700 hover:text-yellow-900 text-xs">
               Cerrar
             </Button>
           </div>
           <p className="text-xs text-yellow-700 dark:text-yellow-300">
-            Estos productos no pudieron emparejarse con tu inventario. Búscalos manualmente o créalos como nuevos.
+            Búscalos para emparejar con el sistema (se recordará para siempre) o créalos como nuevos productos.
           </p>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {productosNoEncontrados.map((p, idx) => (
-              <div key={idx} className="bg-white dark:bg-gray-900 rounded-lg p-3 border border-yellow-200 space-y-2">
+              <div key={idx} className="bg-white dark:bg-gray-900 rounded-lg p-3 border border-yellow-200 space-y-3">
+                {/* Datos del producto en la factura */}
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium text-sm">{p.nombre}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Cant: {p.cantidad} {p.precio ? `| Precio unit: ${p.precio}` : ""}
-                    </p>
+                    <p className="font-semibold text-sm">📄 En factura: {p.nombre}</p>
+                    <p className="text-xs text-muted-foreground">Cant: {p.cantidad}{p.precio ? ` | Precio: ${p.precio}` : ""}</p>
                   </div>
-                  <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full whitespace-nowrap">No encontrado</span>
+                  <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">No encontrado</span>
                 </div>
+
+                {/* Búsqueda */}
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Buscar en sistema..."
-                    className="h-7 text-xs"
+                    placeholder="Buscar término alternativo..."
+                    className="h-8 text-xs"
                     value={busquedaProducto[idx] || ""}
                     onChange={(e) => setBusquedaProducto(prev => ({ ...prev, [idx]: e.target.value }))}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") {
+                        const term = busquedaProducto[idx] || p.nombre;
+                        if (!term || term.length < 2) return;
+                        setBuscando(prev => ({ ...prev, [idx]: true }));
+                        try {
+                          const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term }))}`);
+                          const data = await res.json();
+                          setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
+                        } catch {}
+                        setBuscando(prev => ({ ...prev, [idx]: false }));
+                      }
+                    }}
                   />
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs whitespace-nowrap"
-                    onClick={() => {
+                    className="h-8 text-xs whitespace-nowrap"
+                    disabled={buscando[idx]}
+                    onClick={async () => {
                       const term = busquedaProducto[idx] || p.nombre;
-                      window.open(
-                        `https://vidafarmacia.inventarios365.com/main#/productos?buscar=${encodeURIComponent(term)}`,
-                        "_blank"
-                      );
+                      if (!term || term.length < 2) return;
+                      setBuscando(prev => ({ ...prev, [idx]: true }));
+                      try {
+                        const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term }))}`);
+                        const data = await res.json();
+                        setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
+                      } catch {}
+                      setBuscando(prev => ({ ...prev, [idx]: false }));
                     }}
                   >
-                    🔍 Buscar
+                    {buscando[idx] ? <Loader2 className="h-3 w-3 animate-spin" /> : "🔍 Buscar"}
                   </Button>
                   <Button
                     size="sm"
-                    className="h-7 text-xs whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white"
-                    onClick={() => {
-                      window.open(
-                        `https://vidafarmacia.inventarios365.com/main#/productos/nuevo`,
-                        "_blank"
-                      );
-                    }}
+                    className="h-8 text-xs whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => window.open("https://vidafarmacia.inventarios365.com/main", "_blank")}
                   >
-                    ➕ Crear
+                    ➕ Crear nuevo
                   </Button>
                 </div>
+
+                {/* Resultados de búsqueda */}
+                {resultadosBusqueda[idx]?.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Selecciona el producto correcto:</p>
+                    {resultadosBusqueda[idx].map((art: any) => (
+                      <div key={art.id} className="flex items-center justify-between bg-green-50 dark:bg-green-950 border border-green-200 rounded px-3 py-2">
+                        <div>
+                          <p className="text-xs font-medium">{art.nombre}</p>
+                          <p className="text-xs text-muted-foreground">Código: {art.codigo} | ID: {art.id}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                          onClick={async () => {
+                            await confirmarEmparejamiento.mutateAsync({
+                              proveedor: supplier || "Desconocido",
+                              nombreFactura: p.nombre,
+                              articuloId: art.id,
+                              articuloNombre: art.nombre,
+                              articuloCodigo: art.codigo,
+                            });
+                            toast.success(`✅ Emparejado: "${p.nombre}" → "${art.nombre}". Se recordará siempre.`, { duration: 6000 });
+                            setProductosNoEncontrados(prev => prev.filter((_, i) => i !== idx));
+                            setResultadosBusqueda(prev => { const n = {...prev}; delete n[idx]; return n; });
+                          }}
+                        >
+                          ✅ Confirmar
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {resultadosBusqueda[idx]?.length === 0 && busquedaProducto[idx] && !buscando[idx] && (
+                  <p className="text-xs text-red-500">No se encontraron resultados. Intenta otro término o crea el producto.</p>
+                )}
               </div>
             ))}
           </div>

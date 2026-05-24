@@ -333,9 +333,22 @@ class Inventarios365Service {
    * Usa /articulo/listarArticulo?buscar= con búsqueda progresiva por palabras clave.
    * El endpoint /articulo/buscarArticulo no devuelve resultados (bug del sistema).
    */
-  async buscarArticulo(nombre: string, idProveedor?: number): Promise<ArticuloAPI | null> {
+  async buscarArticulo(nombre: string, idProveedor?: number, proveedor?: string): Promise<ArticuloAPI | null> {
     try {
-      // 1. Buscar primero en cache local filtrando por proveedor si está disponible
+      // 0. Buscar en confirmaciones aprendidas (máxima prioridad)
+      if (proveedor) {
+        const { confirmacionesService } = await import("./confirmaciones");
+        const confirmacion = confirmacionesService.buscar(proveedor, nombre);
+        if (confirmacion) {
+          return {
+            id: confirmacion.id,
+            nombre: confirmacion.nombreSistema,
+            codigo: confirmacion.codigo,
+          } as any;
+        }
+      }
+
+      // 1. Buscar en cache local filtrando por proveedor
       const { productosCache } = await import("./productos-cache");
       const local = productosCache.buscarLocal(nombre, idProveedor);
       if (local) return local;
@@ -529,7 +542,7 @@ class Inventarios365Service {
 
       for (const item of params.items) {
         // Buscar primero con filtro de proveedor para mayor precisión
-        const articulo = await this.buscarArticulo(item.nombre, idproveedor || undefined);
+        const articulo = await this.buscarArticulo(item.nombre, idproveedor || undefined, params.proveedor);
         if (articulo) {
           const precioCosto =
             item.precio ?? parseFloat(String(articulo.precio_costo_unid)) ?? 0;

@@ -502,6 +502,67 @@ const dashboardRouter = router({
   }),
 });
 
+// ─── Confirmaciones Router ───────────────────────────────────────────────────
+const confirmacionesRouter = router({
+  // Estadísticas del sistema de confirmaciones
+  estadisticas: publicProcedure.query(async () => {
+    const { confirmacionesService } = await import("./confirmaciones");
+    return confirmacionesService.estadisticas();
+  }),
+
+  // Confirmar emparejamiento: nombre en factura → artículo en sistema
+  confirmar: publicProcedure
+    .input(z.object({
+      proveedor: z.string(),
+      nombreFactura: z.string(),
+      articuloId: z.number(),
+      articuloNombre: z.string(),
+      articuloCodigo: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { confirmacionesService } = await import("./confirmaciones");
+      confirmacionesService.confirmar(input.proveedor, input.nombreFactura, {
+        id: input.articuloId,
+        nombre: input.articuloNombre,
+        codigo: input.articuloCodigo || "",
+      } as any);
+      return { success: true };
+    }),
+
+  // Invalidar una confirmación
+  invalidar: publicProcedure
+    .input(z.object({ proveedor: z.string(), nombreFactura: z.string() }))
+    .mutation(async ({ input }) => {
+      const { confirmacionesService } = await import("./confirmaciones");
+      confirmacionesService.invalidar(input.proveedor, input.nombreFactura);
+      return { success: true };
+    }),
+
+  // Buscar artículo en sistema para confirmar manualmente
+  buscarArticulo: publicProcedure
+    .input(z.object({ termino: z.string(), idProveedor: z.number().optional() }))
+    .query(async ({ input }) => {
+      const { inventarios365 } = await import("./inventarios365");
+      const articulos = await inventarios365.listarArticulos(
+        input.termino,
+        input.idProveedor ? String(input.idProveedor) : ""
+      );
+      return articulos.slice(0, 10);
+    }),
+
+  // Verificar validez de todos los IDs guardados
+  verificar: publicProcedure.mutation(async () => {
+    const { confirmacionesService } = await import("./confirmaciones");
+    return confirmacionesService.verificar();
+  }),
+
+  // Listar todas las confirmaciones
+  todos: publicProcedure.query(async () => {
+    const { confirmacionesService } = await import("./confirmaciones");
+    return confirmacionesService.todos();
+  }),
+});
+
 // ─── Cache Router ─────────────────────────────────────────────────────────────
 const cacheRouter = router({
   estadisticas: publicProcedure.query(async () => {
@@ -537,6 +598,7 @@ export const appRouter = router({
   taskQueue: taskQueueRouter,
   operationHistory: operationHistoryRouter,
   cache: cacheRouter,
+  confirmaciones: confirmacionesRouter,
 });
 
 export type AppRouter = typeof appRouter;
