@@ -164,13 +164,33 @@ INSTRUCCIONES GENERALES:
         receiptNumber: "",
         items: [],
       };
-      try {
-        const content = llmResult.choices[0]?.message?.content;
-        if (typeof content === "string") {
-          extracted = JSON.parse(content);
+
+      // Reintentar hasta 3 veces si falla el parsing
+      for (let intento = 0; intento < 3; intento++) {
+        try {
+          let resultToUse = llmResult;
+          if (intento > 0) {
+            console.log(`[LLM] Reintento ${intento} de extracción...`);
+            await new Promise(r => setTimeout(r, 1000 * intento));
+            resultToUse = await invoke({
+              messages,
+              response_format: { type: "json_object" },
+            });
+          }
+          const rawContent = resultToUse.choices[0]?.message?.content;
+          console.log(`[LLM] Respuesta raw (intento ${intento + 1}):`, String(rawContent || "").substring(0, 200));
+          if (typeof rawContent === "string" && rawContent.trim()) {
+            // Limpiar posibles bloques markdown
+            const clean = rawContent.replace(/```json|```/g, "").trim();
+            extracted = JSON.parse(clean);
+            break; // Éxito
+          }
+        } catch (e) {
+          console.error(`[LLM] Error parsing intento ${intento + 1}:`, e);
+          if (intento === 2) {
+            console.error("[LLM] Todos los intentos fallaron, usando extracción vacía");
+          }
         }
-      } catch (e) {
-        console.error("[LLM] Failed to parse extraction result:", e);
       }
 
       console.log("[LLM] Extracción completada:", JSON.stringify(extracted, null, 2).substring(0, 500));
