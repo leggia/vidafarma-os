@@ -2,6 +2,17 @@
 
 Formato: [Semantic Versioning](https://semver.org/)
 
+## [1.0.2] — 2026-05-25
+
+### Mejorado
+- Threshold de matching subido a 0.80 — solo registra automáticamente coincidencias de alta confianza
+- Productos con score 0.50-0.79 van al panel de confirmación con sugerencia visible
+- Panel muestra sugerencia del sistema con % de similitud y botón Confirmar
+- Score incluido en resultado de búsqueda para control preciso
+- Proveedor no encontrado ya no bloquea búsqueda de productos
+
+---
+
 ## [1.0.1] — 2026-05-25
 
 ### Corregido

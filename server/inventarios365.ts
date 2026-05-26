@@ -538,7 +538,12 @@ class Inventarios365Service {
       for (const item of params.items) {
         // Buscar con filtro de proveedor si existe, sino buscar en todo el inventario
         const articulo = await this.buscarArticulo(item.nombre, idproveedor, params.proveedor);
-        if (articulo) {
+        const score = articulo ? ((articulo as any)._score ?? 1.0) : 0;
+        const nombreLimpio = item.nombre.replace(/^\d+\s+/, "").trim();
+
+        // Score >= 0.80 o es de confirmaciones (score=1) → registrar directo
+        // Score < 0.80 → requiere confirmación manual
+        if (articulo && score >= 0.80) {
           const precioCosto =
             item.precio ?? parseFloat(String(articulo.precio_costo_unid)) ?? 0;
           arrayDetalle.push({
@@ -553,28 +558,33 @@ class Inventarios365Service {
             fecha_vencimiento: (() => {
               const f = item.fechaVencimiento;
               if (!f) return null;
-              // Convertir YYYY-MM-DD → MM/YYYY para inventarios365
-              const match = f.match(/^(\d{4})-(\d{2})-\d{2}$/);
-              if (match) return `${match[2]}/${match[1]}`;
+              const m = f.match(/^(\d{4})-(\d{2})-\d{2}$/);
+              if (m) return `${m[2]}/${m[1]}`;
               return f;
             })(),
             cantidad: item.cantidad,
           });
-          console.log(
-            `[Inventarios365] ✓ "${item.nombre}" → ID ${articulo.id}, cant: ${item.cantidad}`
-          );
+          console.log(`[Inventarios365] ✓ "${item.nombre}" → "${articulo.nombre}" (ID:${articulo.id}, score:${score.toFixed(2)})`);
         } else {
+          // Score bajo o no encontrado — agregar a panel de confirmación
           erroresArticulos.push(item.nombre);
-          const nombreLimpio = item.nombre.replace(/^\d+\s+/, "").trim();
           productosNoEncontrados.push({
             nombre: item.nombre,
             nombreLimpio: nombreLimpio !== item.nombre ? nombreLimpio : undefined,
             cantidad: item.cantidad,
             precio: item.precio,
+            sugerencia: articulo ? {
+              id: articulo.id,
+              nombre: articulo.nombre,
+              codigo: articulo.codigo,
+              score: score,
+            } : undefined,
           });
-          console.warn(
-            `[Inventarios365] ✗ Artículo "${item.nombre}" no encontrado — requiere creación manual`
-          );
+          if (articulo) {
+            console.warn(`[Inventarios365] ⚠️ "${item.nombre}" → "${articulo.nombre}" score bajo (${score.toFixed(2)}) — requiere confirmación`);
+          } else {
+            console.warn(`[Inventarios365] ✗ "${item.nombre}" no encontrado`);
+          }
         }
       }
 

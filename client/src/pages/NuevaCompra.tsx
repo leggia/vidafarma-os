@@ -40,6 +40,12 @@ interface ProductoNoEncontrado {
   cantidad: number;
   precio?: number;
   busqueda?: string;
+  sugerencia?: {
+    id: number;
+    nombre: string;
+    codigo: string;
+    score: number;
+  };
 }
 
 // Convierte fecha MM/YYYY o DD/MM/YYYY a formato YYYY-MM-DD para input date
@@ -596,6 +602,38 @@ export default function NuevaCompra() {
                   </div>
                   <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">No encontrado</span>
                 </div>
+
+                {/* Sugerencia del sistema */}
+                {p.sugerencia && (
+                  <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded p-2 space-y-1">
+                    <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
+                      💡 Sugerencia ({Math.round(p.sugerencia.score * 100)}% similitud):
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium">{p.sugerencia.nombre}</p>
+                        <p className="text-xs text-muted-foreground">Código: {p.sugerencia.codigo}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                        onClick={async () => {
+                          await confirmarEmparejamiento.mutateAsync({
+                            proveedor: supplier || "Desconocido",
+                            nombreFactura: p.nombre,
+                            articuloId: p.sugerencia!.id,
+                            articuloNombre: p.sugerencia!.nombre,
+                            articuloCodigo: p.sugerencia!.codigo,
+                          });
+                          toast.success(`✅ Confirmado: "${p.nombre}" → "${p.sugerencia!.nombre}"`, { duration: 5000 });
+                          setProductosNoEncontrados(prev => prev.filter((_, i) => i !== idx));
+                        }}
+                      >
+                        ✅ Confirmar
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Búsqueda */}
                 <div className="flex gap-2">

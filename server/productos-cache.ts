@@ -161,6 +161,7 @@ class ProductosCacheService {
           precio_costo_paq: parseFloat(mejorMatch.art.precioCostoPaq || "0"),
           precio_uno: parseFloat(mejorMatch.art.precioUno || "0"),
           unidad_envase: mejorMatch.art.unidadEnvase,
+          _score: mejorMatch.score,
         } as any;
       }
 
