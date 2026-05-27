@@ -82,6 +82,7 @@ export default function NuevaCompra() {
   const [receiptType, setReceiptType] = useState<"BOLETA" | "FACTURA">("FACTURA");
   const [almacenNombre, setAlmacenNombre] = useState("ALMACEN PRINCIPAL");
   const [productosNoEncontrados, setProductosNoEncontrados] = useState<ProductoNoEncontrado[]>([]);
+  const [productosEmparejados, setProductosEmparejados] = useState<Record<string, string>>({});
   const [busquedaProducto, setBusquedaProducto] = useState<Record<number, string>>({});
   const [resultadosBusqueda, setResultadosBusqueda] = useState<Record<number, any[]>>({});
   const [buscando, setBuscando] = useState<Record<number, boolean>>({});
@@ -648,7 +649,7 @@ export default function NuevaCompra() {
                         if (!term || term.length < 2) return;
                         setBuscando(prev => ({ ...prev, [idx]: true }));
                         try {
-                          const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term }))}`);
+                          const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term, nombreProveedor: supplier || "" }))}`);
                           const data = await res.json();
                           setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
                         } catch {}
@@ -666,7 +667,7 @@ export default function NuevaCompra() {
                       if (!term || term.length < 2) return;
                       setBuscando(prev => ({ ...prev, [idx]: true }));
                       try {
-                        const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term }))}`);
+                        const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term, nombreProveedor: supplier || "" }))}`);
                         const data = await res.json();
                         setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
                       } catch {}

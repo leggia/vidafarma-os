@@ -209,6 +209,7 @@ INSTRUCCIONES GENERALES:
         receiptNumber: extracted.receiptNumber || "",
         items: (extracted.items || []).map((item: any) => ({
           productName: item.productName || "",
+          productNameFactura: item.productName || "", // Nombre original de la factura
           quantity: Math.max(1, Math.round(item.quantity || 1)),
           unitCost: Math.max(0, item.unitCost || 0),
           subtotal: Math.max(
@@ -601,14 +602,22 @@ const confirmacionesRouter = router({
 
   // Buscar artículo en sistema para confirmar manualmente
   buscarArticulo: publicProcedure
-    .input(z.object({ termino: z.string(), idProveedor: z.number().optional() }))
+    .input(z.object({ termino: z.string(), idProveedor: z.number().optional(), nombreProveedor: z.string().optional() }))
     .query(async ({ input }) => {
       const { inventarios365 } = await import("./inventarios365");
+      let idProveedorFinal = input.idProveedor;
+
+      // Si no tenemos idProveedor pero sí nombre, buscarlo
+      if (!idProveedorFinal && input.nombreProveedor) {
+        const prov = await inventarios365.buscarProveedor(input.nombreProveedor);
+        if (prov) idProveedorFinal = prov.id;
+      }
+
       const articulos = await inventarios365.listarArticulos(
         input.termino,
-        input.idProveedor ? String(input.idProveedor) : ""
+        idProveedorFinal ? String(idProveedorFinal) : ""
       );
-      return articulos.slice(0, 10);
+      return articulos.slice(0, 15);
     }),
 
   // Verificar validez de todos los IDs guardados

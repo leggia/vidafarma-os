@@ -565,6 +565,7 @@ class Inventarios365Service {
             cantidad: item.cantidad,
           });
           console.log(`[Inventarios365] ✓ "${item.nombre}" → "${articulo.nombre}" (ID:${articulo.id}, score:${score.toFixed(2)})`);
+          productosEmparejados.push({ nombreFactura: item.nombre, nombreSistema: articulo.nombre, id: articulo.id });
         } else {
           // Score bajo o no encontrado — agregar a panel de confirmación
           erroresArticulos.push(item.nombre);
@@ -640,6 +641,7 @@ class Inventarios365Service {
         message: `Compra registrada en inventarios365.com (ID: ${respData?.id})${advertencias}`,
         ingresoId: respData?.id,
         productosNoEncontrados,
+        productosEmparejados,
       };
     } catch (error: any) {
       console.error(
