@@ -87,6 +87,18 @@ export default function NuevaCompra() {
   const [resultadosBusqueda, setResultadosBusqueda] = useState<Record<number, any[]>>({});
   const [buscando, setBuscando] = useState<Record<number, boolean>>({});
 
+  // Auto-buscar cuando aparecen productos no encontrados
+  const buscarProducto = async (idx: number, term: string, proveedorNombre: string) => {
+    if (!term || term.length < 3) return;
+    setBuscando(prev => ({ ...prev, [idx]: true }));
+    try {
+      const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term, nombreProveedor: proveedorNombre }))}`);
+      const data = await res.json();
+      setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
+    } catch {}
+    setBuscando(prev => ({ ...prev, [idx]: false }));
+  };
+
   const utils = trpc.useUtils();
   const uploadAndExtract = trpc.purchases.uploadAndExtract.useMutation();
   const createPurchase = trpc.purchases.create.useMutation();
@@ -204,7 +216,12 @@ export default function NuevaCompra() {
             if (r.productosNoEncontrados?.length > 0) {
               setProductosNoEncontrados(r.productosNoEncontrados);
               toast.warning(`${r.productosNoEncontrados.length} producto(s) no encontrados — revisa el panel`, { duration: 8000 });
-              return; // No redirigir, mostrar panel
+              // Auto-buscar cada producto no encontrado
+              r.productosNoEncontrados.forEach((p: any, idx: number) => {
+                const primeraPalabra = (p.nombreLimpio || p.nombre.replace(/^\d+\s+/, "")).split(" ")[0];
+                buscarProducto(idx, primeraPalabra, supplier || "");
+              });
+              return;
             }
           } else if (r?.productosNoEncontrados?.length > 0) {
             // Hay productos no encontrados — mostrar panel siempre
@@ -641,19 +658,12 @@ export default function NuevaCompra() {
                   <Input
                     placeholder="Buscar producto (ej: fluconazol sanat)..."
                     className="h-8 text-xs"
-                    value={busquedaProducto[idx] ?? (p.nombreLimpio || p.nombre.replace(/^\d+\s+/, ""))}
+                    value={busquedaProducto[idx] ?? (p.nombreLimpio || p.nombre.replace(/^\d+\s+/, "")).split(" ")[0]}
                     onChange={(e) => setBusquedaProducto(prev => ({ ...prev, [idx]: e.target.value }))}
                     onKeyDown={async (e) => {
                       if (e.key === "Enter") {
                         const term = busquedaProducto[idx] || p.nombre;
-                        if (!term || term.length < 2) return;
-                        setBuscando(prev => ({ ...prev, [idx]: true }));
-                        try {
-                          const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term, nombreProveedor: supplier || "" }))}`);
-                          const data = await res.json();
-                          setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
-                        } catch {}
-                        setBuscando(prev => ({ ...prev, [idx]: false }));
+                        await buscarProducto(idx, term, supplier || "");
                       }
                     }}
                   />
@@ -664,14 +674,7 @@ export default function NuevaCompra() {
                     disabled={buscando[idx]}
                     onClick={async () => {
                       const term = busquedaProducto[idx] || p.nombre;
-                      if (!term || term.length < 2) return;
-                      setBuscando(prev => ({ ...prev, [idx]: true }));
-                      try {
-                        const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term, nombreProveedor: supplier || "" }))}`);
-                        const data = await res.json();
-                        setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
-                      } catch {}
-                      setBuscando(prev => ({ ...prev, [idx]: false }));
+                      await buscarProducto(idx, term, supplier || "");
                     }}
                   >
                     {buscando[idx] ? <Loader2 className="h-3 w-3 animate-spin" /> : "🔍 Buscar"}
