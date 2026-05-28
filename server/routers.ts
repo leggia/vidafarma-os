@@ -613,8 +613,28 @@ const confirmacionesRouter = router({
         if (prov) idProveedorFinal = prov.id;
       }
 
+      // Separar término de búsqueda — puede contener nombre del proveedor
+      // Ej: "fluco sanat" → buscar "fluco" filtrado por proveedor Sanat
+      let terminoBusqueda = input.termino.trim();
+      
+      // Si hay palabras múltiples, intentar separar producto de proveedor
+      const palabras = terminoBusqueda.split(/\s+/);
+      if (palabras.length > 1 && !idProveedorFinal) {
+        // Intentar encontrar proveedor en las últimas palabras
+        for (let i = palabras.length - 1; i >= 1; i--) {
+          const posibleProveedor = palabras.slice(i).join(" ");
+          const prov = await inventarios365.buscarProveedor(posibleProveedor);
+          if (prov) {
+            idProveedorFinal = prov.id;
+            terminoBusqueda = palabras.slice(0, i).join(" ");
+            console.log(`[Buscar] Separado: producto="${terminoBusqueda}" proveedor="${prov.nombre}" (ID:${prov.id})`);
+            break;
+          }
+        }
+      }
+
       const articulos = await inventarios365.listarArticulos(
-        input.termino,
+        terminoBusqueda,
         idProveedorFinal ? String(idProveedorFinal) : ""
       );
       return articulos.slice(0, 15);

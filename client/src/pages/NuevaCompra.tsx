@@ -639,7 +639,7 @@ export default function NuevaCompra() {
                 {/* Búsqueda */}
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Buscar término alternativo..."
+                    placeholder="Buscar producto (ej: fluconazol sanat)..."
                     className="h-8 text-xs"
                     value={busquedaProducto[idx] ?? (p.nombreLimpio || p.nombre.replace(/^\d+\s+/, ""))}
                     onChange={(e) => setBusquedaProducto(prev => ({ ...prev, [idx]: e.target.value }))}
