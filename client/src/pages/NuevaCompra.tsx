@@ -619,6 +619,19 @@ export default function NuevaCompra() {
           <p className="text-xs text-yellow-700 dark:text-yellow-300">
             Búscalos para emparejar con el sistema (se recordará para siempre) o créalos como nuevos productos.
           </p>
+          {productosNoEncontrados.length === 0 && (
+            <div className="bg-green-50 dark:bg-green-950 border border-green-300 rounded p-3 flex items-center justify-between">
+              <p className="text-sm text-green-700 font-medium">✅ Todos los productos emparejados</p>
+              <Button
+                size="sm"
+                className="bg-green-600 hover:bg-green-700 text-white text-xs"
+                onClick={() => handleSubmit(true)}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : "🚀 Registrar compra ahora"}
+              </Button>
+            </div>
+          )}
           <div className="space-y-4">
             {productosNoEncontrados.map((p, idx) => (
               <div key={idx} className="bg-white dark:bg-gray-900 rounded-lg p-3 border border-yellow-200 space-y-3">
@@ -656,6 +669,13 @@ export default function NuevaCompra() {
                             articuloNombre: p.sugerencia!.nombre,
                             articuloCodigo: p.sugerencia!.codigo,
                           });
+                          // Actualizar mapa de emparejamientos y nombre en tabla
+                          setProductosEmparejados(prev => ({ ...prev, [p.nombre]: p.sugerencia!.nombre }));
+                          setItems(prev => prev.map(item =>
+                            item.productName === p.nombre
+                              ? { ...item, productName: p.sugerencia!.nombre }
+                              : item
+                          ));
                           toast.success(`✅ Confirmado: "${p.nombre}" → "${p.sugerencia!.nombre}"`, { duration: 5000 });
                           setProductosNoEncontrados(prev => prev.filter((_, i) => i !== idx));
                         }}
@@ -722,6 +742,13 @@ export default function NuevaCompra() {
                               articuloNombre: art.nombre,
                               articuloCodigo: art.codigo,
                             });
+                            // Actualizar mapa y nombre en tabla
+                            setProductosEmparejados(prev => ({ ...prev, [p.nombre]: art.nombre }));
+                            setItems(prev => prev.map(item =>
+                              item.productName === p.nombre
+                                ? { ...item, productName: art.nombre }
+                                : item
+                            ));
                             toast.success(`✅ Emparejado: "${p.nombre}" → "${art.nombre}". Se recordará siempre.`, { duration: 6000 });
                             setProductosNoEncontrados(prev => prev.filter((_, i) => i !== idx));
                             setResultadosBusqueda(prev => { const n = {...prev}; delete n[idx]; return n; });
