@@ -223,20 +223,20 @@ export default function NuevaCompra() {
             if (r.productosNoEncontrados?.length > 0) {
               setProductosNoEncontrados(r.productosNoEncontrados);
               toast.warning(`${r.productosNoEncontrados.length} producto(s) no encontrados — revisa el panel`, { duration: 8000 });
-              // Auto-buscar cada producto no encontrado
               r.productosNoEncontrados.forEach((p: any, idx: number) => {
                 const primeraPalabra = (p.nombreLimpio || p.nombre.replace(/^\d+\s+/, "")).split(" ")[0];
                 buscarProducto(idx, primeraPalabra, supplier || "");
               });
+              setIsSubmitting(false);
               return;
             }
           } else if (r?.productosNoEncontrados?.length > 0) {
-            // Hay productos no encontrados — mostrar panel siempre
             setProductosNoEncontrados(r.productosNoEncontrados);
             if (!r?.syncSuccess) {
               toast.warning(`⚠️ ${r.syncMessage}`, { duration: 8000 });
             }
-            return; // No redirigir, mostrar panel
+            setIsSubmitting(false);
+            return;
           } else if (r?.syncMessage) {
             toast.warning(
               `Compra confirmada, pero sin sincronizar: ${r.syncMessage}`,
