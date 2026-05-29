@@ -307,13 +307,13 @@ class Inventarios365Service {
         .normalize("NFD").replace(/[̀-ͯ]/g, "") // quitar tildes
         .replace(/[^A-Z0-9\s]/g, " ")
         .split(/\s+/)
-        .filter((t) => t.length > 1);
+        .filter((t) => t.length > 2); // ignorar tokens muy cortos como "P", "X"
 
     const tokensOrig = normalizar(original);
     const tokensCand = normalizar(candidato);
     if (tokensOrig.length === 0) return 0;
 
-    // El primer token (nombre principal) debe coincidir obligatoriamente
+    // El primer token (nombre principal) debe coincidir
     const tokenPrincipal = tokensOrig[0];
     const tokenPrincipalPresente = tokensCand.some(
       c => c.startsWith(tokenPrincipal) || tokenPrincipal.startsWith(c)
@@ -325,9 +325,9 @@ class Inventarios365Service {
       if (tokensCand.some((c) => c.startsWith(t) || t.startsWith(c))) matches++;
     }
 
-    // Score bidireccional: penalizar tokens extra en candidato
+    // Score bidireccional
     const scoreAdelante = matches / tokensOrig.length;
-    const scoreAtras = matches / tokensCand.length;
+    const scoreAtras = matches / Math.max(tokensCand.length, 1);
     return (scoreAdelante + scoreAtras) / 2;
   }
 

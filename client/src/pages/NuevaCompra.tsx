@@ -92,10 +92,17 @@ export default function NuevaCompra() {
     if (!term || term.length < 3) return;
     setBuscando(prev => ({ ...prev, [idx]: true }));
     try {
-      const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${encodeURIComponent(JSON.stringify({ termino: term, nombreProveedor: proveedorNombre }))}`);
+      const input = encodeURIComponent(JSON.stringify({ json: { termino: term, nombreProveedor: proveedorNombre } }));
+      const res = await fetch(`/api/trpc/confirmaciones.buscarArticulo?input=${input}`, {
+        headers: { "Content-Type": "application/json" }
+      });
       const data = await res.json();
-      setResultadosBusqueda(prev => ({ ...prev, [idx]: data?.result?.data || [] }));
-    } catch {}
+      // tRPC v11 response format
+      const resultados = data?.result?.data?.json || data?.result?.data || [];
+      setResultadosBusqueda(prev => ({ ...prev, [idx]: Array.isArray(resultados) ? resultados : [] }));
+    } catch (e) {
+      console.error("Error buscando:", e);
+    }
     setBuscando(prev => ({ ...prev, [idx]: false }));
   };
 
@@ -481,12 +488,18 @@ export default function NuevaCompra() {
                       className={`grid gap-2 items-center py-1 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}
                     >
                       <div className={showExpiry ? "col-span-4" : "col-span-5"}>
-                        <Input
-                          value={item.productName}
-                          onChange={(e) => updateItem(idx, "productName", e.target.value)}
-                          className="text-sm h-9"
-                          placeholder="Nombre del producto"
-                        />
+                        <div className="relative">
+                          <Input
+                            value={productosEmparejados[item.productName] || item.productName}
+                            onChange={(e) => updateItem(idx, "productName", e.target.value)}
+                            className={`text-sm h-9 ${productosEmparejados[item.productName] ? "border-green-500 bg-green-50 dark:bg-green-950 pr-7" : ""}`}
+                            placeholder="Nombre del producto"
+                            title={productosEmparejados[item.productName] ? `Factura: ${item.productName}` : ""}
+                          />
+                          {productosEmparejados[item.productName] && (
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-green-500 text-sm">✓</span>
+                          )}
+                        </div>
                       </div>
                       <div className="col-span-2">
                         <Input
