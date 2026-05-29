@@ -640,8 +640,16 @@ class Inventarios365Service {
         payload
       );
 
+      console.log(`[Inventarios365] POST /ingreso/registrar response:`, JSON.stringify(respData));
+
       if (respData?.error) {
+        console.error(`[Inventarios365] Error del servidor:`, respData.error);
         return { success: false, message: respData.error };
+      }
+
+      if (!respData?.id) {
+        console.error(`[Inventarios365] Sin ID en respuesta:`, respData);
+        return { success: false, message: `Respuesta inesperada: ${JSON.stringify(respData)}` };
       }
 
       const advertencias =
