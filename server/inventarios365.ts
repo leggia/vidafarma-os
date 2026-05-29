@@ -568,8 +568,8 @@ class Inventarios365Service {
             codigo: articulo.codigo,
             articulo: articulo.nombre,
             precio: String(precioCosto.toFixed(4)),
-            precio_paquete: String((parseFloat(String(articulo.precio_costo_paq)) ?? 0).toFixed(4)),
-            precio_venta: String((parseFloat(String(articulo.precio_uno)) ?? 0).toFixed(4)),
+            precio_paquete: String((parseFloat(String(articulo.precio_costo_paq || 0)) || 0).toFixed(4)),
+            precio_venta: String((parseFloat(String(articulo.precio_uno || 0)) || 0).toFixed(4)),
             unidad_x_paquete: articulo.unidad_envase ?? 1,
             fecha_vencimiento: (() => {
               const f = item.fechaVencimiento;

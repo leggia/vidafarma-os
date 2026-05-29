@@ -220,6 +220,14 @@ export default function NuevaCompra() {
               (r.syncIngresoId ? ` (Ingreso ID: ${r.syncIngresoId})` : ""),
               { duration: 7000 }
             );
+            // Actualizar emparejamientos si vienen en la respuesta
+            if (r.productosEmparejados?.length > 0) {
+              const mapa: Record<string, string> = {};
+              for (const p of r.productosEmparejados) {
+                mapa[p.nombreFactura] = p.nombreSistema;
+              }
+              setProductosEmparejados(mapa);
+            }
             if (r.productosNoEncontrados?.length > 0) {
               setProductosNoEncontrados(r.productosNoEncontrados);
               toast.warning(`${r.productosNoEncontrados.length} producto(s) no encontrados — revisa el panel`, { duration: 8000 });
@@ -230,6 +238,10 @@ export default function NuevaCompra() {
               setIsSubmitting(false);
               return;
             }
+            // Todo OK — redirigir
+            setIsSubmitting(false);
+            setLocation("/compras");
+            return;
           } else if (r?.productosNoEncontrados?.length > 0) {
             setProductosNoEncontrados(r.productosNoEncontrados);
             if (!r?.syncSuccess) {
