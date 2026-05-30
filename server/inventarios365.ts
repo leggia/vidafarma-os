@@ -252,10 +252,10 @@ class Inventarios365Service {
   private async post<T = any>(path: string, payload: object): Promise<T> {
     await this.login();
     const cookie = this.buildCookieHeader();
-    // URL-decode el XSRF-TOKEN para el header
     const xsrfDecoded = this.xsrfToken
       ? decodeURIComponent(this.xsrfToken)
       : "";
+    console.log(`[POST] ${path} | XSRF: ${xsrfDecoded ? "OK" : "MISSING"} | Cookie: ${cookie ? "OK" : "MISSING"}`);
     const resp = await this.client.post<T>(path, payload, {
       headers: {
         Cookie: cookie,
@@ -264,6 +264,7 @@ class Inventarios365Service {
         Referer: `${BASE_URL}/main`,
       },
     });
+    console.log(`[POST] ${path} → status: ${resp.status} | data: ${JSON.stringify(resp.data).substring(0, 100)}`);
     return resp.data;
   }
 
