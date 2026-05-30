@@ -37,6 +37,27 @@ async function startServer() {
   // Confiar en el proxy de Railway para HTTPS
   app.set("trust proxy", 1);
 
+  // Endpoint admin para limpiar cache (solo en producción)
+  app.post("/api/admin/clear-cache", async (_req, res) => {
+    try {
+      const { getDb } = await import("../db");
+      const { productosCache: pc } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (db) {
+        await db.delete(pc);
+        console.log("[Admin] Cache de productos limpiado");
+        res.json({ success: true, message: "Cache limpiado. Se recargará automáticamente." });
+        // Recargar en background
+        const { productosCache } = await import("../productos-cache");
+        productosCache.actualizar(true).catch(console.error);
+      } else {
+        res.status(500).json({ success: false, message: "DB no disponible" });
+      }
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   // Health check endpoint — responde inmediatamente para Railway
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", version: "1.0.0", timestamp: new Date().toISOString() });
