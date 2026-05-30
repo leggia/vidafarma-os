@@ -238,9 +238,9 @@ export default function NuevaCompra() {
               setIsSubmitting(false);
               return;
             }
-            // Todo OK — redirigir
+            // Todo OK — redirigir inmediatamente sin esperar nada más
             setIsSubmitting(false);
-            setLocation("/compras");
+            setTimeout(() => setLocation("/compras"), 100);
             return;
           } else if (r?.productosNoEncontrados?.length > 0) {
             setProductosNoEncontrados(r.productosNoEncontrados);

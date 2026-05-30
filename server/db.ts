@@ -109,7 +109,8 @@ export async function listPurchases(userId: number) {
     .from(purchases)
     .leftJoin(branches, eq(purchases.branchId, branches.id))
     .where(eq(purchases.userId, userId))
-    .orderBy(desc(purchases.createdAt));
+    .orderBy(desc(purchases.createdAt))
+    .limit(50);
   return rows;
 }
 
