@@ -210,8 +210,6 @@ export default function NuevaCompra() {
           imageKey: uploadAndExtract.data?.imageKey || null,
           confirmDirectly,
         });
-        await utils.purchases.list.invalidate();
-        await utils.dashboard.stats.invalidate();
         if (confirmDirectly) {
           const r = result as any;
           if (r?.syncSuccess) {
@@ -238,8 +236,11 @@ export default function NuevaCompra() {
               setIsSubmitting(false);
               return;
             }
-            // Todo OK — redirigir inmediatamente sin esperar nada más
+            // Todo OK — redirigir inmediatamente
             setIsSubmitting(false);
+            // Invalidar cache en background sin bloquear
+            utils.purchases.list.invalidate().catch(() => {});
+            utils.dashboard.stats.invalidate().catch(() => {});
             setTimeout(() => setLocation("/compras"), 100);
             return;
           } else if (r?.productosNoEncontrados?.length > 0) {
