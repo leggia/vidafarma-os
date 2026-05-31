@@ -49,7 +49,7 @@ export interface RegistrarCompraPayload {
   num_comprobante: string;
   impuesto: number;
   total: number;
-  data: DetalleCompra[];
+  inventarios: DetalleCompra[];
 }
 
 // Estructura de artículo devuelto por la API
@@ -631,7 +631,7 @@ class Inventarios365Service {
         num_comprobante: params.numComprobante,
         impuesto: 0,
         total: totalFinal,
-        data: arrayDetalle,
+        inventarios: arrayDetalle,
       };
 
       console.log(`[Inventarios365] POST /ingreso/registrar → ${payload.data?.length || 0} productos, total: ${payload.total}`);
@@ -740,7 +740,7 @@ class Inventarios365Service {
         idalmacen_destino: almacenDestino.id,
         observacion:
           params.observacion || "Transferencia desde VidaFarma-OS",
-        data: arrayDetalle,
+        inventarios: arrayDetalle,
       });
 
       if (respData?.error) {
