@@ -853,12 +853,28 @@ class Inventarios365Service {
 
     diagnostico.pruebas = {};
 
-    // Probar AMBOS endpoints con el mismo payload
-    for (const endpoint of ["/inventarios/registrar", "/ingreso/registrar"]) {
-      const numComp = `DIAG-${endpoint.includes("ingreso") ? "ING" : "INV"}-${Date.now()}`;
-      const testPayload = { ...payload, num_comprobante: numComp };
+    // Probar diferentes combinaciones de endpoint + nombre de campo
+    const combos = [
+      { endpoint: "/inventarios/registrar", campo: "inventarios" },
+      { endpoint: "/ingreso/registrar", campo: "data" },
+      { endpoint: "/ingreso/registrar", campo: "detalle" },
+      { endpoint: "/compra/registrar", campo: "inventarios" },
+    ];
+
+    for (const combo of combos) {
+      const numComp = `DIAG-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+      const base: any = {
+        idproveedor: 97,
+        idalmacen: 1,
+        tipo_comprobante: "FACTURA",
+        num_comprobante: numComp,
+        impuesto: 0,
+        total: 10,
+      };
+      base[combo.campo] = payload.inventarios;
+      const key = `${combo.endpoint} [${combo.campo}]`;
       try {
-        const resp = await this.client.post(endpoint, testPayload, {
+        const resp = await this.client.post(combo.endpoint, base, {
           headers: {
             Cookie: cookie,
             "X-XSRF-TOKEN": xsrfDecoded,
@@ -870,14 +886,13 @@ class Inventarios365Service {
           maxRedirects: 0,
           validateStatus: () => true,
         });
-        diagnostico.pruebas[endpoint] = {
+        diagnostico.pruebas[key] = {
           numComprobante: numComp,
           status: resp.status,
           data: resp.data,
-          location: resp.headers?.location || null,
         };
       } catch (e: any) {
-        diagnostico.pruebas[endpoint] = { error: e.message };
+        diagnostico.pruebas[key] = { error: e.message };
       }
     }
 
