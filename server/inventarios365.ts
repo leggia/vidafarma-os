@@ -259,20 +259,18 @@ class Inventarios365Service {
     const xsrfDecoded = this.xsrfToken
       ? decodeURIComponent(this.xsrfToken)
       : "";
-    console.log(`[POST] ${path} | XSRF: ${xsrfDecoded ? "OK" : "MISSING"} | Cookie: ${cookie ? "OK" : "MISSING"}`);
+    console.log(`[POST] ${path} | XSRF: ${xsrfDecoded ? "OK" : "MISSING"} | CSRF: ${this.csrfToken ? "OK" : "MISSING"} | Cookie: ${cookie ? "OK" : "MISSING"}`);
     const resp = await this.client.post<T>(path, payload, {
       headers: {
         Cookie: cookie,
         "X-XSRF-TOKEN": xsrfDecoded,
         "X-CSRF-TOKEN": this.csrfToken || "",
         "X-Requested-With": "XMLHttpRequest",
-        Accept: "application/json",
         "Content-Type": "application/json",
-        Origin: BASE_URL,
         Referer: `${BASE_URL}/main`,
       },
     });
-    console.log(`[POST] ${path} → status: ${resp.status} | data: ${JSON.stringify(resp.data).substring(0, 100)}`);
+    console.log(`[POST] ${path} → status: ${resp.status} | data: ${JSON.stringify(resp.data).substring(0, 150)}`);
     return resp.data;
   }
 
@@ -365,13 +363,17 @@ class Inventarios365Service {
         }
       }
 
-      // 1. Buscar en cache local filtrando por proveedor (MySQL)
+      // 1. Si tenemos idProveedor, buscar DIRECTO en API filtrando por proveedor
+      // (el cache no tiene idproveedor confiable, la API sí filtra correctamente)
       const { productosCache } = await import("./productos-cache");
-      const local = await productosCache.buscarLocalAsync(nombreBuscar, idProveedor);
-      if (local) return local;
+      if (!idProveedor) {
+        // Solo usar cache si NO hay proveedor (búsqueda general)
+        const local = await productosCache.buscarLocalAsync(nombreBuscar, idProveedor);
+        if (local) return local;
+      }
 
-      // 2. Fallback: buscar en API si no está en cache
-      console.log(`[Inventarios365] "${nombreBuscar}" no en cache, buscando en API...`);
+      // 2. Buscar en API filtrando por proveedor
+      console.log(`[Inventarios365] "${nombreBuscar}" buscando en API (proveedor: ${idProveedor || "ninguno"})...`);
       const terms = [nombreBuscar, ...this.extractSearchTerms(nombreBuscar)];
       let bestOverall: { art: ArticuloAPI; score: number; term: string } | null = null;
       const proveedorParam = idProveedor ? String(idProveedor) : "";
