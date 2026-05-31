@@ -83,6 +83,7 @@ class Inventarios365Service {
   private client: AxiosInstance;
   // Cookies de sesión almacenadas como string "key=value; key2=value2"
   private xsrfToken: string | null = null;
+  private csrfToken: string | null = null; // Token CSRF del formulario (para header X-CSRF-TOKEN)
   private laravelSession: string | null = null;
   private lastLogin: number = 0;
   private SESSION_TTL = 90 * 60 * 1000; // 90 minutos (las cookies duran 2h)
@@ -174,6 +175,9 @@ class Inventarios365Service {
         throw new Error("No se pudo obtener el _token del formulario de login");
       }
 
+      // Guardar el CSRF token para usarlo en headers X-CSRF-TOKEN posteriores
+      this.csrfToken = formToken;
+
       // ── Paso 2: POST / con credenciales ────────────────────────────────────
       const cookieGet = [
         initialXsrf ? `XSRF-TOKEN=${initialXsrf}` : "",
@@ -260,6 +264,7 @@ class Inventarios365Service {
       headers: {
         Cookie: cookie,
         "X-XSRF-TOKEN": xsrfDecoded,
+        "X-CSRF-TOKEN": this.csrfToken || "",
         "X-Requested-With": "XMLHttpRequest",
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -789,6 +794,7 @@ class Inventarios365Service {
    */
   invalidateSession(): void {
     this.xsrfToken = null;
+    this.csrfToken = null;
     this.laravelSession = null;
     this.lastLogin = 0;
   }
