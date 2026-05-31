@@ -851,29 +851,34 @@ class Inventarios365Service {
     diagnostico.payload = payload;
     diagnostico.numComprobante = payload.num_comprobante;
 
-    // Hacer el POST capturando TODO
-    try {
-      const resp = await this.client.post("/inventarios/registrar", payload, {
-        headers: {
-          Cookie: cookie,
-          "X-XSRF-TOKEN": xsrfDecoded,
-          "X-CSRF-TOKEN": this.csrfToken || "",
-          "X-Requested-With": "XMLHttpRequest",
-          "Content-Type": "application/json",
-          Referer: `${BASE_URL}/main`,
-        },
-        maxRedirects: 0,
-        validateStatus: () => true,
-      });
-      diagnostico.respuesta = {
-        status: resp.status,
-        statusText: resp.statusText,
-        headers: resp.headers,
-        data: resp.data,
-        location: resp.headers?.location || null,
-      };
-    } catch (e: any) {
-      diagnostico.errorPost = e.message;
+    diagnostico.pruebas = {};
+
+    // Probar AMBOS endpoints con el mismo payload
+    for (const endpoint of ["/inventarios/registrar", "/ingreso/registrar"]) {
+      const numComp = `DIAG-${endpoint.includes("ingreso") ? "ING" : "INV"}-${Date.now()}`;
+      const testPayload = { ...payload, num_comprobante: numComp };
+      try {
+        const resp = await this.client.post(endpoint, testPayload, {
+          headers: {
+            Cookie: cookie,
+            "X-XSRF-TOKEN": xsrfDecoded,
+            "X-CSRF-TOKEN": this.csrfToken || "",
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/json",
+            Referer: `${BASE_URL}/main`,
+          },
+          maxRedirects: 0,
+          validateStatus: () => true,
+        });
+        diagnostico.pruebas[endpoint] = {
+          numComprobante: numComp,
+          status: resp.status,
+          data: resp.data,
+          location: resp.headers?.location || null,
+        };
+      } catch (e: any) {
+        diagnostico.pruebas[endpoint] = { error: e.message };
+      }
     }
 
     return diagnostico;
