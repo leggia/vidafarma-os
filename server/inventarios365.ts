@@ -654,7 +654,8 @@ class Inventarios365Service {
               0
             );
 
-      // 5. Registrar la compra
+      // 5. Registrar la compra — DOS PASOS (como hace el sistema web)
+      // Paso 1: POST /ingreso/registrar con campo "data" → crea ingreso y sube stock
       const payload: RegistrarCompraPayload = {
         idproveedor,
         idalmacen,
@@ -665,15 +666,14 @@ class Inventarios365Service {
         data: arrayDetalle,
       };
 
-      console.log(`[Inventarios365] POST /ingreso/registrar → ${payload.data?.length || 0} productos, total: ${payload.total}`);
-      console.log(`[Fecha] Payload fechas:`, JSON.stringify(payload.data?.map((d: any) => ({ articulo: d.articulo, fecha_vencimiento: d.fecha_vencimiento, vencimiento: d.vencimiento }))));
+      console.log(`[Inventarios365] PASO 1: POST /ingreso/registrar → ${payload.data?.length || 0} productos, total: ${payload.total}`);
 
       const respData = await this.post<{ id?: number; error?: string; message?: string }>(
         "/ingreso/registrar",
         payload
       );
 
-      console.log(`[Inventarios365] POST /ingreso/registrar response:`, JSON.stringify(respData));
+      console.log(`[Inventarios365] PASO 1 response:`, JSON.stringify(respData));
 
       if (respData?.error) {
         console.error(`[Inventarios365] Error del servidor:`, respData.error);
@@ -682,6 +682,28 @@ class Inventarios365Service {
 
       if (!respData?.id && !respData?.message) {
         return { success: false, message: `Respuesta inválida: ${JSON.stringify(respData)}` };
+      }
+
+      // Paso 2: POST /inventarios/registrar con campo "inventarios" → guarda fechas de vencimiento
+      // Solo si hay al menos una fecha de vencimiento que guardar
+      const tieneFechas = arrayDetalle.some(d => d.fecha_vencimiento);
+      if (tieneFechas) {
+        try {
+          const payloadVcto = {
+            idproveedor,
+            idalmacen,
+            tipo_comprobante: params.tipoComprobante || "BOLETA",
+            num_comprobante: params.numComprobante,
+            impuesto: 0,
+            total: totalFinal,
+            inventarios: arrayDetalle,
+          };
+          console.log(`[Inventarios365] PASO 2: POST /inventarios/registrar (fechas de vencimiento)`);
+          const respVcto = await this.post<any>("/inventarios/registrar", payloadVcto);
+          console.log(`[Inventarios365] PASO 2 response:`, JSON.stringify(respVcto));
+        } catch (e: any) {
+          console.warn(`[Inventarios365] PASO 2 (vencimientos) falló, pero el ingreso ya se guardó:`, e?.message);
+        }
       }
 
       const advertencias =
