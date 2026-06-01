@@ -74,6 +74,47 @@ async function startServer() {
     }
   });
 
+  // Diagnóstico de confirmaciones: guarda, lee y lista
+  app.get("/api/admin/test-confirmaciones", async (_req, res) => {
+    try {
+      const { confirmacionesService } = await import("../confirmaciones");
+      const db = await getDb();
+      const resultado: any = {};
+
+      // 1. Verificar que la tabla existe y contar registros
+      try {
+        const existentes = await db.execute(sql`SELECT COUNT(*) as total FROM confirmaciones`);
+        resultado.totalActual = existentes;
+      } catch (e: any) {
+        resultado.errorTabla = e.message;
+      }
+
+      // 2. Guardar una confirmación de prueba
+      await confirmacionesService.confirmar("TEST-PROVEEDOR", "PRODUCTO-TEST-FACTURA", {
+        id: 9999,
+        nombre: "PRODUCTO TEST SISTEMA",
+        codigo: "TEST123",
+      } as any);
+      resultado.guardado = "intentado";
+
+      // 3. Leer de vuelta
+      const leido = await confirmacionesService.buscar("TEST-PROVEEDOR", "PRODUCTO-TEST-FACTURA");
+      resultado.leido = leido;
+
+      // 4. Listar todas
+      try {
+        const todas = await db.execute(sql`SELECT proveedor, nombreFactura, articuloNombre, valido FROM confirmaciones LIMIT 20`);
+        resultado.todas = todas;
+      } catch (e: any) {
+        resultado.errorListar = e.message;
+      }
+
+      res.json(resultado);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, stack: e.stack });
+    }
+  });
+
   app.get("/api/admin/test-registro", async (_req, res) => {
     try {
       const result = await inventarios365.diagnosticoRegistro();
