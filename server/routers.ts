@@ -198,6 +198,8 @@ INSTRUCCIONES GENERALES:
       }
 
       console.log("[LLM] Extracción completada:", JSON.stringify(extracted, null, 2).substring(0, 500));
+      // Log de fechas extraídas para diagnóstico
+      console.log("[Fecha] Fechas extraídas por el LLM:", JSON.stringify((extracted.items || []).map((it: any) => ({ producto: it.productName, expiryDate: it.expiryDate }))));
 
       // Validación y corrección de precios usando subtotal de cada línea
       const itemsCorregidos = (extracted.items || []).map((item: any) => {
