@@ -15,6 +15,7 @@ import {
   Upload,
   Loader2,
   Trash2,
+  Search,
   Plus,
   Save,
   ArrowLeft,
@@ -86,6 +87,7 @@ export default function NuevaCompra() {
   const [busquedaProducto, setBusquedaProducto] = useState<Record<number, string>>({});
   const [resultadosBusqueda, setResultadosBusqueda] = useState<Record<number, any[]>>({});
   const [buscando, setBuscando] = useState<Record<number, boolean>>({});
+  const [filaEmparejando, setFilaEmparejando] = useState<number | null>(null);
 
   // Auto-buscar cuando aparecen productos no encontrados
   const buscarProducto = async (idx: number, term: string, proveedorNombre: string) => {
@@ -519,8 +521,8 @@ export default function NuevaCompra() {
                   </div>
                   {/* Items */}
                   {items.map((item, idx) => (
+                    <div key={idx}>
                     <div
-                      key={idx}
                       className={`grid gap-2 items-center py-1 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}
                     >
                       <div className={showExpiry ? "col-span-4" : "col-span-5"}>
@@ -569,7 +571,25 @@ export default function NuevaCompra() {
                       <div className="col-span-2 text-right text-sm font-semibold">
                         {item.subtotal.toFixed(2)} BS
                       </div>
-                      <div className="col-span-1 flex justify-end">
+                      <div className="col-span-1 flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-8 w-8 ${filaEmparejando === idx ? "bg-blue-100 dark:bg-blue-900" : ""}`}
+                          title="Emparejar con producto del sistema"
+                          onClick={() => {
+                            if (filaEmparejando === idx) {
+                              setFilaEmparejando(null);
+                            } else {
+                              setFilaEmparejando(idx);
+                              const term = (item.productName || "").split(" ")[0];
+                              setBusquedaProducto(prev => ({ ...prev, [idx]: term }));
+                              buscarProducto(idx, term, supplier || "");
+                            }
+                          }}
+                        >
+                          <Search className="h-3 w-3" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -579,6 +599,81 @@ export default function NuevaCompra() {
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
+                    </div>
+
+                    {/* Panel inline de emparejamiento */}
+                    {filaEmparejando === idx && (
+                      <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-md p-3 mb-2 mt-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={busquedaProducto[idx] ?? ""}
+                            onChange={(e) => setBusquedaProducto(prev => ({ ...prev, [idx]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") buscarProducto(idx, busquedaProducto[idx] || "", supplier || "");
+                            }}
+                            placeholder="Buscar producto (ej: fluconazol)..."
+                            className="text-sm h-8"
+                            autoFocus
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs whitespace-nowrap"
+                            disabled={buscando[idx]}
+                            onClick={() => buscarProducto(idx, busquedaProducto[idx] || "", supplier || "")}
+                          >
+                            {buscando[idx] ? <Loader2 className="h-3 w-3 animate-spin" /> : "🔍 Buscar"}
+                          </Button>
+                        </div>
+                        {supplier && (
+                          <p className="text-[11px] text-blue-600 dark:text-blue-400">
+                            Filtrando por proveedor: <strong>{supplier}</strong>
+                          </p>
+                        )}
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {(resultadosBusqueda[idx] || []).length === 0 && !buscando[idx] && (
+                            <p className="text-xs text-muted-foreground py-2">Escribe y busca para ver coincidencias del proveedor.</p>
+                          )}
+                          {(resultadosBusqueda[idx] || []).map((art: any) => (
+                            <div
+                              key={art.id}
+                              className="flex items-center justify-between bg-white dark:bg-gray-900 rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-medium truncate">{art.nombre}</p>
+                                <p className="text-[11px] text-muted-foreground">Código: {art.codigo}</p>
+                              </div>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white ml-2 whitespace-nowrap"
+                                onClick={async () => {
+                                  const nombreFactura = productosEmparejados[item.productName] || item.productName;
+                                  await confirmarEmparejamiento.mutateAsync({
+                                    proveedor: supplier || "Desconocido",
+                                    nombreFactura: nombreFactura,
+                                    articuloId: art.id,
+                                    articuloNombre: art.nombre,
+                                    articuloCodigo: art.codigo,
+                                  });
+                                  setProductosEmparejados(prev => {
+                                    const n = { ...prev };
+                                    delete n[item.productName];
+                                    n[art.nombre] = nombreFactura;
+                                    return n;
+                                  });
+                                  updateItem(idx, "productName", art.nombre);
+                                  toast.success(`✅ Emparejado con "${art.nombre}". Se recordará siempre.`, { duration: 5000 });
+                                  setFilaEmparejando(null);
+                                  setResultadosBusqueda(prev => { const n = { ...prev }; delete n[idx]; return n; });
+                                }}
+                              >
+                                Usar este
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     </div>
                   ))}
                   {/* Total */}
