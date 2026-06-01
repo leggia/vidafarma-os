@@ -589,8 +589,23 @@ class Inventarios365Service {
             fecha_vencimiento: (() => {
               const f = item.fechaVencimiento;
               if (!f) return null;
-              const m = f.match(/^(\d{4})-(\d{2})-\d{2}$/);
-              if (m) return `${m[2]}/${m[1]}`;
+              // El sistema espera YYYY-MM-DD (ej: 2028-05-31)
+              if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f;
+              // MM/YYYY → YYYY-MM-{ultimo dia}
+              const mmYYYY = f.match(/^(\d{1,2})\/(\d{4})$/);
+              if (mmYYYY) {
+                const mes = mmYYYY[1].padStart(2, "0");
+                const anio = mmYYYY[2];
+                const ultimoDia = new Date(Number(anio), Number(mes), 0).getDate();
+                return `${anio}-${mes}-${ultimoDia}`;
+              }
+              // DD/MM/YYYY → YYYY-MM-DD
+              const ddMMYYYY = f.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+              if (ddMMYYYY) {
+                const dia = ddMMYYYY[1].padStart(2, "0");
+                const mes = ddMMYYYY[2].padStart(2, "0");
+                return `${ddMMYYYY[3]}-${mes}-${dia}`;
+              }
               return f;
             })(),
             cantidad: item.cantidad,
