@@ -825,19 +825,21 @@ class Inventarios365Service {
     }
     const productos = (articulos || []).slice(0, 6);
     diagnostico.productosUsados = productos.map(p => ({ id: p.id, nombre: p.nombre }));
+    // Estructura cruda del primer artículo para ver nombres de campos disponibles
+    diagnostico.estructuraArticulo = productos[0] ? Object.keys(productos[0]) : [];
 
     const cookie = this.buildCookieHeader();
     const xsrfDecoded = this.xsrfToken ? decodeURIComponent(this.xsrfToken) : "";
     diagnostico.pruebas = {};
 
     // Cada prueba: producto distinto + combinación campo/formato de fecha
-    // Para que en el apartado de stock/vencimientos puedas ver cuál quedó con 12/2027
+    // Tu sistema muestra DD/MM/YYYY (31/05/2026) y el input usa YYYY-MM-DD
     const pruebasConfig = [
-      { campo: "fecha_vencimiento", valor: "12/2027" },
-      { campo: "fecha_vencimiento", valor: "2027-12-31" },
       { campo: "fecha_vencimiento", valor: "31/12/2027" },
-      { campo: "vencimiento", valor: "12/2027" },
-      { campo: "fecha_vto", valor: "12/2027" },
+      { campo: "fecha_vto", valor: "31/12/2027" },
+      { campo: "vencimiento", valor: "31/12/2027" },
+      { campo: "fecha_caducidad", valor: "31/12/2027" },
+      { campo: "f_vencimiento", valor: "31/12/2027" },
     ];
 
     for (let i = 0; i < pruebasConfig.length; i++) {
