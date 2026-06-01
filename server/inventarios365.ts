@@ -568,6 +568,7 @@ class Inventarios365Service {
         // Buscar con filtro de proveedor si existe, sino buscar en todo el inventario
         const articulo = await this.buscarArticulo(item.nombre, idproveedor, params.proveedor);
         const score = articulo ? ((articulo as any)._score ?? 1.0) : 0;
+        console.log(`[Fecha] "${item.nombre}" → fechaVencimiento recibida: ${JSON.stringify(item.fechaVencimiento)}`);
         const nombreLimpio = item.nombre.replace(/^\d+\s+/, "").trim();
 
         // Con filtro de proveedor: threshold 0.50 (resultados ya son del proveedor correcto)
