@@ -623,7 +623,7 @@ const confirmacionesRouter = router({
     }))
     .mutation(async ({ input }) => {
       const { confirmacionesService } = await import("./confirmaciones");
-      confirmacionesService.confirmar(input.proveedor, input.nombreFactura, {
+      await confirmacionesService.confirmar(input.proveedor, input.nombreFactura, {
         id: input.articuloId,
         nombre: input.articuloNombre,
         codigo: input.articuloCodigo || "",
@@ -636,7 +636,7 @@ const confirmacionesRouter = router({
     .input(z.object({ proveedor: z.string(), nombreFactura: z.string() }))
     .mutation(async ({ input }) => {
       const { confirmacionesService } = await import("./confirmaciones");
-      confirmacionesService.invalidar(input.proveedor, input.nombreFactura);
+      await confirmacionesService.invalidar(input.proveedor, input.nombreFactura);
       return { success: true };
     }),
 
