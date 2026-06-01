@@ -848,20 +848,19 @@ class Inventarios365Service {
     const xsrfDecoded = this.xsrfToken ? decodeURIComponent(this.xsrfToken) : "";
     diagnostico.pruebas = {};
 
-    // Cada prueba: producto distinto + combinación campo/formato de fecha
-    // Tu sistema muestra DD/MM/YYYY (31/05/2026) y el input usa YYYY-MM-DD
+    // Probar combinaciones con LOTE + fecha (hipótesis: sistema requiere lote para guardar vcto)
     const pruebasConfig = [
-      { campo: "fecha_vencimiento", valor: "31/12/2027" },
-      { campo: "fecha_vto", valor: "31/12/2027" },
-      { campo: "vencimiento", valor: "31/12/2027" },
-      { campo: "fecha_caducidad", valor: "31/12/2027" },
-      { campo: "f_vencimiento", valor: "31/12/2027" },
+      { campos: { fecha_vencimiento: "2027-12-31", lote: "TEST01" } },
+      { campos: { fecha_vencimiento: "2027-12-31", num_lote: "TEST02" } },
+      { campos: { vencimiento: "2027-12-31", lote: "TEST03" } },
+      { campos: { fecha_vencimiento: "31/12/2027", lote: "TEST04" } },
+      { campos: { fecha_vto: "2027-12-31", lote: "TEST05" } },
     ];
 
     for (let i = 0; i < pruebasConfig.length; i++) {
       const cfg = pruebasConfig[i];
       const prod = productos[i] || productos[0];
-      const numComp = `FV-${cfg.campo}-${cfg.valor.replace(/[/-]/g, "")}`;
+      const numComp = `FV${i + 1}-${Object.keys(cfg.campos).join("-")}`;
       const detalle: any = {
         idarticulo: prod.id,
         idalmacen: 1,
@@ -873,7 +872,7 @@ class Inventarios365Service {
         unidad_x_paquete: 1,
         cantidad: 1,
       };
-      detalle[cfg.campo] = cfg.valor;
+      Object.assign(detalle, cfg.campos);
       const base: any = {
         idproveedor: 97,
         idalmacen: 1,
@@ -896,14 +895,14 @@ class Inventarios365Service {
           maxRedirects: 0,
           validateStatus: () => true,
         });
-        diagnostico.pruebas[`${cfg.campo}=${cfg.valor}`] = {
+        diagnostico.pruebas[numComp] = {
           producto: prod.nombre,
-          comprobante: numComp,
+          campos: cfg.campos,
           status: resp.status,
           data: resp.data,
         };
       } catch (e: any) {
-        diagnostico.pruebas[`${cfg.campo}=${cfg.valor}`] = { error: e.message };
+        diagnostico.pruebas[numComp] = { error: e.message };
       }
     }
 
