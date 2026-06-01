@@ -313,6 +313,11 @@ class Inventarios365Service {
   private convertirFecha(f: string | null | undefined): string | null {
     if (!f) return null;
     if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f; // ya está en YYYY-MM-DD
+    // YYYY/MM/DD → YYYY-MM-DD
+    const yyyyMMDD = f.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (yyyyMMDD) {
+      return `${yyyyMMDD[1]}-${yyyyMMDD[2].padStart(2, "0")}-${yyyyMMDD[3].padStart(2, "0")}`;
+    }
     const mmYYYY = f.match(/^(\d{1,2})\/(\d{4})$/);
     if (mmYYYY) {
       const mes = mmYYYY[1].padStart(2, "0");

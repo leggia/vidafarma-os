@@ -92,15 +92,17 @@ INSTRUCCIONES CRÍTICAS PARA PRECIOS (MUY IMPORTANTE):
 INSTRUCCIONES PARA NOMBRE DEL PRODUCTO:
 - Extrae SOLO el nombre comercial. Si la fila tiene un código numérico al inicio (ej: "400180 QUETOROL 20 TAB"), extrae SOLO "QUETOROL 20 TAB" sin el código.
 - Ignora códigos internos del proveedor, códigos de barras o referencias numéricas al inicio del nombre.
+- Si el nombre incluye la fecha de vencimiento (ej: "PARACETAMOL 500 FV:2027/08/31"), QUITA esa parte del nombre (queda "PARACETAMOL 500") y pon la fecha en expiryDate.
 
 INSTRUCCIONES PARA FECHA DE VENCIMIENTO:
 - Busca columnas llamadas "VCTO", "Venc.", "Vencimiento", "Fecha Venc.", "Exp.", "Expiry", "F.Venc"
 - El formato más común en Bolivia es MM/YYYY (ej: 06/2027) o MM/AAAA
 - IMPORTANTE: En facturas de Bagó y similares, la columna "VCTO" contiene la fecha de vencimiento de cada producto
+- IMPORTANTE: A veces la fecha viene DENTRO del nombre/descripción del producto, con prefijos como "FV:", "VToOFV", "Venc:", "F.V.", "Vto:" seguido de la fecha (ej: "PARACETAMOL 500 FV:2027/08/31" → la fecha es 2027/08/31). Extrae esa fecha al campo expiryDate y déjala en el formato que aparezca.
 - Extrae la fecha de vencimiento para CADA producto individualmente
-- Si la fecha aparece como "06/2027" extráela exactamente así
+- Si la fecha aparece como "06/2027" extráela exactamente así; si aparece como "2027/08/31" déjala así
 - Si un producto no tiene fecha de vencimiento visible, usa null
-- NO inventes fechas — si no está en la fila del producto, usa null
+- NO inventes fechas — si no está en la fila ni en el nombre del producto, usa null
 
 INSTRUCCIONES CRÍTICAS PARA CANTIDADES FARMACÉUTICAS:
 - La "quantity" debe ser el NÚMERO TOTAL DE UNIDADES INDIVIDUALES (comprimidos, cápsulas, ampollas, frascos, etc.)

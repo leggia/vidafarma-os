@@ -54,14 +54,22 @@ interface ProductoNoEncontrado {
 function convertExpiryDate(date: string | null | undefined): string | null {
   if (!date) return null;
   // Formato MM/YYYY → último día del mes YYYY-MM-DD
-  const mmYYYY = date.match(/^(\d{2})\/(\d{4})$/);
+  const mmYYYY = date.match(/^(\d{1,2})\/(\d{4})$/);
   if (mmYYYY) {
-    return `${mmYYYY[2]}-${mmYYYY[1]}-01`;
+    const mes = mmYYYY[1].padStart(2, "0");
+    const anio = mmYYYY[2];
+    const ultimoDia = new Date(Number(anio), Number(mes), 0).getDate();
+    return `${anio}-${mes}-${ultimoDia}`;
+  }
+  // Formato YYYY/MM/DD → YYYY-MM-DD
+  const yyyyMMDD = date.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (yyyyMMDD) {
+    return `${yyyyMMDD[1]}-${yyyyMMDD[2].padStart(2, "0")}-${yyyyMMDD[3].padStart(2, "0")}`;
   }
   // Formato DD/MM/YYYY → YYYY-MM-DD
-  const ddMMYYYY = date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const ddMMYYYY = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (ddMMYYYY) {
-    return `${ddMMYYYY[3]}-${ddMMYYYY[2]}-${ddMMYYYY[1]}`;
+    return `${ddMMYYYY[3]}-${ddMMYYYY[2].padStart(2, "0")}-${ddMMYYYY[1].padStart(2, "0")}`;
   }
   return date;
 }
