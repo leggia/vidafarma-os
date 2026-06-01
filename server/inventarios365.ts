@@ -38,6 +38,7 @@ export interface DetalleCompra {
   precio_venta: string;
   unidad_x_paquete: number;
   fecha_vencimiento: string | null;
+  vencimiento?: string | null; // El sistema usa este campo en la tabla de productos
   cantidad: number;
 }
 
@@ -308,6 +309,26 @@ class Inventarios365Service {
    * Calcular similitud entre dos nombres de productos (0-1).
    * Usa coincidencia de tokens: cuántos tokens del nombre original aparecen en el candidato.
    */
+  // Convierte cualquier formato de fecha a YYYY-MM-DD (el que usa inventarios365)
+  private convertirFecha(f: string | null | undefined): string | null {
+    if (!f) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f; // ya está en YYYY-MM-DD
+    const mmYYYY = f.match(/^(\d{1,2})\/(\d{4})$/);
+    if (mmYYYY) {
+      const mes = mmYYYY[1].padStart(2, "0");
+      const anio = mmYYYY[2];
+      const ultimoDia = new Date(Number(anio), Number(mes), 0).getDate();
+      return `${anio}-${mes}-${ultimoDia}`;
+    }
+    const ddMMYYYY = f.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (ddMMYYYY) {
+      const dia = ddMMYYYY[1].padStart(2, "0");
+      const mes = ddMMYYYY[2].padStart(2, "0");
+      return `${ddMMYYYY[3]}-${mes}-${dia}`;
+    }
+    return f;
+  }
+
   private calcularSimilitud(original: string, candidato: string): number {
     const normalizar = (s: string) =>
       s.toUpperCase()
@@ -587,28 +608,8 @@ class Inventarios365Service {
             precio_paquete: String((parseFloat(String(articulo.precio_costo_paq || 0)) || 0).toFixed(4)),
             precio_venta: String((parseFloat(String(articulo.precio_uno || 0)) || 0).toFixed(4)),
             unidad_x_paquete: articulo.unidad_envase ?? 1,
-            fecha_vencimiento: (() => {
-              const f = item.fechaVencimiento;
-              if (!f) return null;
-              // El sistema espera YYYY-MM-DD (ej: 2028-05-31)
-              if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f;
-              // MM/YYYY → YYYY-MM-{ultimo dia}
-              const mmYYYY = f.match(/^(\d{1,2})\/(\d{4})$/);
-              if (mmYYYY) {
-                const mes = mmYYYY[1].padStart(2, "0");
-                const anio = mmYYYY[2];
-                const ultimoDia = new Date(Number(anio), Number(mes), 0).getDate();
-                return `${anio}-${mes}-${ultimoDia}`;
-              }
-              // DD/MM/YYYY → YYYY-MM-DD
-              const ddMMYYYY = f.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-              if (ddMMYYYY) {
-                const dia = ddMMYYYY[1].padStart(2, "0");
-                const mes = ddMMYYYY[2].padStart(2, "0");
-                return `${ddMMYYYY[3]}-${mes}-${dia}`;
-              }
-              return f;
-            })(),
+            fecha_vencimiento: this.convertirFecha(item.fechaVencimiento),
+            vencimiento: this.convertirFecha(item.fechaVencimiento),
             cantidad: item.cantidad,
           });
           console.log(`[Inventarios365] ✓ "${item.nombre}" → "${articulo.nombre}" (ID:${articulo.id}, score:${score.toFixed(2)})`);
@@ -665,7 +666,7 @@ class Inventarios365Service {
       };
 
       console.log(`[Inventarios365] POST /ingreso/registrar → ${payload.data?.length || 0} productos, total: ${payload.total}`);
-      console.log(`[Fecha] Payload fechas:`, JSON.stringify(payload.data?.map((d: any) => ({ articulo: d.articulo, fecha_vencimiento: d.fecha_vencimiento }))));
+      console.log(`[Fecha] Payload fechas:`, JSON.stringify(payload.data?.map((d: any) => ({ articulo: d.articulo, fecha_vencimiento: d.fecha_vencimiento, vencimiento: d.vencimiento }))));
 
       const respData = await this.post<{ id?: number; error?: string; message?: string }>(
         "/ingreso/registrar",
