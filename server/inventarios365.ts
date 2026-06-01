@@ -818,65 +818,51 @@ class Inventarios365Service {
       },
     };
 
-    // Buscar un artículo real para la prueba
-    const articulos = await this.listarArticulos("DICLOSAN", "97");
-    if (!articulos || articulos.length === 0) {
-      diagnostico.error = "No se encontró artículo de prueba";
-      return diagnostico;
+    // Buscar varios artículos diferentes para distinguir cada prueba en el stock
+    const articulos = await this.listarArticulos("", "97");
+    if (!articulos || articulos.length < 5) {
+      diagnostico.error = `Solo se encontraron ${articulos?.length || 0} artículos de Sanat`;
     }
-    const art = articulos[0];
-    diagnostico.articuloPrueba = { id: art.id, nombre: art.nombre, codigo: art.codigo };
+    const productos = (articulos || []).slice(0, 6);
+    diagnostico.productosUsados = productos.map(p => ({ id: p.id, nombre: p.nombre }));
 
     const cookie = this.buildCookieHeader();
     const xsrfDecoded = this.xsrfToken ? decodeURIComponent(this.xsrfToken) : "";
-
-    const payload = {
-      idproveedor: 97,
-      idalmacen: 1,
-      tipo_comprobante: "FACTURA",
-      num_comprobante: `DIAG-${Date.now()}`,
-      impuesto: 0,
-      total: 10,
-      inventarios: [{
-        idarticulo: art.id,
-        idalmacen: 1,
-        codigo: art.codigo,
-        articulo: art.nombre,
-        precio: "10.0000",
-        precio_paquete: "0.0000",
-        precio_venta: "0.0000",
-        unidad_x_paquete: 1,
-        fecha_vencimiento: null,
-        cantidad: 1,
-      }],
-    };
-    diagnostico.payload = payload;
-    diagnostico.numComprobante = payload.num_comprobante;
     diagnostico.pruebas = {};
 
-    // Probar el endpoint correcto con diferentes nombres de campo de fecha
-    const camposFecha = ["fecha_vencimiento", "vencimiento", "fecha_vto", "fechaVencimiento", "fecha_caducidad"];
-    for (const campoFecha of camposFecha) {
-      const numComp = `DIAGFV-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+    // Cada prueba: producto distinto + combinación campo/formato de fecha
+    // Para que en el apartado de stock/vencimientos puedas ver cuál quedó con 12/2027
+    const pruebasConfig = [
+      { campo: "fecha_vencimiento", valor: "12/2027" },
+      { campo: "fecha_vencimiento", valor: "2027-12-31" },
+      { campo: "fecha_vencimiento", valor: "31/12/2027" },
+      { campo: "vencimiento", valor: "12/2027" },
+      { campo: "fecha_vto", valor: "12/2027" },
+    ];
+
+    for (let i = 0; i < pruebasConfig.length; i++) {
+      const cfg = pruebasConfig[i];
+      const prod = productos[i] || productos[0];
+      const numComp = `FV-${cfg.campo}-${cfg.valor.replace(/[/-]/g, "")}`;
       const detalle: any = {
-        idarticulo: art.id,
+        idarticulo: prod.id,
         idalmacen: 1,
-        codigo: art.codigo,
-        articulo: art.nombre,
-        precio: "10.0000",
+        codigo: prod.codigo,
+        articulo: prod.nombre,
+        precio: "1.0000",
         precio_paquete: "0.0000",
         precio_venta: "0.0000",
         unidad_x_paquete: 1,
         cantidad: 1,
       };
-      detalle[campoFecha] = "12/2027"; // fecha de prueba MM/YYYY
+      detalle[cfg.campo] = cfg.valor;
       const base: any = {
         idproveedor: 97,
         idalmacen: 1,
         tipo_comprobante: "FACTURA",
         num_comprobante: numComp,
         impuesto: 0,
-        total: 10,
+        total: 1,
         data: [detalle],
       };
       try {
@@ -892,13 +878,14 @@ class Inventarios365Service {
           maxRedirects: 0,
           validateStatus: () => true,
         });
-        diagnostico.pruebas[`fecha:${campoFecha}`] = {
-          numComprobante: numComp,
+        diagnostico.pruebas[`${cfg.campo}=${cfg.valor}`] = {
+          producto: prod.nombre,
+          comprobante: numComp,
           status: resp.status,
           data: resp.data,
         };
       } catch (e: any) {
-        diagnostico.pruebas[`fecha:${campoFecha}`] = { error: e.message };
+        diagnostico.pruebas[`${cfg.campo}=${cfg.valor}`] = { error: e.message };
       }
     }
 
