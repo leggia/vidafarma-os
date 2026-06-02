@@ -169,6 +169,7 @@ export default function NuevaCompra() {
   const [buscando, setBuscando] = useState<Record<number, boolean>>({});
   const [filaEmparejando, setFilaEmparejando] = useState<number | null>(null);
   const [filaCreando, setFilaCreando] = useState<number | null>(null);
+  const [sinFiltroProveedor, setSinFiltroProveedor] = useState<Record<number, boolean>>({});
   const [nuevoProducto, setNuevoProducto] = useState<{ precioVenta: number; idcategoria: number | null; categoriaNombre: string }>({ precioVenta: 0, idcategoria: null, categoriaNombre: "" });
   const [creandoProducto, setCreandoProducto] = useState(false);
 
@@ -703,10 +704,10 @@ export default function NuevaCompra() {
             </CardHeader>
             <CardContent>
               {items.length > 0 ? (
-                <div className="space-y-2 overflow-x-auto -mx-2 px-2">
-                  <div className="min-w-[640px] space-y-2">
-                  {/* Table Header */}
-                  <div className={`grid gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-foreground/10 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}>
+                <div className="space-y-2">
+                  {/* Table Header (scroll horizontal solo aquí en móvil) */}
+                  <div className="overflow-x-auto -mx-2 px-2">
+                  <div className={`min-w-[560px] grid gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-foreground/10 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}>
                     <div className={showExpiry ? "col-span-4" : "col-span-5"}>Producto</div>
                     <div className="col-span-2">Cantidad</div>
                     <div className="col-span-2">Costo Unit.</div>
@@ -714,11 +715,13 @@ export default function NuevaCompra() {
                     <div className="col-span-2 text-right">Subtotal</div>
                     <div className="col-span-1" />
                   </div>
+                  </div>
                   {/* Items */}
                   {items.map((item, idx) => (
                     <div key={idx}>
+                    <div className="overflow-x-auto -mx-2 px-2">
                     <div
-                      className={`grid gap-2 items-center py-1 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}
+                      className={`min-w-[560px] grid gap-2 items-center py-1 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}
                     >
                       <div className={showExpiry ? "col-span-4" : "col-span-5"}>
                         <div className="relative">
@@ -795,6 +798,7 @@ export default function NuevaCompra() {
                         </Button>
                       </div>
                     </div>
+                    </div>
 
                     {/* Margen de venta + precio editable */}
                     {item.precioVentaSistema != null && (() => {
@@ -852,30 +856,51 @@ export default function NuevaCompra() {
                             value={busquedaProducto[idx] ?? ""}
                             onChange={(e) => setBusquedaProducto(prev => ({ ...prev, [idx]: e.target.value }))}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") buscarProducto(idx, busquedaProducto[idx] || "", supplier || "");
+                              if (e.key === "Enter") buscarProducto(idx, busquedaProducto[idx] || "", sinFiltroProveedor[idx] ? "" : (supplier || ""));
                             }}
                             placeholder="Buscar producto (ej: fluconazol)..."
-                            className="text-sm h-8"
+                            className="text-sm h-9 flex-1"
                             autoFocus
                           />
                           <Button
                             size="sm"
-                            variant="outline"
-                            className="h-8 text-xs whitespace-nowrap"
+                            className="h-9 text-xs whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white px-3"
                             disabled={buscando[idx]}
-                            onClick={() => buscarProducto(idx, busquedaProducto[idx] || "", supplier || "")}
+                            onClick={() => buscarProducto(idx, busquedaProducto[idx] || "", sinFiltroProveedor[idx] ? "" : (supplier || ""))}
                           >
-                            {buscando[idx] ? <Loader2 className="h-3 w-3 animate-spin" /> : "🔍 Buscar"}
+                            {buscando[idx] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
+
+                        {/* Toggle de filtro por proveedor */}
                         {supplier && (
-                          <p className="text-[11px] text-blue-600 dark:text-blue-400">
-                            Filtrando por proveedor: <strong>{supplier}</strong>
-                          </p>
+                          <div className="flex items-center justify-between gap-2 bg-white dark:bg-gray-900 rounded px-2 py-1.5 border border-blue-200 dark:border-blue-800">
+                            <span className="text-[11px] text-muted-foreground">
+                              {sinFiltroProveedor[idx]
+                                ? "🔓 Buscando en TODO el inventario"
+                                : <>🔒 Filtrando por: <strong>{supplier}</strong></>}
+                            </span>
+                            <button
+                              type="button"
+                              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium whitespace-nowrap"
+                              onClick={() => {
+                                const nuevo = !sinFiltroProveedor[idx];
+                                setSinFiltroProveedor(prev => ({ ...prev, [idx]: nuevo }));
+                                // Re-buscar con el nuevo filtro
+                                buscarProducto(idx, busquedaProducto[idx] || "", nuevo ? "" : (supplier || ""));
+                              }}
+                            >
+                              {sinFiltroProveedor[idx] ? "Filtrar por proveedor" : "Quitar filtro"}
+                            </button>
+                          </div>
                         )}
                         <div className="max-h-48 overflow-y-auto space-y-1">
                           {(resultadosBusqueda[idx] || []).length === 0 && !buscando[idx] && (
-                            <p className="text-xs text-muted-foreground py-2">Escribe y busca para ver coincidencias del proveedor.</p>
+                            <p className="text-xs text-muted-foreground py-2">
+                              {busquedaProducto[idx]
+                                ? "Sin resultados. Prueba otro término o quita el filtro de proveedor."
+                                : "Escribe el nombre del producto y busca."}
+                            </p>
                           )}
                           {(resultadosBusqueda[idx] || []).map((art: any) => (
                             <div
@@ -1017,7 +1042,6 @@ export default function NuevaCompra() {
                     )}
                     </div>
                   ))}
-                  </div>
                   {/* Total */}
                   <div className="border-t-2 border-foreground pt-3 mt-3">
                     <div className="flex justify-between items-center">
