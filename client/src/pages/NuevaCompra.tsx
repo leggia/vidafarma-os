@@ -27,6 +27,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import ImageCropper from "@/components/ImageCropper";
 import { toast } from "sonner";
 
 interface ExtractedItem {
@@ -150,6 +151,7 @@ export default function NuevaCompra() {
 
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [cropUrl, setCropUrl] = useState<string | null>(null); // imagen pendiente de recortar
   const [branchId, setBranchId] = useState<string>("");
   const [receiptNumber, setReceiptNumber] = useState("");
   const [supplier, setSupplier] = useState("");
@@ -211,29 +213,41 @@ export default function NuevaCompra() {
         return;
       }
 
-      // Comprimir si es imagen grande (acelera subida y procesamiento)
-      let archivoFinal = selected;
+      // Si es imagen, abrir el recortador primero (omitir dedos, bordes oscuros)
       if (selected.type.startsWith("image/")) {
-        try {
-          const original = selected.size;
-          archivoFinal = await comprimirImagen(selected);
-          if (archivoFinal.size < original) {
-            const ahorroKB = Math.round((original - archivoFinal.size) / 1024);
-            console.log(`[Imagen] Comprimida: ${Math.round(original/1024)}KB → ${Math.round(archivoFinal.size/1024)}KB (-${ahorroKB}KB)`);
-          }
-        } catch {
-          archivoFinal = selected;
-        }
+        const url = URL.createObjectURL(selected);
+        setCropUrl(url);
+        return;
       }
 
-      setFile(archivoFinal);
+      // PDF u otros: procesar directo
+      setFile(selected);
       setExtracted(false);
       setItems([]);
-      const url = URL.createObjectURL(archivoFinal);
+      const url = URL.createObjectURL(selected);
       setPreviewUrl(url);
     },
     []
   );
+
+  // Tras recortar: comprimir y dejar listo para extraer
+  const procesarImagenFinal = useCallback(async (imgFile: File) => {
+    let archivoFinal = imgFile;
+    try {
+      const original = imgFile.size;
+      archivoFinal = await comprimirImagen(imgFile);
+      if (archivoFinal.size < original) {
+        console.log(`[Imagen] Comprimida: ${Math.round(original/1024)}KB → ${Math.round(archivoFinal.size/1024)}KB`);
+      }
+    } catch {
+      archivoFinal = imgFile;
+    }
+    setFile(archivoFinal);
+    setExtracted(false);
+    setItems([]);
+    const url = URL.createObjectURL(archivoFinal);
+    setPreviewUrl(url);
+  }, []);
 
   const handleExtract = useCallback(async () => {
     if (!file) return;
@@ -444,6 +458,29 @@ export default function NuevaCompra() {
 
   return (
     <div className="space-y-6">
+      {/* Recortador de imagen (móvil) */}
+      {cropUrl && (
+        <ImageCropper
+          imageUrl={cropUrl}
+          onConfirm={(cropped) => {
+            URL.revokeObjectURL(cropUrl);
+            setCropUrl(null);
+            procesarImagenFinal(cropped);
+          }}
+          onCancel={() => {
+            // Si cancela el recorte, usar la imagen original sin recortar
+            fetch(cropUrl)
+              .then((r) => r.blob())
+              .then((b) => {
+                procesarImagenFinal(new File([b], "factura.jpg", { type: b.type || "image/jpeg" }));
+              })
+              .finally(() => {
+                URL.revokeObjectURL(cropUrl);
+                setCropUrl(null);
+              });
+          }}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center gap-4 border-b border-foreground pb-4">
         <Button

@@ -69,11 +69,13 @@ Extrae la siguiente información en formato JSON:
   "supplier": "nombre del proveedor si es visible",
   "receiptNumber": "número de comprobante/factura si es visible",
   "totalFactura": total_general_de_la_factura_decimal,
+  "descuentoGlobal": descuento_total_de_la_factura_si_existe_sino_0,
   "items": [
     {
       "productName": "nombre comercial del medicamento SIN códigos numéricos del proveedor",
       "quantity": número_entero_de_unidades_TOTALES,
       "unitCost": costo_unitario_decimal_por_unidad,
+      "descuento": descuento_de_esta_linea_si_existe_sino_0,
       "subtotal": subtotal_de_la_linea_CON_descuento_aplicado,
       "expiryDate": "fecha de vencimiento en formato MM/YYYY o DD/MM/YYYY si aparece, sino null"
     }
@@ -85,9 +87,15 @@ INSTRUCCIONES CRÍTICAS PARA PRECIOS (MUY IMPORTANTE):
 - El "subtotal" es el IMPORTE TOTAL de esa línea (lo que aparece en la columna derecha de cada fila)
 - El "unitCost" SIEMPRE debe ser: subtotal_de_la_linea ÷ quantity
 - NUNCA pongas el subtotal/importe como unitCost. Si una línea dice cantidad 20 e importe 400, entonces unitCost = 400/20 = 20
-- Si hay columna de DESCUENTO o "Dscto", el subtotal debe ser DESPUÉS del descuento (el importe neto que realmente se paga)
-- Ejemplo descuento: si precio lista 31, cantidad 6, importe con descuento 150 → unitCost = 150/6 = 25
-- VERIFICACIÓN: la suma de todos los "subtotal" debe ser aproximadamente igual al "totalFactura". Si no cuadra, revisa los precios
+
+DESCUENTOS (LEER CON MUCHA ATENCIÓN — hay DOS tipos):
+- DESCUENTO POR LÍNEA: columna "DESCUENTO", "Dscto", "Desc.", "Dto" en cada fila. Captúralo en el campo "descuento" de cada item. El subtotal de esa línea debe ser DESPUÉS de restar ese descuento.
+- DESCUENTO GLOBAL: a veces el descuento NO está por fila, sino al final de la factura como un monto único que se resta del subtotal general (ej: "DESCUENTO Bs 150.00" cerca del total). Captúralo en "descuentoGlobal".
+- Algunas facturas (como INTI) muestran el descuento como un porcentaje o monto al pie, separado de las líneas. Búscalo SIEMPRE cerca de SUBTOTAL/TOTAL.
+- Si el descuento es por línea: subtotal_linea = (precio × cantidad) − descuento_linea
+- Si el descuento es global: cada subtotal de línea queda SIN descuento, y el descuento total va en "descuentoGlobal"
+- Ejemplo descuento por línea: precio lista 31, cantidad 6, descuento 36 → subtotal = 186−36 = 150 → unitCost = 150/6 = 25
+- VERIFICACIÓN: suma de subtotales − descuentoGlobal ≈ totalFactura. Si no cuadra, revisa descuentos
 
 INSTRUCCIONES PARA NOMBRE DEL PRODUCTO:
 - Extrae SOLO el nombre comercial. Si la fila tiene un código numérico al inicio (ej: "400180 QUETOROL 20 TAB"), extrae SOLO "QUETOROL 20 TAB" sin el código.
@@ -231,11 +239,17 @@ INSTRUCCIONES GENERALES:
         };
       });
 
-      // Validar suma contra total de factura
+      // Validar suma contra total de factura (considerando descuento global)
       const sumaSubtotales = itemsCorregidos.reduce((acc: number, it: any) => acc + it.subtotal, 0);
+      const descuentoGlobal = Math.max(0, extracted.descuentoGlobal || 0);
       const totalFactura = extracted.totalFactura || 0;
-      if (totalFactura > 0 && Math.abs(sumaSubtotales - totalFactura) > totalFactura * 0.05) {
-        console.warn(`[Precio] ⚠️ Suma de subtotales (${sumaSubtotales.toFixed(2)}) no coincide con total factura (${totalFactura}). Revisar precios.`);
+      // El total esperado es la suma de subtotales menos el descuento global
+      const totalCalculado = sumaSubtotales - descuentoGlobal;
+      const descuadre = totalFactura > 0 && Math.abs(totalCalculado - totalFactura) > totalFactura * 0.05;
+      if (descuadre) {
+        console.warn(`[Precio] ⚠️ Suma (${sumaSubtotales.toFixed(2)}) − descuento global (${descuentoGlobal.toFixed(2)}) = ${totalCalculado.toFixed(2)} no coincide con total factura (${totalFactura}).`);
+      } else if (descuentoGlobal > 0) {
+        console.log(`[Precio] ✓ Descuento global detectado: ${descuentoGlobal.toFixed(2)} Bs. Total cuadra.`);
       }
 
       return {
@@ -244,8 +258,9 @@ INSTRUCCIONES GENERALES:
         supplier: extracted.supplier || "",
         receiptNumber: extracted.receiptNumber || "",
         totalFactura: totalFactura,
-        avisoTotal: (totalFactura > 0 && Math.abs(sumaSubtotales - totalFactura) > totalFactura * 0.05)
-          ? `La suma de productos (${sumaSubtotales.toFixed(2)}) no coincide con el total de la factura (${totalFactura}). Revisa los precios.`
+        descuentoGlobal: descuentoGlobal,
+        avisoTotal: descuadre
+          ? `La suma de productos (${sumaSubtotales.toFixed(2)})${descuentoGlobal > 0 ? ` menos descuento (${descuentoGlobal.toFixed(2)})` : ""} no coincide con el total de la factura (${totalFactura}). Revisa los precios.`
           : null,
         items: itemsCorregidos,
       };
