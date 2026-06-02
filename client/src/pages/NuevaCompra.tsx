@@ -34,6 +34,7 @@ interface ExtractedItem {
   unitCost: number;
   subtotal: number;
   expiryDate?: string | null;
+  precioVentaSistema?: number | null; // precio_uno del sistema, para evaluar margen
 }
 
 interface ProductoNoEncontrado {
@@ -49,6 +50,21 @@ interface ProductoNoEncontrado {
     score: number;
   };
 }
+
+// Margen de venta = (precioVenta - costo) / precioVenta * 100
+// Devuelve null si no hay datos suficientes
+function calcularMargen(costo: number, precioVenta: number | null | undefined): number | null {
+  if (!precioVenta || precioVenta <= 0 || !costo || costo <= 0) return null;
+  return ((precioVenta - costo) / precioVenta) * 100;
+}
+
+// Precio de venta sugerido para alcanzar un margen objetivo
+function precioParaMargen(costo: number, margenObjetivo = 0.23): number {
+  // precioVenta = costo / (1 - margen)
+  return Math.round((costo / (1 - margenObjetivo)) * 100) / 100;
+}
+
+const MARGEN_MINIMO = 20; // % mínimo aceptable
 
 // Convierte fecha MM/YYYY o DD/MM/YYYY a formato YYYY-MM-DD para input date
 function convertExpiryDate(date: string | null | undefined): string | null {
@@ -189,8 +205,18 @@ export default function NuevaCompra() {
                 });
                 if (conf && conf.nombreSistema) {
                   setProductosEmparejados(prev => ({ ...prev, [conf.nombreSistema]: nombre }));
+                  // Traer el precio de venta del sistema para evaluar margen
+                  let pv: number | null = null;
+                  try {
+                    const arts = await utils.confirmaciones.buscarArticulo.fetch({
+                      termino: conf.nombreSistema,
+                      nombreProveedor: provNombre,
+                    });
+                    const exacto = Array.isArray(arts) ? arts.find((a: any) => a.id === conf.id) || arts[0] : null;
+                    if (exacto) pv = parseFloat(String(exacto.precio_uno ?? 0)) || null;
+                  } catch {}
                   setItems(prev => prev.map((item, idx) =>
-                    idx === i ? { ...item, productName: conf.nombreSistema } : item
+                    idx === i ? { ...item, productName: conf.nombreSistema, precioVentaSistema: pv } : item
                   ));
                 }
               } catch {}
@@ -629,6 +655,28 @@ export default function NuevaCompra() {
                       </div>
                     </div>
 
+                    {/* Alerta de margen de venta */}
+                    {item.precioVentaSistema != null && (() => {
+                      const margen = calcularMargen(item.unitCost, item.precioVentaSistema);
+                      if (margen === null) return null;
+                      const bajo = margen < MARGEN_MINIMO;
+                      const sugerido = precioParaMargen(item.unitCost, 0.23);
+                      return (
+                        <div className={`text-[11px] rounded px-2 py-1.5 mb-1 flex items-center justify-between gap-2 ${bajo ? "bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800" : "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800"}`}>
+                          <span className={bajo ? "text-red-700 dark:text-red-300" : "text-green-700 dark:text-green-400"}>
+                            {bajo ? "⚠️" : "✓"} Precio venta sistema: <strong>{item.precioVentaSistema.toFixed(2)} Bs</strong>
+                            {" · "}Margen: <strong>{margen.toFixed(1)}%</strong>
+                            {bajo && <span className="ml-1">(bajo el mínimo de {MARGEN_MINIMO}%)</span>}
+                          </span>
+                          {bajo && (
+                            <span className="text-red-700 dark:text-red-300 whitespace-nowrap">
+                              Sugerido: <strong>{sugerido.toFixed(2)} Bs</strong> (23%)
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Panel inline de emparejamiento */}
                     {filaEmparejando === idx && (
                       <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-md p-3 mb-2 mt-1 space-y-2">
@@ -690,6 +738,9 @@ export default function NuevaCompra() {
                                     return n;
                                   });
                                   updateItem(idx, "productName", art.nombre);
+                                  // Guardar el precio de venta del sistema para evaluar margen
+                                  const pv = parseFloat(String(art.precio_uno ?? 0)) || null;
+                                  setItems(prev => prev.map((it, i) => i === idx ? { ...it, precioVentaSistema: pv } : it));
                                   toast.success(`✅ Emparejado con "${art.nombre}". Se recordará siempre.`, { duration: 5000 });
                                   setFilaEmparejando(null);
                                   setResultadosBusqueda(prev => { const n = { ...prev }; delete n[idx]; return n; });
