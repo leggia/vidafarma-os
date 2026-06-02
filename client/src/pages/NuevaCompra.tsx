@@ -97,6 +97,9 @@ export default function NuevaCompra() {
   const [resultadosBusqueda, setResultadosBusqueda] = useState<Record<number, any[]>>({});
   const [buscando, setBuscando] = useState<Record<number, boolean>>({});
   const [filaEmparejando, setFilaEmparejando] = useState<number | null>(null);
+  const [filaCreando, setFilaCreando] = useState<number | null>(null);
+  const [nuevoProducto, setNuevoProducto] = useState<{ precioVenta: number; idcategoria: number | null; categoriaNombre: string }>({ precioVenta: 0, idcategoria: null, categoriaNombre: "" });
+  const [creandoProducto, setCreandoProducto] = useState(false);
 
   const utils = trpc.useUtils();
 
@@ -119,6 +122,7 @@ export default function NuevaCompra() {
   const uploadAndExtract = trpc.purchases.uploadAndExtract.useMutation();
   const createPurchase = trpc.purchases.create.useMutation();
   const confirmarEmparejamiento = trpc.confirmaciones.confirmar.useMutation();
+  const crearProductoMut = trpc.confirmaciones.crearProducto.useMutation();
   const buscarArticuloQuery = trpc.confirmaciones.buscarArticulo.useQuery;
 
   const handleFileSelect = useCallback(
@@ -696,6 +700,101 @@ export default function NuevaCompra() {
                             </div>
                           ))}
                         </div>
+
+                        {/* Crear producto nuevo si no se encuentra */}
+                        {filaCreando !== idx ? (
+                          <button
+                            className="w-full mt-1 text-xs text-blue-600 dark:text-blue-400 hover:underline py-1.5 border-t border-blue-200 dark:border-blue-800"
+                            onClick={async () => {
+                              const costo = item.unitCost || 0;
+                              const precioSugerido = Math.round(costo * 1.23 * 100) / 100;
+                              setNuevoProducto({ precioVenta: precioSugerido, idcategoria: null, categoriaNombre: "Sugiriendo..." });
+                              setFilaCreando(idx);
+                              // Pedir categoría sugerida por IA
+                              try {
+                                const sug = await utils.confirmaciones.sugerirCategoria.fetch({ nombreProducto: item.productName });
+                                setNuevoProducto(prev => ({ ...prev, idcategoria: sug.idcategoria, categoriaNombre: sug.nombre || "Sin categoría" }));
+                              } catch {
+                                setNuevoProducto(prev => ({ ...prev, categoriaNombre: "Error al sugerir" }));
+                              }
+                            }}
+                          >
+                            ➕ No existe — Crear producto nuevo
+                          </button>
+                        ) : (
+                          <div className="mt-2 pt-2 border-t border-blue-200 dark:border-blue-800 space-y-2">
+                            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">Crear: {item.productName}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[11px] text-muted-foreground">Costo unitario</label>
+                                <Input value={item.unitCost.toFixed(2)} disabled className="h-8 text-xs" />
+                              </div>
+                              <div>
+                                <label className="text-[11px] text-muted-foreground">Precio venta (costo +23%)</label>
+                                <Input
+                                  type="number"
+                                  value={nuevoProducto.precioVenta}
+                                  onChange={(e) => setNuevoProducto(prev => ({ ...prev, precioVenta: parseFloat(e.target.value) || 0 }))}
+                                  className="h-8 text-xs"
+                                  step="0.01"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-muted-foreground">Categoría sugerida</label>
+                              <p className="text-xs font-medium bg-white dark:bg-gray-900 rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700">
+                                {nuevoProducto.categoriaNombre}
+                                {nuevoProducto.idcategoria && <span className="text-muted-foreground"> (ID: {nuevoProducto.idcategoria})</span>}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white flex-1"
+                                disabled={creandoProducto || !nuevoProducto.idcategoria}
+                                onClick={async () => {
+                                  if (!nuevoProducto.idcategoria) { toast.error("Esperando categoría sugerida..."); return; }
+                                  setCreandoProducto(true);
+                                  try {
+                                    const res = await crearProductoMut.mutateAsync({
+                                      nombre: item.productName,
+                                      costoUnitario: item.unitCost,
+                                      precioVenta: nuevoProducto.precioVenta,
+                                      idcategoria: nuevoProducto.idcategoria,
+                                      nombreProveedor: supplier || undefined,
+                                      stockMinimo: 10,
+                                    });
+                                    if (res.success) {
+                                      // Auto-emparejar el producto recién creado consigo mismo
+                                      const nombreFactura = item.nombreFacturaOriginal || item.productName;
+                                      await confirmarEmparejamiento.mutateAsync({
+                                        proveedor: supplier || "Desconocido",
+                                        nombreFactura,
+                                        articuloId: res.id || 0,
+                                        articuloNombre: item.productName,
+                                        articuloCodigo: "",
+                                      });
+                                      setProductosEmparejados(prev => ({ ...prev, [item.productName]: nombreFactura }));
+                                      toast.success(`✅ Producto "${item.productName}" creado y emparejado.`, { duration: 5000 });
+                                      setFilaCreando(null);
+                                      setFilaEmparejando(null);
+                                    } else {
+                                      toast.error(`No se pudo crear: ${res.message}`);
+                                    }
+                                  } catch (e: any) {
+                                    toast.error(`Error: ${e.message}`);
+                                  }
+                                  setCreandoProducto(false);
+                                }}
+                              >
+                                {creandoProducto ? <Loader2 className="h-3 w-3 animate-spin" /> : "Crear y emparejar"}
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setFilaCreando(null)}>
+                                Cancelar
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     </div>

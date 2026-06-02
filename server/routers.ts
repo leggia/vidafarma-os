@@ -690,6 +690,85 @@ const confirmacionesRouter = router({
     const { confirmacionesService } = await import("./confirmaciones");
     return confirmacionesService.todos();
   }),
+
+  // Listar categorías del sistema
+  listarCategorias: publicProcedure.query(async () => {
+    const { inventarios365 } = await import("./inventarios365");
+    return inventarios365.listarCategorias();
+  }),
+
+  // Sugerir categoría para un producto usando IA
+  sugerirCategoria: publicProcedure
+    .input(z.object({ nombreProducto: z.string() }))
+    .query(async ({ input }) => {
+      const { inventarios365 } = await import("./inventarios365");
+      const categorias = await inventarios365.listarCategorias();
+      if (categorias.length === 0) return { idcategoria: null, nombre: null, categorias: [] };
+
+      // Pedir a la IA que elija la categoría más adecuada de la lista existente
+      try {
+        const lista = categorias.map((c) => `${c.id}: ${c.nombre}`).join("\n");
+        const result = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: "Eres un experto en clasificación de productos farmacéuticos. Dada una lista de categorías y un producto, respondes SOLO con el número de ID de la categoría más adecuada. Si ninguna encaja bien, responde con el ID de la categoría más genérica. Responde SOLO el número, nada más.",
+            },
+            {
+              role: "user",
+              content: `Categorías disponibles:\n${lista}\n\nProducto: "${input.nombreProducto}"\n\nResponde SOLO el ID numérico de la categoría más adecuada:`,
+            },
+          ],
+        });
+        const raw = result.choices[0]?.message?.content || "";
+        const idSugerido = parseInt(String(raw).match(/\d+/)?.[0] || "");
+        const encontrada = categorias.find((c) => c.id === idSugerido);
+        if (encontrada) {
+          return { idcategoria: encontrada.id, nombre: encontrada.nombre, categorias };
+        }
+      } catch (e) {
+        console.error("[sugerirCategoria] Error IA:", e);
+      }
+      // Fallback: primera categoría
+      return { idcategoria: categorias[0].id, nombre: categorias[0].nombre, categorias };
+    }),
+
+  // Crear un producto nuevo en el sistema
+  crearProducto: publicProcedure
+    .input(z.object({
+      nombre: z.string(),
+      codigo: z.string().optional(),
+      descripcion: z.string().optional(),
+      costoUnitario: z.number(),
+      precioVenta: z.number(),
+      idcategoria: z.number(),
+      nombreProveedor: z.string().optional(),
+      stockMinimo: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { inventarios365 } = await import("./inventarios365");
+
+      // Resolver idproveedor desde el nombre si se proporciona
+      let idproveedor = 0;
+      if (input.nombreProveedor) {
+        const prov = await inventarios365.buscarProveedor(input.nombreProveedor);
+        if (prov) idproveedor = prov.id;
+      }
+
+      // Generar código si no se da (timestamp corto)
+      const codigo = input.codigo || `AUTO${Date.now().toString().slice(-8)}`;
+
+      return inventarios365.crearProducto({
+        nombre: input.nombre,
+        codigo,
+        descripcion: input.descripcion || (input.nombreProveedor ? `Proveedor: ${input.nombreProveedor}` : ""),
+        costoUnitario: input.costoUnitario,
+        precioVenta: input.precioVenta,
+        idcategoria: input.idcategoria,
+        idproveedor,
+        stockMinimo: input.stockMinimo ?? 10,
+      });
+    }),
 });
 
 // ─── Cache Router ─────────────────────────────────────────────────────────────

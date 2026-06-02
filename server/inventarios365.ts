@@ -473,6 +473,95 @@ class Inventarios365Service {
   }
 
   /**
+   * Listar las categorías disponibles en el sistema.
+   */
+  async listarCategorias(): Promise<Array<{ id: number; nombre: string }>> {
+    try {
+      const data = await this.get<any>(`/categorianewview?page=1&buscar=&criterio=nombre`);
+      const raw = data?.categorias ?? data?.data ?? data;
+      const arr = Array.isArray(raw) ? raw : (raw?.data ?? []);
+      return arr.map((c: any) => ({ id: c.id, nombre: c.nombre })).filter((c: any) => c.id);
+    } catch (error) {
+      console.error("[Inventarios365] Error listando categorías:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Crear un producto nuevo. POST /articulo/registrar (multipart form-data)
+   */
+  async crearProducto(params: {
+    nombre: string;
+    codigo: string;
+    descripcion?: string;
+    costoUnitario: number;
+    precioVenta: number;
+    idcategoria: number;
+    idproveedor?: number;
+    stockMinimo?: number;
+    unidadEnvase?: number;
+  }): Promise<{ success: boolean; id?: number; message?: string }> {
+    try {
+      this.invalidateSession();
+      await this.login();
+
+      const FormData = (await import("form-data")).default;
+      const form = new FormData();
+      form.append("nombre", params.nombre);
+      form.append("descripcion", params.descripcion || "");
+      form.append("nombre_generico", "");
+      form.append("unidad_envase", String(params.unidadEnvase ?? 1));
+      form.append("precio_costo_unid", String(params.costoUnitario));
+      form.append("precio_costo_paq", String(params.costoUnitario));
+      form.append("precio_venta", "0");
+      form.append("precio_uno", String(params.precioVenta));
+      form.append("precio_dos", "0");
+      form.append("precio_tres", "0");
+      form.append("precio_cuatro", "0");
+      form.append("stock", String(params.stockMinimo ?? 10));
+      form.append("costo_compra", "0");
+      form.append("codigo", params.codigo);
+      form.append("codigo_alfanumerico", "");
+      form.append("descripcion_fabrica", "");
+      form.append("idcategoria", String(params.idcategoria));
+      form.append("idmarca", "null");
+      form.append("idindustria", "null");
+      form.append("idgrupo", "null");
+      form.append("idproveedor", String(params.idproveedor ?? 0));
+      form.append("idmedida", "undefined");
+      form.append("fechaVencimientoSeleccion", "1");
+      form.append("precio_costo_paqVacio", "false");
+
+      const cookie = this.buildCookieHeader();
+      const xsrfDecoded = this.xsrfToken ? decodeURIComponent(this.xsrfToken) : "";
+
+      const resp = await this.client.post("/articulo/registrar", form, {
+        headers: {
+          ...form.getHeaders(),
+          Cookie: cookie,
+          "X-XSRF-TOKEN": xsrfDecoded,
+          "X-CSRF-TOKEN": this.csrfToken || "",
+          "X-Requested-With": "XMLHttpRequest",
+          Referer: `${BASE_URL}/main`,
+        },
+        maxRedirects: 0,
+        validateStatus: () => true,
+      });
+
+      console.log(`[Inventarios365] crearProducto "${params.nombre}" → status ${resp.status}:`, JSON.stringify(resp.data).substring(0, 200));
+
+      if (resp.status >= 200 && resp.status < 300) {
+        const id = resp.data?.id ?? resp.data?.articulo?.id;
+        return { success: true, id, message: "Producto creado" };
+      }
+      return { success: false, message: `Error ${resp.status}` };
+    } catch (error: any) {
+      console.error("[Inventarios365] Error creando producto:", error?.message);
+      return { success: false, message: error?.message || "Error al crear producto" };
+    }
+  }
+
+  /**
    * Obtener la lista de almacenes disponibles.
    * Endpoint: GET /almacen/selectAlmacen → { almacenes: [{id, nombre_almacen}] }
    */
