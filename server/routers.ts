@@ -310,6 +310,7 @@ INSTRUCCIONES GENERALES:
               cantidad: item.quantity,
               precio: item.unitCost,
               fechaVencimiento: item.expiryDate || null,
+              nuevoPrecioVenta: item.nuevoPrecioVenta ?? null,
             })),
             total: input.totalAmount || 0,
           });

@@ -12,8 +12,13 @@ class ConfirmacionesService {
 
   private normalizar(s: string): string {
     return s.toUpperCase().trim()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-      .replace(/\s+/g, " ");
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar tildes
+      .replace(/[.,;:()\[\]]/g, " ")                      // puntuación → espacio
+      .replace(/\bX\s*\d+\b/g, " ")                        // quitar "x10", "x 100" (presentación)
+      .replace(/\b(\d+)\s*(MG|ML|GR|G|MCG|UI|CC)\b/g, "$1$2") // "400 mg" → "400MG" (unir número+unidad)
+      .replace(/\b(CAPS?|COMP|TAB|TABL|CPR|JBE|JARABE|SOBRE|GEL|AMP|AMPOLLA|SUSP|GOTAS|CREMA|UNGUENTO|SOL)\b/g, " ") // quitar presentación
+      .replace(/\s+/g, " ")                                 // espacios múltiples → uno
+      .trim();
   }
 
   async buscar(proveedor: string, nombreFactura: string): Promise<{ id: number; nombreSistema: string; codigo: string } | null> {
