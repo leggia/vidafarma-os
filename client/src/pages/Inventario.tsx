@@ -20,6 +20,7 @@ interface ConteoItem {
   valorStock: number;
   clase: string;
   categoria?: string;
+  vencimiento?: string | null;
   fisico: number | null;
 }
 
@@ -45,6 +46,7 @@ export default function Inventario() {
   const [busqueda, setBusqueda] = useState("");
   const [soloDiferencias, setSoloDiferencias] = useState(false);
   const [filtroClase, setFiltroClase] = useState<string | null>(null);
+  const [ajustarStock, setAjustarStock] = useState(true);
 
   const { data: sesiones, isLoading: cargandoSesiones } = trpc.inventario.listarSesiones.useQuery(undefined, {
     enabled: vista === "sesiones",
@@ -149,15 +151,36 @@ export default function Inventario() {
     const conteos = items.filter(i => i.fisico !== null).map(i => ({
       articuloId: i.id, nombre: i.nombre, stockSistema: i.stock,
       stockFisico: i.fisico!, diferencia: i.fisico! - i.stock,
+      fechaVencimiento: i.vencimiento || null,
     }));
     if (conteos.length === 0) { toast.error("No has contado ningún producto"); return; }
+
+    // Confirmación antes de ajustar el stock real (operación que modifica el inventario)
+    const conDif = conteos.filter(c => c.diferencia !== 0).length;
+    if (completar && ajustarStock && conDif > 0) {
+      const ok = window.confirm(
+        `Vas a ajustar el stock real de ${conDif} producto(s) en inventarios365.\n\n` +
+        `Esto modificará el inventario del sistema según tu conteo físico. Esta acción queda registrada como "Ajuste periódico".\n\n` +
+        `¿Confirmas el ajuste?`
+      );
+      if (!ok) return;
+    }
+
     try {
-      await guardarConteoProveedor.mutateAsync({
+      const res = await guardarConteoProveedor.mutateAsync({
         sesionId: sesionActiva.id, proveedorId: proveedorActivo?.id,
         proveedorNombre: proveedorActivo!.nombre, totalProductos: items.length,
-        completar, conteos,
+        completar, ajustarStock: completar && ajustarStock, conteos,
       });
-      toast.success(completar ? "Proveedor completado" : "Progreso guardado", { duration: 4000 });
+      if (completar && ajustarStock && res.ajuste) {
+        if (res.ajuste.ok) {
+          toast.success(`Proveedor completado. ${res.ajuste.ajustados} producto(s) ajustados en el sistema.`, { duration: 6000 });
+        } else {
+          toast.error(`Conteo guardado, pero el ajuste falló: ${res.ajuste.mensaje}`, { duration: 7000 });
+        }
+      } else {
+        toast.success(completar ? "Proveedor completado" : "Progreso guardado", { duration: 4000 });
+      }
       const detalle = await utils.inventario.detalleSesion.fetch({ sesionId: sesionActiva.id });
       if (detalle) setSesionActiva((prev: any) => ({ ...prev, proveedores: detalle.proveedores }));
       await utils.inventario.listarSesiones.invalidate();
@@ -367,10 +390,26 @@ export default function Inventario() {
                   <Save className="h-3 w-3" /> Guardar
                 </Button>
                 <Button size="sm" onClick={() => guardarProveedor(true)} disabled={guardarConteoProveedor.isPending || stats.contados === 0} className="gap-1 h-8 text-xs bg-green-700 hover:bg-green-800 text-white">
-                  <Check className="h-3 w-3" /> Completar
+                  {guardarConteoProveedor.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Completar
                 </Button>
               </div>
             </div>
+
+            {/* Toggle: ajustar stock real en el sistema al completar */}
+            <button
+              onClick={() => setAjustarStock(!ajustarStock)}
+              className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs transition-colors ${ajustarStock ? "bg-green-50 dark:bg-green-950/40 border border-green-300 dark:border-green-800" : "bg-muted/40 border border-foreground/10"}`}
+            >
+              <span className="flex items-center gap-2">
+                <span className={`h-4 w-4 rounded flex items-center justify-center shrink-0 ${ajustarStock ? "bg-green-600 text-white" : "border border-foreground/30"}`}>
+                  {ajustarStock && <Check className="h-3 w-3" />}
+                </span>
+                <span className={ajustarStock ? "text-green-800 dark:text-green-300 font-medium" : "text-muted-foreground"}>
+                  Al completar, ajustar el stock real en inventarios365
+                </span>
+              </span>
+              <span className="text-[10px] text-muted-foreground shrink-0">{ajustarStock ? "Activado" : "Solo guardar"}</span>
+            </button>
 
             <div className="grid grid-cols-4 gap-2">
               <div className="text-center bg-muted/40 rounded-lg py-2">

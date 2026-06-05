@@ -627,6 +627,63 @@ class Inventarios365Service {
   }
 
   /**
+   * Ajustar el stock de varios productos tras un conteo físico.
+   * Endpoint: POST /ajuste/registrar-multiple
+   * Solo se envían productos cuyo físico difiere del sistema.
+   */
+  async ajustarInventario(params: {
+    almacenId: number;
+    motivoId: number; // 2 = "Ajuste periodico"
+    ajustes: Array<{
+      productoId: number;
+      stockAnterior: number;   // stock del sistema
+      stockReal: number;       // físico contado
+      fechaVencimiento?: string | null;
+    }>;
+  }): Promise<{ ok: boolean; ajustados: number; mensaje: string }> {
+    try {
+      // Solo productos con diferencia real
+      const conDiferencia = params.ajustes.filter(a => a.stockReal !== a.stockAnterior);
+      if (conDiferencia.length === 0) {
+        return { ok: true, ajustados: 0, mensaje: "No hay diferencias para ajustar" };
+      }
+
+      const productos = conDiferencia.map(a => {
+        const diferencia = Math.abs(a.stockReal - a.stockAnterior);
+        // físico menor que sistema → salida (baja); físico mayor → entrada (alta)
+        const tipoMovimiento = a.stockReal < a.stockAnterior ? "salida" : "entrada";
+        const fv = a.fechaVencimiento ? this.convertirFecha(a.fechaVencimiento) : null;
+        return {
+          producto_id: a.productoId,
+          inventario_id: null,
+          cantidad: diferencia,
+          tipo_movimiento: tipoMovimiento,
+          stock_anterior: a.stockAnterior,
+          stock_real: a.stockReal,
+          es_padre: 1,
+          producto_padre_id: null,
+          fecha_vencimiento: fv,
+          fecha_vencimiento_original: fv,
+        };
+      });
+
+      const payload = {
+        almacen_id: params.almacenId,
+        motivo_id: params.motivoId,
+        productos,
+      };
+
+      console.log(`[Inventarios365] Ajuste de inventario: ${productos.length} productos con diferencia`);
+      const resp = await this.post<any>("/ajuste/registrar-multiple", payload);
+      console.log(`[Inventarios365] Ajuste response:`, JSON.stringify(resp).substring(0, 200));
+      return { ok: true, ajustados: productos.length, mensaje: `${productos.length} productos ajustados` };
+    } catch (error: any) {
+      console.error(`[Inventarios365] Error ajustando inventario:`, error?.message);
+      return { ok: false, ajustados: 0, mensaje: error?.message || "Error al ajustar" };
+    }
+  }
+
+  /**
    * Listar productos para inventario (por proveedor o todos), con stock y valor.
    */
   async listarParaInventario(idProveedor = ""): Promise<Array<{

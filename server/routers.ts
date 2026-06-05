@@ -940,17 +940,19 @@ const inventarioRouter = router({
       proveedorNombre: z.string(),
       totalProductos: z.number(),
       completar: z.boolean().optional(),
+      ajustarStock: z.boolean().optional(), // si true y completar, ajusta el stock real en inventarios365
       conteos: z.array(z.object({
         articuloId: z.number(),
         nombre: z.string(),
         stockSistema: z.number(),
         stockFisico: z.number(),
         diferencia: z.number(),
+        fechaVencimiento: z.string().nullable().optional(),
       })),
     }))
     .mutation(async ({ input }) => {
       const { getDb } = await import("./db");
-      const { inventarioProveedores } = await import("../drizzle/schema");
+      const { inventarioProveedores, inventarioSesiones } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new Error("Sin base de datos");
@@ -987,7 +989,29 @@ const inventarioRouter = router({
           completadoEn: input.completar ? new Date() : null,
         });
       }
-      return { success: true, conDiferencia: conDif, contados: input.conteos.length };
+
+      // Si se completa Y se pidió ajustar, aplicar el ajuste real en inventarios365
+      let ajusteResultado: { ok: boolean; ajustados: number; mensaje: string } | null = null;
+      if (input.completar && input.ajustarStock && conDif > 0) {
+        const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, input.sesionId)))[0];
+        if (sesion) {
+          const { inventarios365 } = await import("./inventarios365");
+          ajusteResultado = await inventarios365.ajustarInventario({
+            almacenId: sesion.almacenId,
+            motivoId: 2, // "Ajuste periodico"
+            ajustes: input.conteos
+              .filter(c => c.diferencia !== 0)
+              .map(c => ({
+                productoId: c.articuloId,
+                stockAnterior: c.stockSistema,
+                stockReal: c.stockFisico,
+                fechaVencimiento: c.fechaVencimiento || null,
+              })),
+          });
+        }
+      }
+
+      return { success: true, conDiferencia: conDif, contados: input.conteos.length, ajuste: ajusteResultado };
     }),
 
   // Marcar sesión como completada
