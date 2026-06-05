@@ -188,6 +188,40 @@ export const historialPrecios = mysqlTable("historial_precios", {
 export type HistorialPrecio = typeof historialPrecios.$inferSelect;
 export type InsertHistorialPrecio = typeof historialPrecios.$inferInsert;
 
+// ─── Sesiones de Inventario ──────────────────────────────────────────────────
+// Una sesión = un inventario con nombre, sucursal, que se hace por proveedor
+export const inventarioSesiones = mysqlTable("inventario_sesiones", {
+  id: int("id").autoincrement().primaryKey(),
+  nombre: varchar("nombre", { length: 255 }).notNull(), // "Inventario MAYO Suc 1"
+  tipo: varchar("tipo", { length: 30 }).notNull().default("anual"), // anual | ciclico_abc
+  almacenId: int("almacenId").notNull(), // sucursal/almacén de inventarios365
+  almacenNombre: varchar("almacenNombre", { length: 255 }),
+  estado: varchar("estado", { length: 20 }).notNull().default("en_progreso"), // en_progreso | completado
+  creadoEn: timestamp("creadoEn").defaultNow().notNull(),
+  actualizadoEn: timestamp("actualizadoEn").defaultNow().onUpdateNow().notNull(),
+});
+
+export type InventarioSesion = typeof inventarioSesiones.$inferSelect;
+export type InsertInventarioSesion = typeof inventarioSesiones.$inferInsert;
+
+// Avance por proveedor dentro de una sesión, con los conteos guardados
+export const inventarioProveedores = mysqlTable("inventario_proveedores", {
+  id: int("id").autoincrement().primaryKey(),
+  sesionId: int("sesionId").notNull(),
+  proveedorId: varchar("proveedorId", { length: 50 }),
+  proveedorNombre: varchar("proveedorNombre", { length: 255 }).notNull(),
+  totalProductos: int("totalProductos").notNull().default(0),
+  productosContados: int("productosContados").notNull().default(0),
+  conDiferencia: int("conDiferencia").notNull().default(0),
+  conteos: json("conteos"), // array de {articuloId, nombre, stockSistema, stockFisico, diferencia}
+  estado: varchar("estado", { length: 20 }).notNull().default("en_progreso"),
+  completadoEn: timestamp("completadoEn"),
+  actualizadoEn: timestamp("actualizadoEn").defaultNow().onUpdateNow().notNull(),
+});
+
+export type InventarioProveedor = typeof inventarioProveedores.$inferSelect;
+export type InsertInventarioProveedor = typeof inventarioProveedores.$inferInsert;
+
 // ─── Productos Cache (Cache de artículos de inventarios365) ──────────────────
 export const productosCache = mysqlTable("productos_cache", {
   id: int("id").autoincrement().primaryKey(),

@@ -832,25 +832,20 @@ const cacheRouter = router({
 // ─── Inventario Router ───────────────────────────────────────────────────────
 const inventarioRouter = router({
   // Listar productos para conteo, por proveedor (vacío = todos)
-  // Calcula clasificación ABC por valor de stock (Pareto 80/20)
   listar: publicProcedure
     .input(z.object({ idProveedor: z.string().optional() }))
     .query(async ({ input }) => {
       const { inventarios365 } = await import("./inventarios365");
       const productos = await inventarios365.listarParaInventario(input.idProveedor || "");
-
-      // Clasificación ABC: ordenar por valor de stock descendente
       const ordenados = [...productos].sort((a, b) => b.valorStock - a.valorStock);
       const valorTotal = ordenados.reduce((acc, p) => acc + p.valorStock, 0);
       let acumulado = 0;
       const conClase = ordenados.map((p) => {
         acumulado += p.valorStock;
         const pctAcumulado = valorTotal > 0 ? (acumulado / valorTotal) * 100 : 0;
-        // A: hasta 80% del valor, B: 80-95%, C: resto
         const clase = pctAcumulado <= 80 ? "A" : pctAcumulado <= 95 ? "B" : "C";
         return { ...p, clase };
       });
-
       return {
         productos: conClase,
         resumen: {
@@ -863,11 +858,88 @@ const inventarioRouter = router({
       };
     }),
 
-  // Guardar una sesión de conteo (las variaciones encontradas)
-  guardarConteo: publicProcedure
+  // Crear una nueva sesión de inventario
+  crearSesion: publicProcedure
     .input(z.object({
+      nombre: z.string(),
       tipo: z.enum(["anual", "ciclico_abc"]),
-      proveedor: z.string().optional(),
+      almacenId: z.number(),
+      almacenNombre: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { inventarioSesiones } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) throw new Error("Sin base de datos");
+      const [res] = await db.insert(inventarioSesiones).values({
+        nombre: input.nombre,
+        tipo: input.tipo,
+        almacenId: input.almacenId,
+        almacenNombre: input.almacenNombre || null,
+        estado: "en_progreso",
+      });
+      const id = res.insertId;
+      return { success: true, id };
+    }),
+
+  // Listar sesiones (en progreso y completadas)
+  listarSesiones: publicProcedure.query(async () => {
+    const { getDb } = await import("./db");
+    const { inventarioSesiones, inventarioProveedores } = await import("../drizzle/schema");
+    const { desc } = await import("drizzle-orm");
+    const db = await getDb();
+    if (!db) return [];
+    const sesiones = await db.select().from(inventarioSesiones).orderBy(desc(inventarioSesiones.creadoEn));
+    if (sesiones.length === 0) return [];
+
+    // Traer TODOS los proveedores de una vez (evita N+1) y agrupar en memoria
+    const todosProvs = await db.select().from(inventarioProveedores);
+    const porSesion = new Map<number, any[]>();
+    for (const p of todosProvs) {
+      const arr = porSesion.get(p.sesionId) || [];
+      arr.push(p);
+      porSesion.set(p.sesionId, arr);
+    }
+
+    return sesiones.map((s: any) => {
+      const provs = porSesion.get(s.id) || [];
+      const completados = provs.filter((p: any) => p.estado === "completado").length;
+      return {
+        ...s,
+        proveedoresInventariados: provs.length,
+        proveedoresCompletados: completados,
+        proveedores: provs.map((p: any) => ({
+          id: p.id, proveedorId: p.proveedorId, proveedorNombre: p.proveedorNombre, estado: p.estado,
+          productosContados: p.productosContados, totalProductos: p.totalProductos,
+          conDiferencia: p.conDiferencia,
+        })),
+      };
+    });
+  }),
+
+  // Detalle de una sesión con sus proveedores y conteos
+  detalleSesion: publicProcedure
+    .input(z.object({ sesionId: z.number() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { inventarioSesiones, inventarioProveedores } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return null;
+      const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, input.sesionId)))[0];
+      if (!sesion) return null;
+      const provs = await db.select().from(inventarioProveedores).where(eq(inventarioProveedores.sesionId, input.sesionId));
+      return { sesion, proveedores: provs };
+    }),
+
+  // Guardar/actualizar el conteo de un proveedor dentro de una sesión
+  guardarConteoProveedor: publicProcedure
+    .input(z.object({
+      sesionId: z.number(),
+      proveedorId: z.string().optional(),
+      proveedorNombre: z.string(),
+      totalProductos: z.number(),
+      completar: z.boolean().optional(),
       conteos: z.array(z.object({
         articuloId: z.number(),
         nombre: z.string(),
@@ -877,15 +949,58 @@ const inventarioRouter = router({
       })),
     }))
     .mutation(async ({ input }) => {
-      // Por ahora registra en log; el ajuste al sistema se conecta con el endpoint real
-      const conDiferencia = input.conteos.filter((c) => c.diferencia !== 0);
-      console.log(`[Inventario] Conteo ${input.tipo} (${input.proveedor || "todos"}): ${input.conteos.length} productos, ${conDiferencia.length} con diferencia`);
-      return {
-        success: true,
-        totalContados: input.conteos.length,
-        conDiferencia: conDiferencia.length,
-        diferencias: conDiferencia,
-      };
+      const { getDb } = await import("./db");
+      const { inventarioProveedores } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin base de datos");
+
+      const conDif = input.conteos.filter((c) => c.diferencia !== 0).length;
+      const estado = input.completar ? "completado" : "en_progreso";
+
+      // ¿Ya existe el registro de este proveedor en esta sesión?
+      const existente = (await db.select().from(inventarioProveedores)
+        .where(and(
+          eq(inventarioProveedores.sesionId, input.sesionId),
+          eq(inventarioProveedores.proveedorNombre, input.proveedorNombre)
+        )))[0];
+
+      if (existente) {
+        await db.update(inventarioProveedores).set({
+          totalProductos: input.totalProductos,
+          productosContados: input.conteos.length,
+          conDiferencia: conDif,
+          conteos: input.conteos,
+          estado,
+          completadoEn: input.completar ? new Date() : null,
+        }).where(eq(inventarioProveedores.id, existente.id));
+      } else {
+        await db.insert(inventarioProveedores).values({
+          sesionId: input.sesionId,
+          proveedorId: input.proveedorId || null,
+          proveedorNombre: input.proveedorNombre,
+          totalProductos: input.totalProductos,
+          productosContados: input.conteos.length,
+          conDiferencia: conDif,
+          conteos: input.conteos,
+          estado,
+          completadoEn: input.completar ? new Date() : null,
+        });
+      }
+      return { success: true, conDiferencia: conDif, contados: input.conteos.length };
+    }),
+
+  // Marcar sesión como completada
+  completarSesion: publicProcedure
+    .input(z.object({ sesionId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { inventarioSesiones } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin base de datos");
+      await db.update(inventarioSesiones).set({ estado: "completado" }).where(eq(inventarioSesiones.id, input.sesionId));
+      return { success: true };
     }),
 });
 

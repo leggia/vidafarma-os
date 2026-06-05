@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   ClipboardCheck, Search, Loader2, Check, AlertTriangle,
   Package, TrendingUp, Filter, Save, RotateCcw, ChevronRight,
+  Plus, FolderOpen, Building2, CheckCircle2, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,21 +14,31 @@ interface ConteoItem {
   id: number;
   nombre: string;
   codigo: string;
-  stock: number;        // sistema
+  stock: number;
   costoUnit: number;
   precioVenta: number;
   valorStock: number;
-  clase: string;        // A, B, C
+  clase: string;
   categoria?: string;
-  fisico: number | null; // ingresado por el usuario
+  fisico: number | null;
 }
 
+type Vista = "sesiones" | "nueva" | "proveedores" | "conteo";
+
 export default function Inventario() {
-  const [modo, setModo] = useState<"anual" | "ciclico_abc">("anual");
+  const [vista, setVista] = useState<Vista>("sesiones");
+  const utils = trpc.useUtils();
+
+  const [sesionActiva, setSesionActiva] = useState<any>(null);
+
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevoTipo, setNuevoTipo] = useState<"anual" | "ciclico_abc">("anual");
+  const [nuevoAlmacen, setNuevoAlmacen] = useState<{ id: number; nombre: string } | null>(null);
+
   const [proveedorFiltro, setProveedorFiltro] = useState("");
-  const [proveedorActivo, setProveedorActivo] = useState<{ id: string; nombre: string } | null>(null);
   const [proveedoresLista, setProveedoresLista] = useState<any[]>([]);
   const [buscandoProv, setBuscandoProv] = useState(false);
+  const [proveedorActivo, setProveedorActivo] = useState<{ id: string; nombre: string } | null>(null);
   const [items, setItems] = useState<ConteoItem[]>([]);
   const [resumen, setResumen] = useState<any>(null);
   const [cargando, setCargando] = useState(false);
@@ -35,65 +46,94 @@ export default function Inventario() {
   const [soloDiferencias, setSoloDiferencias] = useState(false);
   const [filtroClase, setFiltroClase] = useState<string | null>(null);
 
-  const utils = trpc.useUtils();
-  const guardarConteo = trpc.inventario.guardarConteo.useMutation();
+  const { data: sesiones, isLoading: cargandoSesiones } = trpc.inventario.listarSesiones.useQuery(undefined, {
+    enabled: vista === "sesiones",
+  });
+  const crearSesion = trpc.inventario.crearSesion.useMutation();
+  const guardarConteoProveedor = trpc.inventario.guardarConteoProveedor.useMutation();
+  const completarSesion = trpc.inventario.completarSesion.useMutation();
 
-  // Buscar proveedores
+  const almacenes = [
+    { id: 1, nombre: "ALMACEN PRINCIPAL" },
+    { id: 2, nombre: "Almacen Petrolera" },
+    { id: 3, nombre: "Almacen Lanza" },
+    { id: 4, nombre: "Almacen Cobol" },
+  ];
+
+  const handleCrearSesion = async () => {
+    if (!nuevoNombre.trim()) { toast.error("Ponle un nombre al inventario"); return; }
+    if (!nuevoAlmacen) { toast.error("Elige la sucursal"); return; }
+    try {
+      const res = await crearSesion.mutateAsync({
+        nombre: nuevoNombre.trim(), tipo: nuevoTipo,
+        almacenId: nuevoAlmacen.id, almacenNombre: nuevoAlmacen.nombre,
+      });
+      setSesionActiva({ id: res.id, nombre: nuevoNombre.trim(), tipo: nuevoTipo, almacenNombre: nuevoAlmacen.nombre, estado: "en_progreso", proveedores: [] });
+      toast.success("Inventario creado");
+      setVista("proveedores");
+      setNuevoNombre(""); setNuevoAlmacen(null);
+      await utils.inventario.listarSesiones.invalidate();
+    } catch (e: any) { toast.error("Error: " + (e.message || "")); }
+  };
+
+  const abrirSesion = (s: any) => { setSesionActiva(s); setVista("proveedores"); };
+
   const buscarProveedores = useCallback(async () => {
     setBuscandoProv(true);
     try {
       const provs = await utils.confirmaciones.listarProveedores.fetch({ filtro: proveedorFiltro });
       setProveedoresLista(Array.isArray(provs) ? provs : []);
-    } catch {
-      setProveedoresLista([]);
-    }
+    } catch { setProveedoresLista([]); }
     setBuscandoProv(false);
   }, [proveedorFiltro, utils]);
 
-  // Cargar productos para conteo
   const cargarProductos = useCallback(async (idProveedor: string, nombreProv: string) => {
     setCargando(true);
     setProveedorActivo({ id: idProveedor, nombre: nombreProv });
     setProveedoresLista([]);
+    setVista("conteo");
     try {
       const res = await utils.inventario.listar.fetch({ idProveedor });
       let productos = res.productos.map((p: any) => ({ ...p, fisico: null }));
-      // En modo cíclico ABC, priorizar clase A (las más importantes)
-      if (modo === "ciclico_abc") {
-        productos = productos.sort((a: any, b: any) => {
-          const orden: any = { A: 0, B: 1, C: 2 };
-          return orden[a.clase] - orden[b.clase];
-        });
+      const provGuardado = sesionActiva?.proveedores?.find((p: any) => p.proveedorNombre === nombreProv);
+      if (provGuardado) {
+        try {
+          const detalle = await utils.inventario.detalleSesion.fetch({ sesionId: sesionActiva.id });
+          const provData = detalle?.proveedores?.find((p: any) => p.proveedorNombre === nombreProv);
+          if (provData?.conteos && Array.isArray(provData.conteos)) {
+            const previos = new Map(provData.conteos.map((c: any) => [c.articuloId, c.stockFisico]));
+            productos = productos.map((p: any) => previos.has(p.id) ? { ...p, fisico: previos.get(p.id) } : p);
+            toast.info("Recuperado conteo previo");
+          }
+        } catch {}
+      }
+      if (sesionActiva?.tipo === "ciclico_abc") {
+        const orden: any = { A: 0, B: 1, C: 2 };
+        productos = productos.sort((a: any, b: any) => orden[a.clase] - orden[b.clase]);
       }
       setItems(productos);
       setResumen(res.resumen);
       if (productos.length === 0) toast.info("Este proveedor no tiene productos");
-    } catch (e: any) {
-      toast.error("Error cargando productos: " + (e.message || ""));
-    }
+    } catch (e: any) { toast.error("Error cargando productos: " + (e.message || "")); }
     setCargando(false);
-  }, [modo, utils]);
+  }, [sesionActiva, utils]);
 
   const setFisico = (id: number, valor: string) => {
     const v = valor === "" ? null : parseInt(valor);
     setItems(prev => prev.map(it => it.id === id ? { ...it, fisico: isNaN(v as any) ? null : v } : it));
   };
 
-  // Estadísticas en vivo
   const stats = useMemo(() => {
     const contados = items.filter(i => i.fisico !== null);
     const conDif = contados.filter(i => i.fisico !== i.stock);
     const valorDiferencias = conDif.reduce((acc, i) => acc + ((i.fisico! - i.stock) * i.costoUnit), 0);
     return {
-      total: items.length,
-      contados: contados.length,
-      pendientes: items.length - contados.length,
-      conDiferencia: conDif.length,
+      total: items.length, contados: contados.length,
+      pendientes: items.length - contados.length, conDiferencia: conDif.length,
       valorDiferencias: Math.round(valorDiferencias * 100) / 100,
     };
   }, [items]);
 
-  // Lista filtrada para mostrar
   const itemsFiltrados = useMemo(() => {
     let r = items;
     if (busqueda) {
@@ -105,25 +145,24 @@ export default function Inventario() {
     return r;
   }, [items, busqueda, filtroClase, soloDiferencias]);
 
-  const guardar = async () => {
+  const guardarProveedor = async (completar: boolean) => {
     const conteos = items.filter(i => i.fisico !== null).map(i => ({
-      articuloId: i.id,
-      nombre: i.nombre,
-      stockSistema: i.stock,
-      stockFisico: i.fisico!,
-      diferencia: i.fisico! - i.stock,
+      articuloId: i.id, nombre: i.nombre, stockSistema: i.stock,
+      stockFisico: i.fisico!, diferencia: i.fisico! - i.stock,
     }));
     if (conteos.length === 0) { toast.error("No has contado ningún producto"); return; }
     try {
-      const res = await guardarConteo.mutateAsync({
-        tipo: modo,
-        proveedor: proveedorActivo?.nombre,
-        conteos,
+      await guardarConteoProveedor.mutateAsync({
+        sesionId: sesionActiva.id, proveedorId: proveedorActivo?.id,
+        proveedorNombre: proveedorActivo!.nombre, totalProductos: items.length,
+        completar, conteos,
       });
-      toast.success(`Conteo guardado: ${res.totalContados} productos, ${res.conDiferencia} con diferencia`, { duration: 6000 });
-    } catch (e: any) {
-      toast.error("Error: " + (e.message || ""));
-    }
+      toast.success(completar ? "Proveedor completado" : "Progreso guardado", { duration: 4000 });
+      const detalle = await utils.inventario.detalleSesion.fetch({ sesionId: sesionActiva.id });
+      if (detalle) setSesionActiva((prev: any) => ({ ...prev, proveedores: detalle.proveedores }));
+      await utils.inventario.listarSesiones.invalidate();
+      if (completar) { setVista("proveedores"); setProveedorActivo(null); setItems([]); }
+    } catch (e: any) { toast.error("Error: " + (e.message || "")); }
   };
 
   const claseColor = (c: string) =>
@@ -131,114 +170,208 @@ export default function Inventario() {
     : c === "B" ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
     : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
 
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-foreground pb-4">
-        <div className="h-11 w-11 rounded-lg bg-primary/10 flex items-center justify-center">
-          <ClipboardCheck className="h-6 w-6 text-primary" />
+  // ─── VISTA: Lista de sesiones ──────────────────────────────
+  if (vista === "sesiones") {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center justify-between gap-3 border-b border-foreground pb-4">
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 rounded-lg bg-primary/10 flex items-center justify-center">
+              <ClipboardCheck className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black uppercase tracking-tight">Inventario Físico</h1>
+              <p className="text-xs text-muted-foreground">Gestión por sucursal y proveedor</p>
+            </div>
+          </div>
+          <Button onClick={() => setVista("nueva")} className="gap-2"><Plus className="h-4 w-4" /> Nuevo</Button>
         </div>
-        <div>
-          <h1 className="text-xl font-black uppercase tracking-tight">Inventario Físico</h1>
-          <p className="text-xs text-muted-foreground">Conteo por proveedor y conteo cíclico ABC</p>
-        </div>
-      </div>
 
-      {!proveedorActivo ? (
+        {cargandoSesiones ? (
+          <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+        ) : !sesiones || sesiones.length === 0 ? (
+          <div className="text-center py-16 border border-dashed border-foreground/20 rounded-lg">
+            <FolderOpen className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <p className="text-sm font-medium">No hay inventarios todavía</p>
+            <p className="text-xs text-muted-foreground mb-4">Crea tu primer inventario para empezar</p>
+            <Button onClick={() => setVista("nueva")} className="gap-2"><Plus className="h-4 w-4" /> Nuevo inventario</Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sesiones.map((s: any) => {
+              const pct = s.proveedoresInventariados > 0 ? Math.round((s.proveedoresCompletados / s.proveedoresInventariados) * 100) : 0;
+              return (
+                <button key={s.id} onClick={() => abrirSesion(s)} className="w-full text-left rounded-lg border border-foreground/15 hover:border-primary/50 hover:bg-primary/5 p-4 transition-all">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-bold text-sm truncate">{s.nombre}</span>
+                      {s.estado === "completado"
+                        ? <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 font-medium uppercase shrink-0">Completado</span>
+                        : <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 font-medium uppercase shrink-0">En progreso</span>}
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2 flex-wrap">
+                    <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> {s.almacenNombre || "—"}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-muted">{s.tipo === "anual" ? "Anual" : "Cíclico ABC"}</span>
+                    <span>{s.proveedoresCompletados}/{s.proveedoresInventariados} proveedores</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── VISTA: Nueva sesión ──────────────────────────────
+  if (vista === "nueva") {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3 border-b border-foreground pb-4">
+          <Button variant="ghost" size="icon" onClick={() => setVista("sesiones")}><RotateCcw className="h-5 w-5" /></Button>
+          <h1 className="text-xl font-black uppercase tracking-tight">Nuevo Inventario</h1>
+        </div>
         <Card>
           <CardContent className="pt-6 space-y-5">
-            {/* Selector de modo */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Nombre del inventario</p>
+              <Input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Ej: Inventario MAYO Suc 1" />
+            </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Tipo de conteo</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={() => setModo("anual")}
-                  className={`text-left rounded-lg border-2 p-4 transition-all ${modo === "anual" ? "border-primary bg-primary/5" : "border-foreground/15 hover:border-foreground/30"}`}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Package className="h-4 w-4 text-primary" />
-                    <span className="font-bold text-sm">Conteo Anual</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Conteo completo por proveedor. Ideal una vez al año, proveedor por proveedor.</p>
+                <button onClick={() => setNuevoTipo("anual")} className={`text-left rounded-lg border-2 p-4 transition-all ${nuevoTipo === "anual" ? "border-primary bg-primary/5" : "border-foreground/15"}`}>
+                  <div className="flex items-center gap-2 mb-1"><Package className="h-4 w-4 text-primary" /><span className="font-bold text-sm">Anual</span></div>
+                  <p className="text-xs text-muted-foreground">Completo, proveedor por proveedor.</p>
                 </button>
-                <button
-                  onClick={() => setModo("ciclico_abc")}
-                  className={`text-left rounded-lg border-2 p-4 transition-all ${modo === "ciclico_abc" ? "border-primary bg-primary/5" : "border-foreground/15 hover:border-foreground/30"}`}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="h-4 w-4 text-primary" />
-                    <span className="font-bold text-sm">Cíclico ABC</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Prioriza productos de mayor valor (clase A). Ideal cada 3 meses, sin parar la farmacia.</p>
+                <button onClick={() => setNuevoTipo("ciclico_abc")} className={`text-left rounded-lg border-2 p-4 transition-all ${nuevoTipo === "ciclico_abc" ? "border-primary bg-primary/5" : "border-foreground/15"}`}>
+                  <div className="flex items-center gap-2 mb-1"><TrendingUp className="h-4 w-4 text-primary" /><span className="font-bold text-sm">Cíclico ABC</span></div>
+                  <p className="text-xs text-muted-foreground">Prioriza alto valor. Cada 3 meses.</p>
                 </button>
               </div>
             </div>
-
-            {/* Selección de proveedor */}
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Proveedor a contar</p>
-              <div className="flex gap-2">
-                <Input
-                  value={proveedorFiltro}
-                  onChange={(e) => setProveedorFiltro(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") buscarProveedores(); }}
-                  placeholder="Buscar proveedor (ej: Bago, Sanat)..."
-                  className="flex-1"
-                />
-                <Button onClick={buscarProveedores} disabled={buscandoProv} className="gap-2">
-                  {buscandoProv ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                  Buscar
-                </Button>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Sucursal</p>
+              <div className="grid grid-cols-2 gap-2">
+                {almacenes.map((a) => (
+                  <button key={a.id} onClick={() => setNuevoAlmacen(a)} className={`text-left rounded-lg border-2 p-3 transition-all ${nuevoAlmacen?.id === a.id ? "border-primary bg-primary/5" : "border-foreground/15"}`}>
+                    <div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-primary" /><span className="text-sm font-medium">{a.nombre}</span></div>
+                  </button>
+                ))}
               </div>
-
-              {proveedoresLista.length > 0 && (
-                <div className="mt-2 space-y-1 max-h-64 overflow-y-auto">
-                  {proveedoresLista.map((prov: any) => (
-                    <button
-                      key={prov.id}
-                      onClick={() => cargarProductos(String(prov.id), prov.nombre)}
-                      className="w-full flex items-center justify-between bg-muted/40 hover:bg-primary/10 rounded-lg px-3 py-2.5 transition-colors text-left"
-                    >
-                      <span className="text-sm font-medium">{prov.nombre}</span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={() => cargarProductos("", "Todos los proveedores")}
-                className="mt-3 text-xs text-primary hover:underline"
-              >
-                O contar TODO el inventario (todos los proveedores)
-              </button>
             </div>
+            <Button onClick={handleCrearSesion} disabled={crearSesion.isPending} className="w-full gap-2">
+              {crearSesion.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Crear y empezar
+            </Button>
           </CardContent>
         </Card>
-      ) : cargando ? (
+      </div>
+    );
+  }
+
+  // ─── VISTA: Proveedores de la sesión ──────────────────────────────
+  if (vista === "proveedores") {
+    const provsHechos = sesionActiva?.proveedores || [];
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3 border-b border-foreground pb-4">
+          <Button variant="ghost" size="icon" onClick={() => { setVista("sesiones"); setSesionActiva(null); }}><RotateCcw className="h-5 w-5" /></Button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-black uppercase tracking-tight truncate">{sesionActiva?.nombre}</h1>
+            <p className="text-xs text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" /> {sesionActiva?.almacenNombre} · {sesionActiva?.tipo === "anual" ? "Anual" : "Cíclico ABC"}</p>
+          </div>
+        </div>
+
+        {provsHechos.length > 0 && (
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Proveedores inventariados</p>
+            <div className="space-y-2">
+              {provsHechos.map((p: any) => (
+                <button key={p.id} onClick={() => cargarProductos(p.proveedorId || "", p.proveedorNombre)} className="w-full flex items-center justify-between gap-2 rounded-lg border border-foreground/15 hover:border-primary/50 p-3 transition-all">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {p.estado === "completado" ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" /> : <Clock className="h-4 w-4 text-amber-600 shrink-0" />}
+                    <div className="text-left min-w-0">
+                      <p className="text-sm font-medium truncate">{p.proveedorNombre}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {p.productosContados}/{p.totalProductos} contados
+                        {p.conDiferencia > 0 && <span className="text-red-600"> · {p.conDiferencia} dif.</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Inventariar otro proveedor</p>
+          <div className="flex gap-2">
+            <Input value={proveedorFiltro} onChange={(e) => setProveedorFiltro(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") buscarProveedores(); }} placeholder="Buscar proveedor..." className="flex-1" />
+            <Button onClick={buscarProveedores} disabled={buscandoProv} className="gap-2">
+              {buscandoProv ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar
+            </Button>
+          </div>
+          {proveedoresLista.length > 0 && (
+            <div className="mt-2 space-y-1 max-h-60 overflow-y-auto">
+              {proveedoresLista.map((prov: any) => (
+                <button key={prov.id} onClick={() => cargarProductos(String(prov.id), prov.nombre)} className="w-full flex items-center justify-between bg-muted/40 hover:bg-primary/10 rounded-lg px-3 py-2.5 transition-colors text-left">
+                  <span className="text-sm font-medium">{prov.nombre}</span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {provsHechos.length > 0 && sesionActiva?.estado !== "completado" && (
+          <Button variant="outline" className="w-full gap-2" onClick={async () => {
+            await completarSesion.mutateAsync({ sesionId: sesionActiva.id });
+            toast.success("Inventario marcado como completado");
+            await utils.inventario.listarSesiones.invalidate();
+            setVista("sesiones"); setSesionActiva(null);
+          }}>
+            <CheckCircle2 className="h-4 w-4" /> Marcar inventario como completado
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  // ─── VISTA: Conteo de un proveedor ──────────────────────────────
+  return (
+    <div className="space-y-5">
+      {cargando ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Cargando productos de {proveedorActivo.nombre}...</p>
+          <p className="text-sm text-muted-foreground">Cargando productos de {proveedorActivo?.nombre}...</p>
         </div>
       ) : (
         <>
-          {/* Barra de resumen pegajosa */}
           <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-foreground/10 -mx-4 px-4 py-3 space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { setProveedorActivo(null); setItems([]); setResumen(null); }} className="gap-1 text-xs h-8">
-                  <RotateCcw className="h-3 w-3" /> Cambiar
+              <div className="flex items-center gap-2 min-w-0">
+                <Button variant="ghost" size="sm" onClick={() => { setVista("proveedores"); setProveedorActivo(null); setItems([]); }} className="gap-1 text-xs h-8 shrink-0">
+                  <RotateCcw className="h-3 w-3" /> Volver
                 </Button>
-                <span className="text-sm font-bold">{proveedorActivo.nombre}</span>
-                <span className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary font-medium uppercase">{modo === "anual" ? "Anual" : "Cíclico ABC"}</span>
+                <span className="text-sm font-bold truncate">{proveedorActivo?.nombre}</span>
               </div>
-              <Button onClick={guardar} disabled={guardarConteo.isPending || stats.contados === 0} className="gap-2 h-8 text-xs bg-green-700 hover:bg-green-800 text-white">
-                {guardarConteo.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Guardar conteo
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => guardarProveedor(false)} disabled={guardarConteoProveedor.isPending || stats.contados === 0} className="gap-1 h-8 text-xs">
+                  <Save className="h-3 w-3" /> Guardar
+                </Button>
+                <Button size="sm" onClick={() => guardarProveedor(true)} disabled={guardarConteoProveedor.isPending || stats.contados === 0} className="gap-1 h-8 text-xs bg-green-700 hover:bg-green-800 text-white">
+                  <Check className="h-3 w-3" /> Completar
+                </Button>
+              </div>
             </div>
 
-            {/* Indicadores */}
             <div className="grid grid-cols-4 gap-2">
               <div className="text-center bg-muted/40 rounded-lg py-2">
                 <p className="text-lg font-black">{stats.contados}<span className="text-xs text-muted-foreground font-normal">/{stats.total}</span></p>
@@ -260,37 +393,26 @@ export default function Inventario() {
               </div>
             </div>
 
-            {/* Progreso */}
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div className="h-full bg-primary transition-all" style={{ width: `${stats.total > 0 ? (stats.contados / stats.total) * 100 : 0}%` }} />
             </div>
 
-            {/* Filtros */}
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative flex-1 min-w-[140px]">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar producto..." className="h-8 text-xs pl-7" />
+                <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar..." className="h-8 text-xs pl-7" />
               </div>
               {["A", "B", "C"].map(c => (
-                <button
-                  key={c}
-                  onClick={() => setFiltroClase(filtroClase === c ? null : c)}
-                  className={`text-[11px] px-2.5 py-1 rounded font-bold ${filtroClase === c ? claseColor(c) + " ring-2 ring-offset-1 ring-current" : claseColor(c)}`}
-                  title={c === "A" ? "Alto valor (80% del total)" : c === "B" ? "Valor medio" : "Bajo valor"}
-                >
+                <button key={c} onClick={() => setFiltroClase(filtroClase === c ? null : c)} className={`text-[11px] px-2.5 py-1 rounded font-bold ${claseColor(c)} ${filtroClase === c ? "ring-2 ring-offset-1 ring-current" : ""}`}>
                   {c} {resumen ? `(${c === "A" ? resumen.claseA : c === "B" ? resumen.claseB : resumen.claseC})` : ""}
                 </button>
               ))}
-              <button
-                onClick={() => setSoloDiferencias(!soloDiferencias)}
-                className={`text-[11px] px-2.5 py-1 rounded font-medium flex items-center gap-1 ${soloDiferencias ? "bg-red-600 text-white" : "bg-muted text-muted-foreground"}`}
-              >
-                <Filter className="h-3 w-3" /> Diferencias
+              <button onClick={() => setSoloDiferencias(!soloDiferencias)} className={`text-[11px] px-2.5 py-1 rounded font-medium flex items-center gap-1 ${soloDiferencias ? "bg-red-600 text-white" : "bg-muted text-muted-foreground"}`}>
+                <Filter className="h-3 w-3" /> Dif.
               </button>
             </div>
           </div>
 
-          {/* Lista de conteo */}
           <div className="space-y-1.5">
             {itemsFiltrados.length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-10">No hay productos que coincidan.</p>
@@ -298,73 +420,36 @@ export default function Inventario() {
               const dif = item.fisico !== null ? item.fisico - item.stock : null;
               const contado = item.fisico !== null;
               return (
-                <div
-                  key={item.id}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
-                    dif !== null && dif !== 0 ? "border-red-300 bg-red-50/50 dark:bg-red-950/20"
-                    : contado ? "border-green-300 bg-green-50/50 dark:bg-green-950/20"
-                    : "border-foreground/10"
-                  }`}
-                >
-                  {/* Clase ABC */}
-                  <span className={`text-[10px] font-black w-5 h-5 rounded flex items-center justify-center shrink-0 ${claseColor(item.clase)}`}>
-                    {item.clase}
-                  </span>
-
-                  {/* Nombre y datos */}
+                <div key={item.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                  dif !== null && dif !== 0 ? "border-red-300 bg-red-50/50 dark:bg-red-950/20"
+                  : contado ? "border-green-300 bg-green-50/50 dark:bg-green-950/20" : "border-foreground/10"
+                }`}>
+                  <span className={`text-[10px] font-black w-5 h-5 rounded flex items-center justify-center shrink-0 ${claseColor(item.clase)}`}>{item.clase}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{item.nombre}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Cód: {item.codigo} · Costo {item.costoUnit.toFixed(2)} Bs
-                    </p>
+                    <p className="text-[11px] text-muted-foreground">Cód: {item.codigo} · Costo {item.costoUnit.toFixed(2)} Bs</p>
                   </div>
-
-                  {/* Stock sistema */}
                   <div className="text-center shrink-0 w-14">
                     <p className="text-sm font-bold">{item.stock}</p>
                     <p className="text-[9px] uppercase text-muted-foreground">Sistema</p>
                   </div>
-
-                  {/* Input físico */}
                   <div className="shrink-0 w-20">
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      value={item.fisico ?? ""}
-                      onChange={(e) => setFisico(item.id, e.target.value)}
-                      placeholder="Físico"
-                      className={`h-9 text-center text-sm font-bold ${
-                        dif !== null && dif !== 0 ? "border-red-400" : contado ? "border-green-400" : ""
-                      }`}
-                    />
+                    <Input type="number" inputMode="numeric" value={item.fisico ?? ""} onChange={(e) => setFisico(item.id, e.target.value)} placeholder="Físico"
+                      className={`h-9 text-center text-sm font-bold ${dif !== null && dif !== 0 ? "border-red-400" : contado ? "border-green-400" : ""}`} />
                   </div>
-
-                  {/* Diferencia */}
                   <div className="text-center shrink-0 w-12">
-                    {dif !== null ? (
-                      dif === 0 ? (
-                        <Check className="h-4 w-4 text-green-600 mx-auto" />
-                      ) : (
-                        <span className={`text-sm font-black ${dif < 0 ? "text-red-600" : "text-blue-600"}`}>
-                          {dif > 0 ? "+" : ""}{dif}
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
+                    {dif !== null ? (dif === 0 ? <Check className="h-4 w-4 text-green-600 mx-auto" /> : <span className={`text-sm font-black ${dif < 0 ? "text-red-600" : "text-blue-600"}`}>{dif > 0 ? "+" : ""}{dif}</span>) : <span className="text-xs text-muted-foreground">—</span>}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Aviso de diferencias al final */}
           {stats.conDiferencia > 0 && (
             <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg p-3 text-xs">
               <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
               <span className="text-amber-800 dark:text-amber-300">
-                Hay <strong>{stats.conDiferencia}</strong> producto(s) con diferencia entre el stock del sistema y el físico.
-                Revisa antes de guardar. El valor de la diferencia es <strong>{stats.valorDiferencias.toFixed(2)} Bs</strong>.
+                <strong>{stats.conDiferencia}</strong> producto(s) con diferencia. Valor: <strong>{stats.valorDiferencias.toFixed(2)} Bs</strong>.
               </span>
             </div>
           )}
