@@ -124,6 +124,24 @@ async function startServer() {
     }
   });
 
+  // Diagnóstico: estructura cruda del endpoint de ajuste de inventario
+  // Uso: /api/admin/test-inventario?almacen=1&proveedor=96
+  app.get("/api/admin/test-inventario", async (req, res) => {
+    try {
+      const almacen = parseInt(String(req.query.almacen || "1"));
+      const proveedor = String(req.query.proveedor || "");
+      const raw = await inventarios365.articuloAjusteInven(almacen, proveedor);
+      res.json({
+        total: raw.length,
+        primerProducto: raw[0] || null,
+        camposDelPrimero: raw[0] ? Object.keys(raw[0]) : [],
+        primeros3: raw.slice(0, 3),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, stack: e.stack });
+    }
+  });
+
   // Health check endpoint — responde inmediatamente para Railway
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", version: "1.0.0", timestamp: new Date().toISOString() });

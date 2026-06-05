@@ -700,7 +700,7 @@ class Inventarios365Service {
         const data = await this.get<any>(url);
         // Log de diagnóstico de la primera página para ver la estructura
         if (page === 1) {
-          console.log(`[Inventarios365] articuloAjusteInven estructura:`, JSON.stringify(data).substring(0, 400));
+          console.log(`[Inventarios365] articuloAjusteInven respuesta keys:`, data && typeof data === "object" ? Object.keys(data).join(", ") : typeof data);
         }
         // La respuesta puede venir en distintas formas: {data:[...]}, {articulos:{data:[...]}}, [...]
         let lista: any[] = [];
@@ -719,6 +719,9 @@ class Inventarios365Service {
           }
         }
         todos.push(...lista);
+        if (page === 1 && lista.length > 0) {
+          console.log(`[Inventarios365] PRIMER PRODUCTO (campos reales):`, JSON.stringify(lista[0]));
+        }
         if (page >= lastPage || lista.length === 0) break;
         page++;
       }
