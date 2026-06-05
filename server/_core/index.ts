@@ -124,6 +124,16 @@ async function startServer() {
     }
   });
 
+  // Diagnóstico: total de proveedores del sistema
+  app.get("/api/admin/test-proveedores", async (_req, res) => {
+    try {
+      const result = await inventarios365.contarProveedores();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Diagnóstico: estructura cruda del endpoint de ajuste de inventario
   // Uso: /api/admin/test-inventario?almacen=1&proveedor=96
   app.get("/api/admin/test-inventario", async (req, res) => {

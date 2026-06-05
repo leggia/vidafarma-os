@@ -873,17 +873,25 @@ const inventarioRouter = router({
     .mutation(async ({ input }) => {
       const { getDb } = await import("./db");
       const { inventarioSesiones } = await import("../drizzle/schema");
+      const { inventarios365 } = await import("./inventarios365");
       const db = await getDb();
       if (!db) throw new Error("Sin base de datos");
+      // Contar el total de proveedores del sistema (para el progreso global)
+      let totalProv = 0;
+      try {
+        const r = await inventarios365.contarProveedores();
+        totalProv = r.total;
+      } catch {}
       const [res] = await db.insert(inventarioSesiones).values({
         nombre: input.nombre,
         tipo: input.tipo,
         almacenId: input.almacenId,
         almacenNombre: input.almacenNombre || null,
+        totalProveedores: totalProv,
         estado: "en_progreso",
       });
       const id = res.insertId;
-      return { success: true, id };
+      return { success: true, id, totalProveedores: totalProv };
     }),
 
   // Listar sesiones (en progreso y completadas)

@@ -71,7 +71,7 @@ export default function Inventario() {
         nombre: nuevoNombre.trim(), tipo: nuevoTipo,
         almacenId: nuevoAlmacen.id, almacenNombre: nuevoAlmacen.nombre,
       });
-      setSesionActiva({ id: res.id, nombre: nuevoNombre.trim(), tipo: nuevoTipo, almacenId: nuevoAlmacen.id, almacenNombre: nuevoAlmacen.nombre, estado: "en_progreso", proveedores: [] });
+      setSesionActiva({ id: res.id, nombre: nuevoNombre.trim(), tipo: nuevoTipo, almacenId: nuevoAlmacen.id, almacenNombre: nuevoAlmacen.nombre, totalProveedores: res.totalProveedores ?? 0, estado: "en_progreso", proveedores: [] });
       toast.success("Inventario creado");
       setVista("proveedores");
       setNuevoNombre(""); setNuevoAlmacen(null);
@@ -227,7 +227,9 @@ export default function Inventario() {
         ) : (
           <div className="space-y-2">
             {sesiones.map((s: any) => {
-              const pct = s.proveedoresInventariados > 0 ? Math.round((s.proveedoresCompletados / s.proveedoresInventariados) * 100) : 0;
+              // Progreso sobre el TOTAL de proveedores del sistema
+              const totalProv = s.totalProveedores > 0 ? s.totalProveedores : s.proveedoresInventariados;
+              const pct = totalProv > 0 ? Math.round((s.proveedoresCompletados / totalProv) * 100) : 0;
               return (
                 <button key={s.id} onClick={() => abrirSesion(s)} className="w-full text-left rounded-lg border border-foreground/15 hover:border-primary/50 hover:bg-primary/5 p-4 transition-all">
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -242,7 +244,8 @@ export default function Inventario() {
                   <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2 flex-wrap">
                     <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> {s.almacenNombre || "—"}</span>
                     <span className="px-1.5 py-0.5 rounded bg-muted">{s.tipo === "anual" ? "Anual" : "Cíclico ABC"}</span>
-                    <span>{s.proveedoresCompletados}/{s.proveedoresInventariados} proveedores</span>
+                    <span>{s.proveedoresCompletados}/{totalProv} proveedores</span>
+                    <span className="font-medium text-primary">{pct}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                     <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
@@ -314,6 +317,24 @@ export default function Inventario() {
             <p className="text-xs text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" /> {sesionActiva?.almacenNombre} · {sesionActiva?.tipo === "anual" ? "Anual" : "Cíclico ABC"}</p>
           </div>
         </div>
+
+        {/* Progreso global del inventario (sobre todos los proveedores del sistema) */}
+        {(() => {
+          const totalProv = sesionActiva?.totalProveedores > 0 ? sesionActiva.totalProveedores : provsHechos.length;
+          const completados = provsHechos.filter((p: any) => p.estado === "completado").length;
+          const pct = totalProv > 0 ? Math.round((completados / totalProv) * 100) : 0;
+          return (
+            <div className="bg-muted/40 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium">Progreso del inventario</span>
+                <span className="text-muted-foreground">{completados} de {totalProv} proveedores · <strong className="text-primary">{pct}%</strong></span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })()}
 
         {provsHechos.length > 0 && (
           <div>

@@ -196,6 +196,7 @@ export const inventarioSesiones = mysqlTable("inventario_sesiones", {
   tipo: varchar("tipo", { length: 30 }).notNull().default("anual"), // anual | ciclico_abc
   almacenId: int("almacenId").notNull(), // sucursal/almacén de inventarios365
   almacenNombre: varchar("almacenNombre", { length: 255 }),
+  totalProveedores: int("totalProveedores").notNull().default(0),
   estado: varchar("estado", { length: 20 }).notNull().default("en_progreso"), // en_progreso | completado
   creadoEn: timestamp("creadoEn").defaultNow().notNull(),
   actualizadoEn: timestamp("actualizadoEn").defaultNow().onUpdateNow().notNull(),
