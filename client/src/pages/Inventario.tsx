@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   ClipboardCheck, Search, Loader2, Check, AlertTriangle,
   Package, TrendingUp, Filter, Save, RotateCcw, ChevronRight,
-  Plus, FolderOpen, Building2, CheckCircle2, Clock,
+  Plus, FolderOpen, Building2, CheckCircle2, Clock, Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -191,6 +191,92 @@ export default function Inventario() {
       await utils.inventario.listarSesiones.invalidate();
       if (completar) { setVista("proveedores"); setProveedorActivo(null); setItems([]); }
     } catch (e: any) { toast.error("Error: " + (e.message || "")); }
+  };
+
+  // Generar hoja de conteo imprimible (PDF vía navegador)
+  const imprimirHojaConteo = () => {
+    if (items.length === 0) { toast.error("No hay productos para imprimir"); return; }
+    const fecha = new Date().toLocaleDateString("es-BO", { day: "2-digit", month: "long", year: "numeric" });
+    const proveedor = proveedorActivo?.nombre || "Todos";
+    const sucursal = sesionActiva?.almacenNombre || "";
+    const nombreSesion = sesionActiva?.nombre || "Inventario";
+
+    // Ordenar por clase ABC y luego alfabético
+    const ordenABC: any = { A: 0, B: 1, C: 2 };
+    const ordenados = [...items].sort((a, b) =>
+      (ordenABC[a.clase] - ordenABC[b.clase]) || a.nombre.localeCompare(b.nombre));
+
+    const filas = ordenados.map((it, i) => `
+      <tr>
+        <td class="num">${i + 1}</td>
+        <td class="cls cls-${it.clase}">${it.clase}</td>
+        <td class="nom">${it.nombre}</td>
+        <td class="cod">${it.codigo || ""}</td>
+        <td class="venc">${it.vencimiento || ""}</td>
+        <td class="sis">${it.stock}</td>
+        <td class="fis"></td>
+      </tr>`).join("");
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Conteo ${proveedor}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 18px; color: #111; }
+      .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #15803d; padding-bottom: 8px; margin-bottom: 4px; }
+      .head h1 { font-size: 18px; margin: 0; color: #15803d; }
+      .head .sub { font-size: 11px; color: #444; margin-top: 3px; line-height: 1.5; }
+      .meta { text-align: right; font-size: 11px; color: #444; }
+      .meta .firma { margin-top: 28px; border-top: 1px solid #999; padding-top: 3px; width: 160px; display: inline-block; text-align: center; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th { background: #15803d; color: #fff; font-size: 10px; text-transform: uppercase; padding: 5px 4px; text-align: left; }
+      td { border-bottom: 1px solid #ddd; padding: 4px; font-size: 11px; }
+      tr:nth-child(even) td { background: #f6f6f6; }
+      .num { width: 28px; text-align: center; color: #888; }
+      .cls { width: 22px; text-align: center; font-weight: bold; }
+      .cls-A { color: #b91c1c; } .cls-B { color: #b45309; } .cls-C { color: #666; }
+      .cod { width: 70px; color: #666; font-size: 10px; }
+      .venc { width: 75px; color: #666; font-size: 10px; }
+      .sis { width: 55px; text-align: center; font-weight: bold; }
+      .fis { width: 70px; border: 1.5px solid #15803d; background: #fff; }
+      .leyenda { font-size: 9px; color: #888; margin-top: 10px; }
+      @media print { body { margin: 10px; } .noprint { display: none; } th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+      .btn { background: #15803d; color: #fff; border: none; padding: 10px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; margin: 10px 4px; }
+    </style></head><body>
+      <div class="noprint" style="text-align:center; margin-bottom:12px;">
+        <button class="btn" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+        <button class="btn" style="background:#666" onclick="window.close()">Cerrar</button>
+      </div>
+      <div class="head">
+        <div>
+          <h1>Hoja de Conteo de Inventario</h1>
+          <div class="sub">
+            <strong>${nombreSesion}</strong><br>
+            Proveedor: <strong>${proveedor}</strong> &nbsp;·&nbsp; Sucursal: ${sucursal}<br>
+            ${ordenados.length} productos · Fecha: ${fecha}
+          </div>
+        </div>
+        <div class="meta">
+          Contado por:<br><span class="firma">Firma</span><br><br>
+          Revisado por:<br><span class="firma">Firma</span>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th class="num">#</th><th>ABC</th><th>Producto</th><th>Código</th>
+          <th>Vence</th><th style="text-align:center">Sistema</th><th>Físico</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div class="leyenda">
+        ABC: A = alto valor/rotación · B = medio · C = bajo. Anote en "Físico" la cantidad real contada.
+        Deje en blanco los que coincidan con el sistema. Luego ingrese solo las diferencias en la app.
+      </div>
+    </body></html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) { toast.error("Permite las ventanas emergentes para imprimir"); return; }
+    win.document.write(html);
+    win.document.close();
+    toast.success("Hoja de conteo generada");
   };
 
   const claseColor = (c: string) =>
@@ -412,6 +498,9 @@ export default function Inventario() {
                 <span className="text-sm font-bold truncate">{proveedorActivo?.nombre}</span>
               </div>
               <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={imprimirHojaConteo} className="gap-1 h-8 text-xs" title="Imprimir hoja para conteo manual">
+                  <Printer className="h-3 w-3" /> PDF
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => guardarProveedor(false)} disabled={guardarConteoProveedor.isPending || stats.contados === 0} className="gap-1 h-8 text-xs">
                   <Save className="h-3 w-3" /> Guardar
                 </Button>
