@@ -128,7 +128,8 @@ async function startServer() {
   app.get("/api/admin/test-proveedores", async (_req, res) => {
     try {
       const result = await inventarios365.contarProveedores();
-      res.json(result);
+      const todos = await inventarios365.listarTodosProveedores();
+      res.json({ ...result, totalListado: todos.length, primeros3: todos.slice(0, 3) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

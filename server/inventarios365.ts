@@ -691,17 +691,17 @@ class Inventarios365Service {
   async contarProveedores(): Promise<{ total: number; endpoint: string; intentos?: any[] }> {
     const candidatos = [
       "/proveedor?page=1&buscar=&criterio=todos",
-      "/proveedornewview?page=1&buscar=&criterio=nombre",
-      "/proveedor/listarProveedor?page=1&buscar=&criterio=nombre",
     ];
     const intentos: any[] = [];
     for (const url of candidatos) {
       try {
         const data = await this.get<any>(url);
         const keys = data && typeof data === "object" ? Object.keys(data) : [];
-        const total = data?.total ?? data?.proveedores?.total ?? data?.data?.total ?? null;
-        const arr = data?.proveedores?.data ?? data?.data ?? data?.proveedores ?? (Array.isArray(data) ? data : null);
-        intentos.push({ url, keys, total, arrLen: Array.isArray(arr) ? arr.length : null });
+        // Estructura real: { pagination: {total, ...}, personas: [...], idrol }
+        const pag = data?.pagination ?? {};
+        const total = pag.total ?? pag.totalRegistros ?? pag.totalItems ?? data?.total ?? null;
+        const arr = data?.personas ?? data?.proveedores?.data ?? data?.data ?? null;
+        intentos.push({ url, keys, paginationKeys: Object.keys(pag), total, arrLen: Array.isArray(arr) ? arr.length : null });
         if (total != null && Number(total) > 0) {
           return { total: Number(total), endpoint: url, intentos };
         }
@@ -713,6 +713,35 @@ class Inventarios365Service {
       }
     }
     return { total: 0, endpoint: "ninguno", intentos };
+  }
+
+  /**
+   * Listar TODOS los proveedores del sistema (paginando).
+   * Estructura: { pagination, personas:[...], idrol }
+   */
+  async listarTodosProveedores(): Promise<Array<{ id: number; nombre: string }>> {
+    const todos: Array<{ id: number; nombre: string }> = [];
+    let page = 1;
+    const maxPages = 100;
+    try {
+      while (page <= maxPages) {
+        const data = await this.get<any>(`/proveedor?page=${page}&buscar=&criterio=todos`);
+        const arr = data?.personas ?? [];
+        if (!Array.isArray(arr) || arr.length === 0) break;
+        for (const p of arr) {
+          const id = p.id ?? p.idpersona ?? p.id_proveedor;
+          const nombre = p.nombre ?? p.razon_social ?? p.nombre_completo ?? "";
+          if (id) todos.push({ id: Number(id), nombre });
+        }
+        const pag = data?.pagination ?? {};
+        const lastPage = pag.last_page ?? pag.lastPage ?? pag.ultimaPagina ?? 1;
+        if (page >= lastPage) break;
+        page++;
+      }
+    } catch (e) {
+      console.error("[Inventarios365] Error listando todos los proveedores:", e);
+    }
+    return todos;
   }
 
   /**
