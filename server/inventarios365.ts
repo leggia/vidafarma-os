@@ -690,13 +690,9 @@ class Inventarios365Service {
    */
   async contarProveedores(): Promise<{ total: number; endpoint: string; intentos?: any[] }> {
     const candidatos = [
+      "/proveedor?page=1&buscar=&criterio=todos",
       "/proveedornewview?page=1&buscar=&criterio=nombre",
       "/proveedor/listarProveedor?page=1&buscar=&criterio=nombre",
-      "/proveedorview?page=1&buscar=&criterio=nombre",
-      "/proveedor?page=1&buscar=&criterio=nombre",
-      "/proveedores?page=1&buscar=&criterio=nombre",
-      "/proveedor/listar?page=1&buscar=&criterio=nombre",
-      "/listarProveedor?page=1&buscar=&criterio=nombre",
     ];
     const intentos: any[] = [];
     for (const url of candidatos) {
