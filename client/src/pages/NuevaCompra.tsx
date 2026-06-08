@@ -504,6 +504,7 @@ export default function NuevaCompra() {
           imageUrl: uploadAndExtract.data?.imageUrl || null,
           imageKey: uploadAndExtract.data?.imageKey || null,
           confirmDirectly,
+          borradorIdEliminar: confirmDirectly ? borradorGuardadoId : null,
         });
         setCompraGuardada(true); // registrada o guardada: quitar protección de cierre
         if (confirmDirectly) {

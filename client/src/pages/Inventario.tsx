@@ -48,38 +48,48 @@ export default function Inventario() {
   const [soloDiferencias, setSoloDiferencias] = useState(false);
   const [filtroClase, setFiltroClase] = useState<string | null>(null);
   const [ajustarStock, setAjustarStock] = useState(true);
-  // Conteo puntual: búsqueda y agregado de productos individuales
+  // Conteo puntual: caché de productos + búsqueda en vivo multi-palabra
   const [busquedaPuntual, setBusquedaPuntual] = useState("");
-  const [resultadosPuntual, setResultadosPuntual] = useState<any[]>([]);
-  const [buscandoPuntual, setBuscandoPuntual] = useState(false);
+  const [cacheProductos, setCacheProductos] = useState<any[]>([]);
+  const [cargandoCache, setCargandoCache] = useState(false);
 
   const esConteoPuntual = proveedorActivo?.nombre === "Conteo puntual";
 
-  const buscarProductoPuntual = useCallback(async () => {
-    if (!busquedaPuntual || busquedaPuntual.length < 2) { toast.error("Escribe al menos 2 letras"); return; }
-    setBuscandoPuntual(true);
+  // Cargar TODOS los productos del almacén una sola vez (caché para búsqueda instantánea)
+  const cargarCacheProductos = useCallback(async () => {
+    if (cacheProductos.length > 0 || cargandoCache) return;
+    setCargandoCache(true);
     try {
-      // Busca en todo el inventario del almacén de la sesión
       const res = await utils.inventario.listar.fetch({
         idAlmacen: sesionActiva?.almacenId ?? 1,
         idProveedor: "",
       });
-      const term = busquedaPuntual.toLowerCase();
-      const encontrados = res.productos.filter((p: any) =>
-        p.nombre.toLowerCase().includes(term) || (p.codigo || "").toLowerCase().includes(term)
-      ).slice(0, 20);
-      setResultadosPuntual(encontrados);
-      if (encontrados.length === 0) toast.info("Sin resultados");
+      setCacheProductos(res.productos || []);
     } catch (e: any) {
-      toast.error("Error buscando: " + (e.message || ""));
+      toast.error("Error cargando productos: " + (e.message || ""));
     }
-    setBuscandoPuntual(false);
-  }, [busquedaPuntual, sesionActiva, utils]);
+    setCargandoCache(false);
+  }, [cacheProductos.length, cargandoCache, sesionActiva, utils]);
+
+  // Búsqueda en vivo sobre el caché: todas las palabras deben coincidir (en cualquier orden)
+  const resultadosPuntual = useMemo(() => {
+    const q = busquedaPuntual.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const palabras = q.split(/\s+/).filter(Boolean);
+    const yaAgregados = new Set(items.map(it => it.id));
+    return cacheProductos
+      .filter(p => !yaAgregados.has(p.id))
+      .filter(p => {
+        const texto = `${p.nombre} ${p.codigo || ""}`.toLowerCase();
+        // cada palabra escrita debe aparecer en el texto (coincidencia parcial)
+        return palabras.every(w => texto.includes(w));
+      })
+      .slice(0, 25);
+  }, [busquedaPuntual, cacheProductos, items]);
 
   const agregarProductoPuntual = (prod: any) => {
     if (items.some(it => it.id === prod.id)) { toast.info("Ya está en la lista"); return; }
     setItems(prev => [...prev, { ...prod, fisico: null }]);
-    setResultadosPuntual([]);
     setBusquedaPuntual("");
     toast.success(`Agregado: ${prod.nombre}`);
   };
@@ -489,7 +499,7 @@ export default function Inventario() {
               <p className="text-xs text-muted-foreground">Todos los productos clasificados A, B, C. Filtra por clase para contar primero los de alto valor.</p>
             </button>
             <button
-              onClick={() => { setProveedorActivo({ id: "", nombre: "Conteo puntual" }); setItems([]); setBusqueda(""); setVista("conteo"); }}
+              onClick={() => { setProveedorActivo({ id: "", nombre: "Conteo puntual" }); setItems([]); setBusqueda(""); setBusquedaPuntual(""); setVista("conteo"); cargarCacheProductos(); }}
               className="text-left rounded-lg border border-foreground/15 hover:border-primary/50 hover:bg-primary/5 p-3 transition-all"
             >
               <div className="flex items-center gap-2 mb-1"><Search className="h-4 w-4 text-primary" /><span className="font-bold text-sm">Conteo puntual</span></div>
@@ -604,10 +614,11 @@ export default function Inventario() {
               <div className="h-full bg-primary transition-all" style={{ width: `${stats.total > 0 ? (stats.contados / stats.total) * 100 : 0}%` }} />
             </div>
 
+            {!esConteoPuntual && (
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative flex-1 min-w-[140px]">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar..." className="h-8 text-xs pl-7" />
+                <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar lista..." className="h-8 text-xs pl-7" />
               </div>
               {["A", "B", "C"].map(c => (
                 <button key={c} onClick={() => setFiltroClase(filtroClase === c ? null : c)} className={`text-[11px] px-2.5 py-1 rounded font-bold ${claseColor(c)} ${filtroClase === c ? "ring-2 ring-offset-1 ring-current" : ""}`}>
@@ -618,31 +629,37 @@ export default function Inventario() {
                 <Filter className="h-3 w-3" /> Dif.
               </button>
             </div>
+            )}
           </div>
 
-          {/* Buscador para conteo puntual: agregar productos individuales */}
+          {/* Buscador para conteo puntual: búsqueda en vivo sobre caché */}
           {esConteoPuntual && (
             <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-medium text-blue-800 dark:text-blue-300">Busca y agrega los productos que quieres contar:</p>
-              <div className="flex gap-2">
+              <p className="text-xs font-medium text-blue-800 dark:text-blue-300">
+                Busca y agrega productos para contar
+                {cargandoCache && <span className="text-muted-foreground"> · cargando catálogo...</span>}
+                {!cargandoCache && cacheProductos.length > 0 && <span className="text-muted-foreground"> · {cacheProductos.length} productos disponibles</span>}
+              </p>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={busquedaPuntual}
                   onChange={(e) => setBusquedaPuntual(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") buscarProductoPuntual(); }}
-                  placeholder="Nombre o código del producto..."
-                  className="flex-1 h-9"
+                  placeholder="Escribe nombre o código (ej: amox delt)..."
+                  className="h-9 pl-8"
+                  autoFocus
                 />
-                <Button onClick={buscarProductoPuntual} disabled={buscandoPuntual} className="h-9 gap-1 bg-blue-600 hover:bg-blue-700 text-white">
-                  {buscandoPuntual ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                </Button>
+                {cargandoCache && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
-              {resultadosPuntual.length > 0 && (
-                <div className="space-y-1 max-h-52 overflow-y-auto">
-                  {resultadosPuntual.map((prod: any) => (
+              {busquedaPuntual.trim().length >= 2 && (
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {resultadosPuntual.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-2 text-center">Sin coincidencias</p>
+                  ) : resultadosPuntual.map((prod: any) => (
                     <button key={prod.id} onClick={() => agregarProductoPuntual(prod)}
                       className="w-full flex items-center justify-between bg-white dark:bg-gray-900 rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700 hover:border-blue-400 text-left">
                       <span className="text-xs font-medium truncate flex-1">{prod.nombre}</span>
-                      <span className="text-[11px] text-muted-foreground mx-2">stock: {prod.stock}</span>
+                      <span className="text-[11px] text-muted-foreground mx-2 shrink-0">stock: {prod.stock}</span>
                       <Plus className="h-3.5 w-3.5 text-blue-600 shrink-0" />
                     </button>
                   ))}

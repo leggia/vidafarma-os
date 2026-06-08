@@ -294,6 +294,7 @@ INSTRUCCIONES GENERALES:
         imageUrl: z.string().nullable().optional(),
         imageKey: z.string().nullable().optional(),
         confirmDirectly: z.boolean().optional(),
+        borradorIdEliminar: z.number().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -310,6 +311,15 @@ INSTRUCCIONES GENERALES:
         imageKey: input.imageKey,
         status,
       });
+
+      // Si se completó y venía de un borrador, eliminar el borrador viejo para no duplicar
+      if (input.confirmDirectly && input.borradorIdEliminar) {
+        try {
+          await db.deletePurchase(input.borradorIdEliminar, ctx.user.id);
+        } catch (e) {
+          console.warn("[Compras] No se pudo eliminar el borrador:", e);
+        }
+      }
 
       // Sincronizar con inventarios365.com DIRECTAMENTE (await) — Cloud Run cancela setImmediate
       let syncSuccess = false;
