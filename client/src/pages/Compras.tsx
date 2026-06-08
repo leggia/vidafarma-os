@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, CheckCircle2, Image as ImageIcon, Loader2,
-  RefreshCw, AlertCircle, ExternalLink, Package, Zap, Trash2
+  RefreshCw, AlertCircle, ExternalLink, Package, Zap, Trash2, Pencil
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -207,6 +207,19 @@ export default function Compras() {
                       </p>
                     </div>
                     <StatusBadge status={p.status} syncError={p.syncError} />
+
+                    {/* Continuar borrador (editar) */}
+                    {p.status === "draft" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setLocation(`/compras/nueva?borrador=${p.id}`)}
+                        className="gap-1 text-xs uppercase tracking-wider font-semibold border-blue-300 text-blue-700 hover:bg-blue-50"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Continuar
+                      </Button>
+                    )}
 
                     {/* Confirmar borrador */}
                     {p.status === "draft" && (

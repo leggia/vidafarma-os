@@ -431,6 +431,13 @@ INSTRUCCIONES GENERALES:
     .mutation(async ({ ctx, input }) => {
       return db.deletePurchase(input.id, ctx.user.id);
     }),
+
+  // Obtener una compra con sus items (para continuar un borrador)
+  getById: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      return db.getPurchaseById(input.id);
+    }),
 });
 
 // ─── Transfers Router ────────────────────────────────────────────────────────

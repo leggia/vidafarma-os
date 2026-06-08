@@ -207,6 +207,43 @@ export default function NuevaCompra() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [hayTrabajoSinGuardar]);
 
+  // Cargar un borrador existente si la URL trae ?borrador=ID
+  const [borradorCargado, setBorradorCargado] = useState(false);
+  useEffect(() => {
+    if (borradorCargado) return;
+    const params = new URLSearchParams(window.location.search);
+    const borradorId = params.get("borrador");
+    if (!borradorId) return;
+    setBorradorCargado(true);
+    (async () => {
+      try {
+        const compra: any = await utils.client.purchases.getById.query({ id: parseInt(borradorId) });
+        if (!compra) { toast.error("No se encontró el borrador"); return; }
+        const p = compra.purchase ?? compra;
+        const its = compra.items ?? [];
+        if (p.supplier) { setSupplier(p.supplier); setSupplierOriginal(p.supplier); }
+        if (p.receiptNumber) setReceiptNumber(p.receiptNumber);
+        if (p.almacenNombre) setAlmacenNombre(p.almacenNombre);
+        if (its.length > 0) {
+          setItems(its.map((it: any) => ({
+            productName: it.productName,
+            nombreFacturaOriginal: it.productName,
+            quantity: it.quantity,
+            unitCost: parseFloat(String(it.unitCost)) || 0,
+            subtotal: parseFloat(String(it.subtotal)) || 0,
+            expiryDate: it.expiryDate || null,
+          })));
+          setShowExpiry(its.some((it: any) => it.expiryDate));
+          setExtracted(true);
+          setBorradorGuardadoId(parseInt(borradorId));
+          toast.success("Borrador cargado. Continúa donde lo dejaste.");
+        }
+      } catch (e: any) {
+        toast.error("Error cargando el borrador: " + (e.message || ""));
+      }
+    })();
+  }, [borradorCargado, utils]);
+
   // Auto-buscar cuando aparecen productos no encontrados
   const buscarProducto = async (idx: number, term: string, proveedorNombre: string, idProveedor?: number) => {
     if (!term || term.length < 3) return;
