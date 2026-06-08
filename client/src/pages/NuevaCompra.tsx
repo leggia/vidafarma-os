@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -165,10 +165,14 @@ export default function NuevaCompra() {
   const [receiptNumber, setReceiptNumber] = useState("");
   const [supplier, setSupplier] = useState("");
   const [supplierOriginal, setSupplierOriginal] = useState(""); // nombre extraído por el LLM (clave de aprendizaje)
+  const [descuentoGlobal, setDescuentoGlobal] = useState(0);
+  const [totalFacturaReal, setTotalFacturaReal] = useState(0);
   const [items, setItems] = useState<ExtractedItem[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [extracted, setExtracted] = useState(false);
+  const [compraGuardada, setCompraGuardada] = useState(false); // ya se registró o guardó como borrador
+  const [borradorGuardadoId, setBorradorGuardadoId] = useState<number | null>(null);
   const [showExpiry, setShowExpiry] = useState(false);
   const [receiptType, setReceiptType] = useState<"BOLETA" | "FACTURA">("FACTURA");
   const [almacenNombre, setAlmacenNombre] = useState("ALMACEN PRINCIPAL");
@@ -188,6 +192,20 @@ export default function NuevaCompra() {
   const [creandoProducto, setCreandoProducto] = useState(false);
 
   const utils = trpc.useUtils();
+
+  // Protección contra cierre/recarga accidental cuando hay trabajo sin registrar.
+  // Se mantiene activa hasta que la compra se REGISTRE definitivamente (no solo borrador).
+  const hayTrabajoSinGuardar = extracted && items.length > 0 && !compraGuardada;
+  useEffect(() => {
+    if (!hayTrabajoSinGuardar) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ""; // requerido por algunos navegadores para mostrar el diálogo
+      return "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hayTrabajoSinGuardar]);
 
   // Auto-buscar cuando aparecen productos no encontrados
   const buscarProducto = async (idx: number, term: string, proveedorNombre: string, idProveedor?: number) => {
@@ -301,6 +319,8 @@ export default function NuevaCompra() {
               } catch {}
             }
             if (result.receiptNumber) setReceiptNumber(result.receiptNumber);
+            setDescuentoGlobal(result.descuentoGlobal || 0);
+            setTotalFacturaReal(result.totalFactura || 0);
             setExtracted(true);
             toast.success(`Se extrajeron ${result.items.length} productos de la imagen`);
             // Pre-buscar SOLO confirmaciones guardadas (match seguro, no por similitud)
@@ -366,6 +386,48 @@ export default function NuevaCompra() {
     }
   }, [file, uploadAndExtract]);
 
+  // Autoguardado silencioso de borrador (tras emparejar proveedor, o como respaldo).
+  // No navega ni interrumpe; solo asegura que el trabajo no se pierda.
+  const autoguardarBorrador = useCallback(async () => {
+    if (!branchId || items.length === 0) return;
+    try {
+      const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0) - descuentoGlobal;
+      const result: any = await createPurchase.mutateAsync({
+        branchId: parseInt(branchId),
+        receiptNumber, receiptType, supplier, almacenNombre, totalAmount,
+        items: items.map(i => ({
+          productName: i.productName, quantity: i.quantity, unitCost: i.unitCost,
+          subtotal: i.subtotal, expiryDate: i.expiryDate || null,
+          nuevoPrecioVenta: (i.nuevoPrecioVenta != null && i.nuevoPrecioVenta !== i.precioVentaSistema) ? i.nuevoPrecioVenta : null,
+        })),
+        imageUrl: uploadAndExtract.data?.imageUrl || null,
+        imageKey: uploadAndExtract.data?.imageKey || null,
+        confirmDirectly: false,
+      });
+      if (result?.id) setBorradorGuardadoId(result.id);
+      setCompraGuardada(true); // ya hay respaldo; quita la alerta de cierre
+      toast.success("Borrador guardado automáticamente", { duration: 2500 });
+    } catch (e) {
+      // Silencioso: si falla el autoguardado, no interrumpir al usuario
+      console.error("Error en autoguardado:", e);
+    }
+  }, [branchId, items, descuentoGlobal, receiptNumber, receiptType, supplier, almacenNombre, borradorGuardadoId, createPurchase, uploadAndExtract]);
+
+  // Navegación protegida: si hay trabajo sin registrar, confirma y autoguarda borrador
+  const salirProtegido = useCallback(async () => {
+    if (hayTrabajoSinGuardar) {
+      const ok = window.confirm(
+        "Tienes una compra sin terminar.\n\n" +
+        "Si sales ahora sin registrarla, se guardará como BORRADOR para que puedas retomarla después.\n\n" +
+        "¿Salir de todas formas?"
+      );
+      if (!ok) return;
+      // Guardar como borrador antes de salir
+      await autoguardarBorrador();
+    }
+    setLocation("/compras");
+  }, [hayTrabajoSinGuardar, autoguardarBorrador, setLocation]);
+
   const handleSubmit = useCallback(
     async (confirmDirectly: boolean) => {
       if (!branchId) {
@@ -386,7 +448,7 @@ export default function NuevaCompra() {
       }
       setIsSubmitting(true);
       try {
-        const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
+        const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0) - descuentoGlobal;
         const result = await createPurchase.mutateAsync({
           branchId: parseInt(branchId),
           receiptNumber,
@@ -406,6 +468,7 @@ export default function NuevaCompra() {
           imageKey: uploadAndExtract.data?.imageKey || null,
           confirmDirectly,
         });
+        setCompraGuardada(true); // registrada o guardada: quitar protección de cierre
         if (confirmDirectly) {
           const r = result as any;
           if (r?.syncSuccess) {
@@ -534,7 +597,7 @@ export default function NuevaCompra() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setLocation("/compras")}
+          onClick={salirProtegido}
           className="gap-1"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -803,6 +866,8 @@ export default function NuevaCompra() {
                                   proveedorNombre: prov.nombre,
                                 });
                               } catch {}
+                              // Autoguardar borrador: ya emparejado el proveedor, proteger el trabajo
+                              autoguardarBorrador();
                             }}
                           >
                             Usar
@@ -1223,11 +1288,28 @@ export default function NuevaCompra() {
                     </div>
                   ))}
                   {/* Total */}
-                  <div className="border-t-2 border-foreground pt-3 mt-3">
+                  <div className="border-t-2 border-foreground pt-3 mt-3 space-y-1">
+                    {descuentoGlobal > 0 && (
+                      <>
+                        <div className="flex justify-between items-center text-sm text-muted-foreground">
+                          <span>Subtotal productos</span>
+                          <span>{totalAmount.toFixed(2)} BS</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm text-orange-600">
+                          <span>Descuento factura</span>
+                          <span>− {descuentoGlobal.toFixed(2)} BS</span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold uppercase tracking-wider">Total</span>
-                      <span className="text-2xl font-black">{totalAmount.toFixed(2)} BS</span>
+                      <span className="text-sm font-bold uppercase tracking-wider">Total {descuentoGlobal > 0 ? "a pagar" : ""}</span>
+                      <span className="text-2xl font-black">{(totalAmount - descuentoGlobal).toFixed(2)} BS</span>
                     </div>
+                    {totalFacturaReal > 0 && Math.abs((totalAmount - descuentoGlobal) - totalFacturaReal) > 1 && (
+                      <p className="text-xs text-red-600 text-right">
+                        ⚠️ No cuadra con el total de la factura ({totalFacturaReal.toFixed(2)} BS). Revisa precios o descuentos.
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1247,7 +1329,7 @@ export default function NuevaCompra() {
             <div className="flex justify-end gap-3 mt-4">
               <Button
                 variant="outline"
-                onClick={() => setLocation("/compras")}
+                onClick={salirProtegido}
                 className="uppercase tracking-wider text-xs font-semibold"
               >
                 Cancelar

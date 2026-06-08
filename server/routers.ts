@@ -88,14 +88,20 @@ INSTRUCCIONES CRÍTICAS PARA PRECIOS (MUY IMPORTANTE):
 - El "unitCost" SIEMPRE debe ser: subtotal_de_la_linea ÷ quantity
 - NUNCA pongas el subtotal/importe como unitCost. Si una línea dice cantidad 20 e importe 400, entonces unitCost = 400/20 = 20
 
-DESCUENTOS (LEER CON MUCHA ATENCIÓN — hay DOS tipos):
+DESCUENTOS (LEER CON MUCHA ATENCIÓN — pueden existir DOS tipos A LA VEZ):
 - DESCUENTO POR LÍNEA: columna "DESCUENTO", "Dscto", "Desc.", "Dto" en cada fila. Captúralo en el campo "descuento" de cada item. El subtotal de esa línea debe ser DESPUÉS de restar ese descuento.
-- DESCUENTO GLOBAL: a veces el descuento NO está por fila, sino al final de la factura como un monto único que se resta del subtotal general (ej: "DESCUENTO Bs 150.00" cerca del total). Captúralo en "descuentoGlobal".
-- Algunas facturas (como INTI) muestran el descuento como un porcentaje o monto al pie, separado de las líneas. Búscalo SIEMPRE cerca de SUBTOTAL/TOTAL.
-- Si el descuento es por línea: subtotal_linea = (precio × cantidad) − descuento_linea
-- Si el descuento es global: cada subtotal de línea queda SIN descuento, y el descuento total va en "descuentoGlobal"
+- DESCUENTO GLOBAL: SIEMPRE revisa la PARTE INFERIOR de la factura (cerca de SUBTOTAL / TOTAL / TOTAL A PAGAR). Muchas facturas suman todos los productos y LUEGO aplican un descuento adicional sobre ese total. Ese descuento va en "descuentoGlobal".
+- IMPORTANTE: una factura puede tener AMBOS descuentos al mismo tiempo (descuento por fila Y un descuento extra al pie). Captura los dos por separado.
+- El descuento global puede aparecer como monto (ej "DESCUENTO Bs 150.00") o como porcentaje (ej "Desc. 5%"). Si es porcentaje, calcula el monto: descuentoGlobal = subtotal_general × (porcentaje/100).
+- PROCEDIMIENTO OBLIGATORIO para cuadrar con el total pagado:
+  1. Calcula el subtotal de cada línea (con su descuento de línea si lo tiene).
+  2. Suma todos los subtotales de línea = SUBTOTAL GENERAL.
+  3. Identifica el descuento global del pie (monto o %). Conviértelo a monto.
+  4. Verifica: SUBTOTAL GENERAL − descuentoGlobal debe ser ≈ TOTAL PAGADO de la factura.
+  5. Si NO cuadra, REVISA: puede que falte capturar un descuento, o que el descuento sea por línea en vez de global. Ajusta hasta que cuadre con el total pagado real.
 - Ejemplo descuento por línea: precio lista 31, cantidad 6, descuento 36 → subtotal = 186−36 = 150 → unitCost = 150/6 = 25
-- VERIFICACIÓN: suma de subtotales − descuentoGlobal ≈ totalFactura. Si no cuadra, revisa descuentos
+- Ejemplo descuento global: 10 productos suman 2000, al pie dice "DESCUENTO 100" y "TOTAL 1900" → descuentoGlobal = 100, cada subtotal queda sin tocar.
+- El "totalFactura" SIEMPRE debe ser el TOTAL FINAL PAGADO (después de todos los descuentos), tal como aparece en la factura.
 
 INSTRUCCIONES PARA NOMBRE DEL PRODUCTO:
 - Extrae SOLO el nombre comercial. Si la fila tiene un código numérico al inicio (ej: "400180 QUETOROL 20 TAB"), extrae SOLO "QUETOROL 20 TAB" sin el código.

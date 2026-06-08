@@ -201,14 +201,14 @@ export default function Inventario() {
     const sucursal = sesionActiva?.almacenNombre || "";
     const nombreSesion = sesionActiva?.nombre || "Inventario";
 
-    // Ordenar por clase ABC y luego alfabético
-    const ordenABC: any = { A: 0, B: 1, C: 2 };
-    const ordenados = [...items].sort((a, b) =>
-      (ordenABC[a.clase] - ordenABC[b.clase]) || a.nombre.localeCompare(b.nombre));
+    // Ordenar alfabéticamente A-Z por nombre
+    const ordenados = [...items].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const totalItems = ordenados.length;
 
-    // Filas: solo ABC, Producto, Sistema, Físico (en blanco)
-    const filas = ordenados.map((it) => `
+    // Filas: #, ABC, Producto, Sistema, Físico (en blanco)
+    const filas = ordenados.map((it, i) => `
       <tr>
+        <td class="num">${i + 1}</td>
         <td class="c">${it.clase}</td>
         <td class="n">${it.nombre}</td>
         <td class="s">${it.stock}</td>
@@ -234,6 +234,7 @@ export default function Inventario() {
         padding: 2px 3px; border-bottom: 1.2px solid #000; font-weight: 700; }
       td { padding: 2.5px 3px; border-bottom: 0.4px solid #bbb; font-size: 9.5px; vertical-align: middle; }
       tr { break-inside: avoid; }
+      .num { width: 22px; text-align: center; color: #555; font-size: 8.5px; }
       .c { width: 16px; text-align: center; font-weight: 700; color: #000; }
       .n { line-height: 1.15; }
       .s { width: 34px; text-align: center; font-weight: 700; }
@@ -261,7 +262,7 @@ export default function Inventario() {
       <div class="cols">
         <table>
           <thead><tr>
-            <th>A</th><th>Producto</th><th class="thc">Sis</th><th class="thc">Físico</th>
+            <th class="num">#</th><th>A</th><th>Producto</th><th class="thc">Sis</th><th class="thc">Físico</th>
           </tr></thead>
           <tbody>${filas}</tbody>
         </table>
