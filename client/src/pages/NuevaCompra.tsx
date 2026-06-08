@@ -968,39 +968,26 @@ export default function NuevaCompra() {
             <CardContent>
               {items.length > 0 ? (
                 <div className="space-y-2">
-                  {/* Table Header (scroll horizontal solo aquí en móvil) */}
-                  <div className="overflow-x-auto -mx-2 px-2">
-                  <div className={`min-w-[560px] grid gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-foreground/10 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}>
-                    <div className={showExpiry ? "col-span-4" : "col-span-5"}>Producto</div>
-                    <div className="col-span-2">Cantidad</div>
-                    <div className="col-span-2">Costo Unit.</div>
-                    {showExpiry && <div className="col-span-3">Vencimiento</div>}
-                    <div className="col-span-1 text-right">Subtotal</div>
-                    <div className="col-span-2" />
-                  </div>
-                  </div>
-                  {/* Items */}
+                  {/* Items (cada uno como tarjeta, nombre completo visible) */}
                   {items.map((item, idx) => (
-                    <div key={idx}>
-                    <div className="overflow-x-auto -mx-2 px-2">
-                    <div
-                      className={`min-w-[560px] grid gap-2 items-center py-1 ${showExpiry ? "grid-cols-13" : "grid-cols-12"}`}
-                    >
-                      <div className={showExpiry ? "col-span-4" : "col-span-5"}>
-                        <div className="relative">
-                          <Input
-                            value={item.productName}
-                            onChange={(e) => updateItem(idx, "productName", e.target.value)}
-                            className={`text-sm h-9 ${productosEmparejados[item.productName] !== undefined ? "border-green-500 bg-green-50 dark:bg-green-950 pr-7" : ""}`}
-                            placeholder="Nombre del producto"
-                            title={productosEmparejados[item.productName] ? `Factura original: ${productosEmparejados[item.productName]}` : ""}
-                          />
-                          {productosEmparejados[item.productName] !== undefined && (
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-green-500 text-sm font-bold">✓</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-span-2">
+                    <div key={idx} className="border border-foreground/10 rounded-lg p-2.5 space-y-2">
+                    {/* Nombre del producto: ancho completo, sin scroll, siempre visible */}
+                    <div className="relative">
+                      <Input
+                        value={item.productName}
+                        onChange={(e) => updateItem(idx, "productName", e.target.value)}
+                        className={`text-sm h-9 w-full ${productosEmparejados[item.productName] !== undefined ? "border-green-500 bg-green-50 dark:bg-green-950 pr-7" : ""}`}
+                        placeholder="Nombre del producto"
+                        title={productosEmparejados[item.productName] ? `Factura original: ${productosEmparejados[item.productName]}` : ""}
+                      />
+                      {productosEmparejados[item.productName] !== undefined && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-green-500 text-sm font-bold">✓</span>
+                      )}
+                    </div>
+                    {/* Campos: cantidad, costo, vencimiento, subtotal, acciones */}
+                    <div className="flex items-end gap-2 flex-wrap">
+                      <div className="flex-1 min-w-[70px]">
+                        <label className="text-[10px] uppercase text-muted-foreground tracking-wider">Cantidad</label>
                         <Input
                           type="number"
                           value={item.quantity}
@@ -1009,7 +996,8 @@ export default function NuevaCompra() {
                           min={0}
                         />
                       </div>
-                      <div className="col-span-2">
+                      <div className="flex-1 min-w-[80px]">
+                        <label className="text-[10px] uppercase text-muted-foreground tracking-wider">Costo unit.</label>
                         <Input
                           type="number"
                           value={item.unitCost}
@@ -1020,7 +1008,8 @@ export default function NuevaCompra() {
                         />
                       </div>
                       {showExpiry && (
-                        <div className="col-span-3">
+                        <div className="flex-1 min-w-[130px]">
+                          <label className="text-[10px] uppercase text-muted-foreground tracking-wider">Vencimiento</label>
                           <Input
                             type="date"
                             value={item.expiryDate || ""}
@@ -1029,14 +1018,15 @@ export default function NuevaCompra() {
                           />
                         </div>
                       )}
-                      <div className="col-span-1 text-right text-sm font-semibold whitespace-nowrap">
-                        {item.subtotal.toFixed(2)}
+                      <div className="min-w-[70px]">
+                        <label className="text-[10px] uppercase text-muted-foreground tracking-wider">Subtotal</label>
+                        <p className="text-sm font-bold h-9 flex items-center">{item.subtotal.toFixed(2)}</p>
                       </div>
-                      <div className="col-span-2 flex justify-end items-center gap-0.5">
+                      <div className="flex items-center gap-1 pb-0.5">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-8 w-8 shrink-0 border ${filaEmparejando === idx ? "bg-blue-600 text-white border-blue-600" : "border-blue-300 text-blue-600 dark:border-blue-700"}`}
+                          className={`h-9 w-9 shrink-0 border ${filaEmparejando === idx ? "bg-blue-600 text-white border-blue-600" : "border-blue-300 text-blue-600 dark:border-blue-700"}`}
                           title="Emparejar con producto del sistema"
                           onClick={() => {
                             if (filaEmparejando === idx) {
@@ -1054,13 +1044,12 @@ export default function NuevaCompra() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 shrink-0 text-muted-foreground"
+                          className="h-9 w-9 shrink-0 text-muted-foreground"
                           onClick={() => removeItem(idx)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                    </div>
                     </div>
 
                     {/* Alerta de costo elevado vs historial */}
