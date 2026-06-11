@@ -1186,6 +1186,7 @@ const asistenciaRouter = router({
       const { trabajadores } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { inventarios365 } = await import("./inventarios365");
+      const { calcularResumenMensual } = await import("./domain/sueldos");
       const db = await getDb();
       if (!db) return null;
       const [trab] = await db.select().from(trabajadores).where(eq(trabajadores.id, input.trabajadorId));
@@ -1196,57 +1197,24 @@ const asistenciaRouter = router({
         trab.usuarioSistemaId || "", input.anioMes
       );
 
-      // Calcular retraso por día según la hora esperada del trabajador
-      const [hEsp, mEsp] = trab.horaIngreso.split(":").map(Number);
-      const minutosEsperados = hEsp * 60 + mEsp;
-      const tolerancia = trab.toleranciaMin ?? 5;
-
-      const dias = aperturas.map((a: any) => {
-        // a.horaApertura = "HH:MM:SS", a.horaCierre opcional
-        const [eh, em] = (a.horaApertura || "00:00").split(":").map(Number);
-        const minReales = eh * 60 + em;
-        const retraso = Math.max(0, minReales - minutosEsperados - tolerancia);
-        let horas = 0;
-        if (a.horaCierre) {
-          const [ch, cm] = a.horaCierre.split(":").map(Number);
-          let diff = (ch * 60 + cm) - (eh * 60 + em);
-          if (diff < 0) diff += 24 * 60; // cerró pasada la medianoche
-          if (diff > 16 * 60) diff = 0;  // dato inconsistente, ignorar
-          horas = Math.round((diff / 60) * 100) / 100;
-        }
-        return { fecha: a.fecha, horaEntrada: a.horaApertura, horaSalida: a.horaCierre || null, minutosRetraso: retraso, horasTrabajadas: horas };
+      // Cálculo con lógica de dominio pura (testeable, sin IO)
+      const resumen = calcularResumenMensual(aperturas, {
+        horaIngreso: trab.horaIngreso,
+        horasDia: parseFloat(String(trab.horasDia)) || 8,
+        diasMes: trab.diasMes || 26,
+        sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
+        tipoDescuento: trab.tipoDescuento as "proporcional" | "fijo",
+        montoDescuentoFijo: parseFloat(String(trab.montoDescuentoFijo)) || 0,
+        toleranciaMin: trab.toleranciaMin ?? 5,
       });
 
-      const diasTrabajados = dias.length;
-      const horasTotales = dias.reduce((s, d) => s + d.horasTrabajadas, 0);
-      const retrasos = dias.filter(d => d.minutosRetraso > 0);
-      const minutosRetrasoTotal = dias.reduce((s, d) => s + d.minutosRetraso, 0);
-
-      const sueldo = parseFloat(String(trab.sueldoMensual)) || 0;
-      const horasDia = parseFloat(String(trab.horasDia)) || 8;
-      const diasMes = trab.diasMes || 26;
-      const horasMes = horasDia * diasMes;
-      const valorHora = horasMes > 0 ? sueldo / horasMes : 0;
-
-      let descuento = 0;
-      if (trab.tipoDescuento === "fijo") {
-        descuento = retrasos.length * (parseFloat(String(trab.montoDescuentoFijo)) || 0);
-      } else {
-        descuento = valorHora * (minutosRetrasoTotal / 60);
-      }
-      descuento = Math.round(descuento * 100) / 100;
-      const sueldoFinal = Math.round((sueldo - descuento) * 100) / 100;
-
       return {
-        trabajador: { id: trab.id, nombre: trab.nombre, horaIngreso: trab.horaIngreso, sueldoMensual: sueldo, tipoDescuento: trab.tipoDescuento, usuarioSistemaNombre: trab.usuarioSistemaNombre },
-        diasTrabajados,
-        horasTotales: Math.round(horasTotales * 100) / 100,
-        cantidadRetrasos: retrasos.length,
-        minutosRetrasoTotal,
-        valorHora: Math.round(valorHora * 100) / 100,
-        descuento,
-        sueldoFinal,
-        detalle: dias,
+        trabajador: {
+          id: trab.id, nombre: trab.nombre, horaIngreso: trab.horaIngreso,
+          sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
+          tipoDescuento: trab.tipoDescuento, usuarioSistemaNombre: trab.usuarioSistemaNombre,
+        },
+        ...resumen,
       };
     }),
 });

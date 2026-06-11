@@ -153,5 +153,19 @@ cat package.json | python3 -c "import json,sys; print(json.load(sys.stdin)['vers
 - v1.9.0: historial de precios + alerta de costo elevado
 - v1.10.0–1.13.0: módulo de inventario (ABC, sesiones, ajuste real de stock, progreso global)
 - v1.14.x: proveedores inteligentes (aprenden) + filtro productos por proveedor + endpoint proveedores correcto
+- v1.15.0–1.17.0: PDF de conteo optimizado, doble descuento, autoguardado + protección de cierre
+- v1.18.0–1.21.0: continuar borradores, ABC global, conteo puntual con caché, descuento distribuido, layout tarjeta
+- v1.22.0–1.23.0: módulo de asistencia (aperturas de caja), descuentos en cascada por laboratorio
+- v1.24.0: arquitectura — lógica de dominio pura en server/domain/ (descuentos, ABC, sueldos) con tests
 
-> Para detalles técnicos completos ver DOCUMENTACION.md
+## 🏛️ ARQUITECTURA Y EVOLUCIÓN
+> Ver **ARQUITECTURA.md** para el mapa completo del sistema, deuda técnica,
+> plan de reestructuración por fases y roadmap de futuras mejoras.
+
+Lógica de negocio pura (testeable, sin IO) en `server/domain/`:
+- `descuentos.ts` — cálculo de descuentos en cascada (comercial + volumen + efectivo)
+- `abc.ts` — clasificación ABC de inventario
+- `sueldos.ts` — cálculo de asistencia, retrasos y sueldos
+- `domain.test.ts` — tests de toda la lógica de dominio
+
+> Para detalles técnicos completos ver DOCUMENTACION.md y ARQUITECTURA.md
