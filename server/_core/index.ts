@@ -135,8 +135,19 @@ async function startServer() {
     try {
       const usuario = String(req.query.usuario || "");
       const mes = String(req.query.mes || new Date().toISOString().slice(0, 7));
-      const aperturas = await inventarios365.aperturasCajaDelMes(usuario, mes);
-      res.json({ total: aperturas.length, aperturas: aperturas.slice(0, 10) });
+      // Estructura cruda de la primera página
+      const raw = await inventarios365.diagRaw("/caja?page=1&buscar=&criterio=");
+      let arr: any = raw?.cajas ?? raw?.data ?? raw?.movimientos ?? raw;
+      if (arr?.data) arr = arr.data;
+      const ejemplo = Array.isArray(arr) ? arr[0] : null;
+      const aperturas = usuario ? await inventarios365.aperturasCajaDelMes(usuario, mes) : [];
+      res.json({
+        keys: raw && typeof raw === "object" ? Object.keys(raw) : typeof raw,
+        camposCaja: ejemplo ? Object.keys(ejemplo) : [],
+        ejemploCaja: ejemplo,
+        aperturasUsuario: aperturas.length,
+        aperturas: aperturas.slice(0, 5),
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

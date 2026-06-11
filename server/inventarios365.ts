@@ -751,35 +751,48 @@ class Inventarios365Service {
    */
   async aperturasCajaDelMes(usuarioId: string, anioMes: string): Promise<Array<{ fecha: string; horaApertura: string; horaCierre?: string }>> {
     if (!usuarioId) return [];
-    // Rango del mes
-    const [anio, mes] = anioMes.split("-").map(Number);
-    const desde = `${anioMes}-01`;
-    const ultimoDia = new Date(anio, mes, 0).getDate();
-    const hasta = `${anioMes}-${String(ultimoDia).padStart(2, "0")}`;
-    const candidatos = [
-      `/caja?page=1&desde=${desde}&hasta=${hasta}&idusuario=${usuarioId}`,
-      `/caja/listar?desde=${desde}&hasta=${hasta}&idusuario=${usuarioId}`,
-      `/aperturacaja?desde=${desde}&hasta=${hasta}&idusuario=${usuarioId}`,
-      `/movimientocaja?desde=${desde}&hasta=${hasta}&idusuario=${usuarioId}`,
-    ];
-    for (const url of candidatos) {
-      try {
-        const data = await this.get<any>(url);
-        const arr = data?.cajas ?? data?.aperturas ?? data?.data ?? data?.movimientos ?? (Array.isArray(data) ? data : null);
-        if (Array.isArray(arr)) {
-          console.log(`[Inventarios365] Aperturas caja via ${url}: ${arr.length}`);
-          return arr.map((c: any) => {
-            const fhApertura = c.fecha_apertura ?? c.fechaApertura ?? c.created_at ?? c.fecha ?? "";
-            const fhCierre = c.fecha_cierre ?? c.fechaCierre ?? c.closed_at ?? "";
-            // Separar fecha y hora (formato "YYYY-MM-DD HH:MM:SS")
-            const [fecha, horaA] = String(fhApertura).split(/[ T]/);
-            const horaC = fhCierre ? String(fhCierre).split(/[ T]/)[1] : undefined;
-            return { fecha, horaApertura: horaA || "00:00:00", horaCierre: horaC };
-          }).filter((c: any) => c.fecha);
+    const resultado: Array<{ fecha: string; horaApertura: string; horaCierre?: string }> = [];
+    let page = 1;
+    const maxPages = 60;
+    try {
+      while (page <= maxPages) {
+        const data = await this.get<any>(`/caja?page=${page}&buscar=&criterio=`);
+        if (page === 1) {
+          const arrDiag = data?.cajas ?? data?.data ?? data?.movimientos ?? (Array.isArray(data) ? data : null);
+          const ej = Array.isArray(arrDiag) ? arrDiag[0] : (arrDiag?.data?.[0] ?? null);
+          console.log(`[Inventarios365] caja keys:`, data && typeof data === "object" ? Object.keys(data).join(",") : typeof data);
+          console.log(`[Inventarios365] caja ejemplo:`, JSON.stringify(ej).substring(0, 400));
         }
-      } catch (e) { /* siguiente */ }
+        // Extraer el array de cajas (formatos posibles)
+        const pag = data?.pagination ?? {};
+        let arr: any[] = [];
+        if (Array.isArray(data?.cajas)) arr = data.cajas;
+        else if (Array.isArray(data?.cajas?.data)) arr = data.cajas.data;
+        else if (Array.isArray(data?.data)) arr = data.data;
+        else if (Array.isArray(data?.movimientos)) arr = data.movimientos;
+        else if (Array.isArray(data)) arr = data;
+
+        for (const c of arr) {
+          // Filtrar por usuario
+          const uid = String(c.idusuario ?? c.usuario_id ?? c.iduser ?? c.user_id ?? c.idUsuario ?? "");
+          if (uid !== String(usuarioId)) continue;
+          // Fecha/hora de apertura
+          const fhApertura = c.fecha_apertura ?? c.fechaApertura ?? c.apertura ?? c.created_at ?? c.fecha ?? "";
+          const fhCierre = c.fecha_cierre ?? c.fechaCierre ?? c.cierre ?? c.closed_at ?? "";
+          const [fecha, horaA] = String(fhApertura).split(/[ T]/);
+          if (!fecha || !fecha.startsWith(anioMes)) continue; // solo el mes pedido
+          const horaC = fhCierre ? String(fhCierre).split(/[ T]/)[1] : undefined;
+          resultado.push({ fecha, horaApertura: horaA || "00:00:00", horaCierre: horaC });
+        }
+
+        const lastPage = pag.last_page ?? pag.lastPage ?? 1;
+        if (page >= lastPage || arr.length === 0) break;
+        page++;
+      }
+    } catch (e) {
+      console.error("[Inventarios365] Error leyendo cajas:", e);
     }
-    return [];
+    return resultado;
   }
 
   /**
