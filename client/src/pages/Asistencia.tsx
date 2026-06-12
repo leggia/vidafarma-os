@@ -22,7 +22,7 @@ export default function Asistencia() {
 
   const utils = trpc.useUtils();
   const { data: trabajadores, isLoading } = trpc.asistencia.listarTrabajadores.useQuery();
-  const { data: usuariosSistema } = trpc.asistencia.listarUsuariosSistema.useQuery();
+  const { data: usuariosSistema, isLoading: isLoadingUsuarios } = trpc.asistencia.listarUsuariosSistema.useQuery();
   const guardarMut = trpc.asistencia.guardarTrabajador.useMutation({
     onSuccess: () => { utils.asistencia.listarTrabajadores.invalidate(); toast.success("Trabajador guardado"); setVista("trabajadores"); },
     onError: (e) => toast.error(e.message),
@@ -43,7 +43,7 @@ export default function Asistencia() {
             <h1 className="text-xl font-black uppercase tracking-tight">Asistencia</h1>
           </div>
           <Button variant="outline" size="sm" onClick={() => setVista("trabajadores")} className="gap-1 text-xs">
-            <Pencil className="h-3 w-3" /> Trabajadores
+            <Pencil className="h-3 w-3" /> Personal
           </Button>
         </div>
 
@@ -152,43 +152,123 @@ export default function Asistencia() {
 
   // ─── Vista: Lista de trabajadores ───
   if (vista === "trabajadores") {
+    // Cruzar usuarios del sistema con trabajadores ya configurados
+    const trabajadoresPorUsuario = new Map(
+      (trabajadores || []).filter((t: any) => t.usuarioSistemaId).map((t: any) => [String(t.usuarioSistemaId), t])
+    );
+    const usuarios = usuariosSistema || [];
+    const configurados = usuarios.filter((u: any) => trabajadoresPorUsuario.has(String(u.id)));
+    const sinConfigurar = usuarios.filter((u: any) => !trabajadoresPorUsuario.has(String(u.id)));
+
     return (
       <div className="max-w-2xl mx-auto p-4 space-y-4">
         <div className="flex items-center justify-between border-b border-foreground pb-3">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" onClick={() => setVista("resumen")}><ChevronLeft className="h-5 w-5" /></Button>
-            <h1 className="text-lg font-black uppercase tracking-tight">Trabajadores</h1>
+            <h1 className="text-lg font-black uppercase tracking-tight">Personal</h1>
           </div>
-          <Button size="sm" onClick={() => { setEditando(null); setVista("form"); }} className="gap-1 text-xs">
-            <Plus className="h-3 w-3" /> Nuevo
+          <Button size="sm" variant="outline" onClick={() => { setEditando(null); setVista("form"); }} className="gap-1 text-xs">
+            <Plus className="h-3 w-3" /> Manual
           </Button>
         </div>
 
-        {isLoading ? (
+        <p className="text-xs text-muted-foreground">
+          Estos son los usuarios de inventarios365. Configura cada uno con su horario y sueldo para incluirlo en el control de asistencia.
+        </p>
+
+        {(isLoadingUsuarios || isLoading) ? (
           <div className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></div>
-        ) : (trabajadores || []).length === 0 ? (
+        ) : usuarios.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
-            <p className="text-sm">No hay trabajadores. Agrega el primero.</p>
+            <p className="text-sm">No se pudieron cargar los usuarios del sistema.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {(trabajadores || []).map((t: any) => (
-              <Card key={t.id} className={t.activo ? "" : "opacity-50"}>
-                <CardContent className="p-3 flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-sm">{t.nombre}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Entra {t.horaIngreso} · {t.horasDia}h/día · {parseFloat(t.sueldoMensual).toFixed(0)} Bs/mes
-                      {t.usuarioSistemaNombre ? ` · Caja: ${t.usuarioSistemaNombre}` : " · ⚠️ sin usuario"}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => { setEditando(t); setVista("form"); }}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="space-y-4">
+            {/* Sin configurar */}
+            {sinConfigurar.length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                  Por configurar ({sinConfigurar.length})
+                </p>
+                <div className="space-y-2">
+                  {sinConfigurar.map((u: any) => (
+                    <Card key={u.id} className="border-dashed">
+                      <CardContent className="p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                            {u.nombre.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm">{u.nombre}</p>
+                            <p className="text-[11px] text-muted-foreground">Usuario del sistema · sin configurar</p>
+                          </div>
+                        </div>
+                        <Button size="sm" onClick={() => { setEditando({ usuarioSistemaId: u.id, usuarioSistemaNombre: u.nombre, nombre: u.nombre }); setVista("form"); }} className="gap-1 text-xs">
+                          <Plus className="h-3 w-3" /> Configurar
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Configurados */}
+            {configurados.length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                  Configurados ({configurados.length})
+                </p>
+                <div className="space-y-2">
+                  {configurados.map((u: any) => {
+                    const t = trabajadoresPorUsuario.get(String(u.id));
+                    return (
+                      <Card key={u.id}>
+                        <CardContent className="p-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-950 flex items-center justify-center text-xs font-bold text-green-700 dark:text-green-300">
+                              {t.nombre.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-sm">{t.nombre}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                Entra {t.horaIngreso} · {t.horasDia}h/día · {parseFloat(t.sueldoMensual).toFixed(0)} Bs/mes
+                              </p>
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="icon" onClick={() => { setEditando(t); setVista("form"); }}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Trabajadores manuales sin usuario del sistema */}
+            {(trabajadores || []).filter((t: any) => !t.usuarioSistemaId).length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Sin usuario vinculado</p>
+                <div className="space-y-2">
+                  {(trabajadores || []).filter((t: any) => !t.usuarioSistemaId).map((t: any) => (
+                    <Card key={t.id} className="opacity-80">
+                      <CardContent className="p-3 flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-sm">{t.nombre}</p>
+                          <p className="text-[11px] text-orange-600">⚠️ Sin usuario del sistema (no se leerán aperturas de caja)</p>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => { setEditando(t); setVista("form"); }}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -209,12 +289,14 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
   const [nombre, setNombre] = useState(editando?.nombre || "");
   const [usuarioId, setUsuarioId] = useState(editando?.usuarioSistemaId || "");
   const [horaIngreso, setHoraIngreso] = useState(editando?.horaIngreso || "08:00");
-  const [horasDia, setHorasDia] = useState(editando ? parseFloat(editando.horasDia) : 8);
+  const [horasDia, setHorasDia] = useState(editando?.horasDia ? parseFloat(editando.horasDia) : 8);
   const [diasMes, setDiasMes] = useState(editando?.diasMes || 26);
-  const [sueldo, setSueldo] = useState(editando ? parseFloat(editando.sueldoMensual) : 0);
+  const [sueldo, setSueldo] = useState(editando?.sueldoMensual ? parseFloat(editando.sueldoMensual) : 0);
   const [tipoDescuento, setTipoDescuento] = useState(editando?.tipoDescuento || "proporcional");
-  const [montoFijo, setMontoFijo] = useState(editando ? parseFloat(editando.montoDescuentoFijo) : 10);
+  const [montoFijo, setMontoFijo] = useState(editando?.montoDescuentoFijo ? parseFloat(editando.montoDescuentoFijo) : 10);
   const [tolerancia, setTolerancia] = useState(editando?.toleranciaMin ?? 5);
+  // Si viene de un usuario del sistema sin configurar todavía, no tiene id de trabajador
+  const esEdicionReal = !!editando?.id;
 
   const guardar = () => {
     if (!nombre.trim()) { toast.error("El nombre es obligatorio"); return; }
@@ -238,7 +320,7 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
     <div className="max-w-2xl mx-auto p-4 space-y-4">
       <div className="flex items-center gap-2 border-b border-foreground pb-3">
         <Button variant="ghost" size="icon" onClick={onCancel}><ChevronLeft className="h-5 w-5" /></Button>
-        <h1 className="text-lg font-black uppercase tracking-tight">{editando ? "Editar" : "Nuevo"} trabajador</h1>
+        <h1 className="text-lg font-black uppercase tracking-tight">{esEdicionReal ? "Editar" : "Configurar"} trabajador</h1>
       </div>
 
       <div className="space-y-3">

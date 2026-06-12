@@ -723,6 +723,9 @@ class Inventarios365Service {
    * Endpoint pendiente de confirmar por captura de red.
    */
   async listarUsuarios(): Promise<Array<{ id: string; nombre: string }>> {
+    // Caché de 10 min (los usuarios cambian poco)
+    const cached = this.cacheInventario.get("usuarios");
+    if (cached && cached.expira > Date.now()) return cached.data as any;
     const candidatos = [
       "/usuario?page=1&buscar=&criterio=todos",
       "/usuarios?page=1&buscar=&criterio=todos",
@@ -734,10 +737,12 @@ class Inventarios365Service {
         const arr = data?.usuarios ?? data?.personas ?? data?.data ?? (Array.isArray(data) ? data : null);
         if (Array.isArray(arr) && arr.length > 0) {
           console.log(`[Inventarios365] Usuarios via ${url}: ${arr.length}`);
-          return arr.map((u: any) => ({
+          const usuarios = arr.map((u: any) => ({
             id: String(u.id ?? u.idusuario ?? u.user_id ?? ""),
             nombre: u.nombre ?? u.name ?? u.usuario ?? u.username ?? u.login ?? "",
           })).filter((u: any) => u.id);
+          this.cacheInventario.set("usuarios", { data: usuarios as any, expira: Date.now() + 10 * 60 * 1000 });
+          return usuarios;
         }
       } catch (e) { /* siguiente */ }
     }
