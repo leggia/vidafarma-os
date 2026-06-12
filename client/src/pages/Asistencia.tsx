@@ -22,7 +22,7 @@ export default function Asistencia() {
 
   const utils = trpc.useUtils();
   const { data: trabajadores, isLoading } = trpc.asistencia.listarTrabajadores.useQuery();
-  const { data: usuariosSistema, isLoading: isLoadingUsuarios } = trpc.asistencia.listarUsuariosSistema.useQuery();
+  const { data: usuariosSistema, isLoading: isLoadingUsuarios, error: errorUsuarios, refetch: refetchUsuarios } = trpc.asistencia.listarUsuariosSistema.useQuery(undefined, { retry: 1 });
   const guardarMut = trpc.asistencia.guardarTrabajador.useMutation({
     onSuccess: () => { utils.asistencia.listarTrabajadores.invalidate(); toast.success("Trabajador guardado"); setVista("trabajadores"); },
     onError: (e) => toast.error(e.message),
@@ -182,6 +182,10 @@ export default function Asistencia() {
           <div className="text-center py-12 text-muted-foreground">
             <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
             <p className="text-sm">No se pudieron cargar los usuarios del sistema.</p>
+            {errorUsuarios && <p className="text-[11px] text-red-600 mt-1 px-4">{errorUsuarios.message}</p>}
+            <Button size="sm" variant="outline" onClick={() => refetchUsuarios()} className="mt-3 gap-1 text-xs">
+              <Loader2 className="h-3 w-3" /> Reintentar
+            </Button>
           </div>
         ) : (
           <div className="space-y-4">

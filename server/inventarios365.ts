@@ -725,27 +725,40 @@ class Inventarios365Service {
   async listarUsuarios(): Promise<Array<{ id: string; nombre: string }>> {
     // Caché de 10 min (los usuarios cambian poco)
     const cached = this.cacheInventario.get("usuarios");
-    if (cached && cached.expira > Date.now()) return cached.data as any;
+    if (cached && cached.expira > Date.now() && Array.isArray(cached.data) && cached.data.length > 0) {
+      return cached.data as any;
+    }
     const candidatos = [
       "/usuario?page=1&buscar=&criterio=todos",
       "/usuarios?page=1&buscar=&criterio=todos",
+      "/usuario?page=1&buscar=&criterio=nombre",
       "/user?page=1&buscar=&criterio=todos",
+      "/usuario",
+      "/usuarios",
     ];
     for (const url of candidatos) {
       try {
         const data = await this.get<any>(url);
-        const arr = data?.usuarios ?? data?.personas ?? data?.data ?? (Array.isArray(data) ? data : null);
+        const arr = data?.usuarios ?? data?.personas ?? data?.users ?? data?.data
+          ?? data?.usuarios?.data ?? (Array.isArray(data) ? data : null);
         if (Array.isArray(arr) && arr.length > 0) {
-          console.log(`[Inventarios365] Usuarios via ${url}: ${arr.length}`);
+          console.log(`[Inventarios365] Usuarios OK via ${url}: ${arr.length}`);
           const usuarios = arr.map((u: any) => ({
-            id: String(u.id ?? u.idusuario ?? u.user_id ?? ""),
-            nombre: u.nombre ?? u.name ?? u.usuario ?? u.username ?? u.login ?? "",
+            id: String(u.id ?? u.idusuario ?? u.user_id ?? u.idUsuario ?? ""),
+            nombre: u.nombre ?? u.name ?? u.usuario ?? u.username ?? u.login ?? u.nombre_persona ?? "",
           })).filter((u: any) => u.id);
-          this.cacheInventario.set("usuarios", { data: usuarios as any, expira: Date.now() + 10 * 60 * 1000 });
-          return usuarios;
+          if (usuarios.length > 0) {
+            this.cacheInventario.set("usuarios", { data: usuarios as any, expira: Date.now() + 10 * 60 * 1000 });
+            return usuarios;
+          }
+        } else {
+          console.log(`[Inventarios365] Usuarios ${url}: sin array (keys: ${data && typeof data === "object" ? Object.keys(data).join(",") : typeof data})`);
         }
-      } catch (e) { /* siguiente */ }
+      } catch (e: any) {
+        console.log(`[Inventarios365] Usuarios ${url} error: ${e?.response?.status || e?.message}`);
+      }
     }
+    console.warn("[Inventarios365] No se encontraron usuarios en ningún endpoint");
     return [];
   }
 
