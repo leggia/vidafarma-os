@@ -1124,12 +1124,15 @@ const asistenciaRouter = router({
       usuarioSistemaId: z.string().nullable().optional(),
       usuarioSistemaNombre: z.string().nullable().optional(),
       horaIngreso: z.string(),
+      horaSalida: z.string().optional(),
       horasDia: z.number(),
       diasMes: z.number(),
       diasSemana: z.string().optional(),
       tipoTrabajador: z.enum(["fijo_mensual", "por_dia", "fijo_horas", "fijo_turnos"]).optional(),
       horasMesFijas: z.number().optional(),
       montoPorDia: z.number().optional(),
+      montoTurnoExtra: z.number().optional(),
+      toleranciaSalidaMin: z.number().optional(),
       sueldoMensual: z.number(),
       tipoDescuento: z.enum(["proporcional", "fijo"]),
       montoDescuentoFijo: z.number(),
@@ -1146,12 +1149,15 @@ const asistenciaRouter = router({
         usuarioSistemaId: input.usuarioSistemaId || null,
         usuarioSistemaNombre: input.usuarioSistemaNombre || null,
         horaIngreso: input.horaIngreso,
+        horaSalida: input.horaSalida || "00:00",
         horasDia: String(input.horasDia),
         diasMes: input.diasMes,
         diasSemana: input.diasSemana || "1,2,3,4,5,6",
         tipoTrabajador: input.tipoTrabajador || "fijo_mensual",
         horasMesFijas: input.horasMesFijas ?? 192,
         montoPorDia: String(input.montoPorDia ?? 0),
+        montoTurnoExtra: String(input.montoTurnoExtra ?? 0),
+        toleranciaSalidaMin: input.toleranciaSalidaMin ?? 10,
         sueldoMensual: String(input.sueldoMensual),
         tipoDescuento: input.tipoDescuento,
         montoDescuentoFijo: String(input.montoDescuentoFijo),
@@ -1191,8 +1197,8 @@ const asistenciaRouter = router({
     .input(z.object({ trabajadorId: z.number(), anioMes: z.string() })) // anioMes = "2026-06"
     .query(async ({ input }) => {
       const { getDb } = await import("./db");
-      const { trabajadores } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
+      const { trabajadores, ajustesDia, pagosSueldo } = await import("../drizzle/schema");
+      const { eq, and, like } = await import("drizzle-orm");
       const { inventarios365 } = await import("./inventarios365");
       const { calcularResumenMensual } = await import("./domain/sueldos");
       const db = await getDb();
@@ -1200,34 +1206,114 @@ const asistenciaRouter = router({
       const [trab] = await db.select().from(trabajadores).where(eq(trabajadores.id, input.trabajadorId));
       if (!trab) return null;
 
-      // Leer aperturas de caja del usuario en el mes desde inventarios365
       const aperturas = await inventarios365.aperturasCajaDelMes(
         trab.usuarioSistemaId || "", input.anioMes
       );
 
-      // Cálculo con lógica de dominio pura (testeable, sin IO)
+      // Ajustes del mes (justificaciones, hora manual, turnos extra)
+      const ajustesRows = await db.select().from(ajustesDia)
+        .where(and(eq(ajustesDia.trabajadorId, input.trabajadorId), like(ajustesDia.fecha, `${input.anioMes}%`)));
+      const ajustes = ajustesRows.map((a: any) => ({
+        fecha: a.fecha,
+        justificado: a.justificado === 1,
+        horaIngresoManual: a.horaIngresoManual || undefined,
+        esTurnoExtra: a.esTurnoExtra === 1,
+        motivo: a.motivo || undefined,
+      }));
+
+      const [pago] = await db.select().from(pagosSueldo)
+        .where(and(eq(pagosSueldo.trabajadorId, input.trabajadorId), eq(pagosSueldo.anioMes, input.anioMes)));
+
       const resumen = calcularResumenMensual(aperturas, {
         tipoTrabajador: (trab.tipoTrabajador || "fijo_mensual") as any,
         horaIngreso: trab.horaIngreso,
+        horaSalida: trab.horaSalida && trab.horaSalida !== "00:00" ? trab.horaSalida : undefined,
         horasDia: parseFloat(String(trab.horasDia)) || 8,
         diasMes: trab.diasMes || 26,
         diasSemana: (trab.diasSemana || "").split(",").map(Number).filter((n: number) => !isNaN(n)),
         horasMesFijas: trab.horasMesFijas ?? 192,
         montoPorDia: parseFloat(String(trab.montoPorDia)) || 0,
+        montoTurnoExtra: parseFloat(String(trab.montoTurnoExtra)) || 0,
         sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
         tipoDescuento: trab.tipoDescuento as "proporcional" | "fijo",
         montoDescuentoFijo: parseFloat(String(trab.montoDescuentoFijo)) || 0,
         toleranciaMin: trab.toleranciaMin ?? 5,
-      }, input.anioMes);
+        toleranciaSalidaMin: trab.toleranciaSalidaMin ?? 10,
+      }, input.anioMes, ajustes);
 
       return {
         trabajador: {
           id: trab.id, nombre: trab.nombre, horaIngreso: trab.horaIngreso,
           sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
-          tipoDescuento: trab.tipoDescuento, usuarioSistemaNombre: trab.usuarioSistemaNombre,
+          tipoTrabajador: trab.tipoTrabajador, usuarioSistemaNombre: trab.usuarioSistemaNombre,
         },
+        pagado: pago?.pagado === 1,
+        fechaPago: pago?.fechaPago || null,
         ...resumen,
       };
+    }),
+
+  guardarAjusteDia: publicProcedure
+    .input(z.object({
+      trabajadorId: z.number(), fecha: z.string(),
+      justificado: z.boolean().optional(),
+      horaIngresoManual: z.string().nullable().optional(),
+      esTurnoExtra: z.boolean().optional(),
+      motivo: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { ajustesDia } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin base de datos");
+      const existente = await db.select().from(ajustesDia)
+        .where(and(eq(ajustesDia.trabajadorId, input.trabajadorId), eq(ajustesDia.fecha, input.fecha)));
+      const valores = {
+        justificado: input.justificado ? 1 : 0,
+        horaIngresoManual: input.horaIngresoManual || null,
+        esTurnoExtra: input.esTurnoExtra ? 1 : 0,
+        motivo: input.motivo || null,
+      };
+      if (existente[0]) {
+        await db.update(ajustesDia).set(valores).where(eq(ajustesDia.id, existente[0].id));
+      } else {
+        await db.insert(ajustesDia).values({ trabajadorId: input.trabajadorId, fecha: input.fecha, ...valores });
+      }
+      return { success: true };
+    }),
+
+  marcarPagado: publicProcedure
+    .input(z.object({ trabajadorId: z.number(), anioMes: z.string(), montoPagado: z.number(), pagado: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { pagosSueldo } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin base de datos");
+      const existente = await db.select().from(pagosSueldo)
+        .where(and(eq(pagosSueldo.trabajadorId, input.trabajadorId), eq(pagosSueldo.anioMes, input.anioMes)));
+      if (existente[0]) {
+        await db.update(pagosSueldo).set({ pagado: input.pagado ? 1 : 0, montoPagado: String(input.montoPagado) })
+          .where(eq(pagosSueldo.id, existente[0].id));
+      } else {
+        await db.insert(pagosSueldo).values({
+          trabajadorId: input.trabajadorId, anioMes: input.anioMes,
+          montoPagado: String(input.montoPagado), pagado: input.pagado ? 1 : 0,
+        });
+      }
+      return { success: true };
+    }),
+
+  pagosDelMes: publicProcedure
+    .input(z.object({ anioMes: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { pagosSueldo } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(pagosSueldo).where(eq(pagosSueldo.anioMes, input.anioMes));
     }),
 });
 

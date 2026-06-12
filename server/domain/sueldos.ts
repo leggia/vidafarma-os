@@ -20,15 +20,29 @@ export type TipoTrabajador = "fijo_mensual" | "por_dia" | "fijo_horas" | "fijo_t
 export interface ConfigTrabajador {
   tipoTrabajador: TipoTrabajador;
   horaIngreso: string;       // "HH:MM" — hora esperada de apertura (o inicio de turno)
+  horaSalida?: string;       // "HH:MM" — hora esperada de cierre (para detectar cierre temprano)
   horasDia: number;
   diasMes: number;
   diasSemana?: number[];     // [0..6], 0=domingo. Para contar días del mes
   horasMesFijas: number;     // horas base del mes para el valor hora (ej. 192)
   montoPorDia: number;       // para tipo por_dia: lo que se paga por día trabajado
+  montoTurnoExtra: number;   // pago extra por domingo/feriado cubierto (trabajadores fijos)
   sueldoMensual: number;     // para tipos fijos
   tipoDescuento: "proporcional" | "fijo";
   montoDescuentoFijo: number;
-  toleranciaMin: number;
+  toleranciaMin: number;     // tolerancia para retraso de entrada
+  toleranciaSalidaMin: number; // minutos antes de la salida esperada que se permiten sin descuento
+}
+
+/**
+ * Una justificación o corrección manual de un día específico.
+ */
+export interface AjusteDia {
+  fecha: string;             // "YYYY-MM-DD"
+  justificado?: boolean;     // si true, no se descuenta ese día (apagón, bloqueo, etc.)
+  horaIngresoManual?: string; // "HH:MM:SS" corrige la hora de entrada
+  esTurnoExtra?: boolean;    // marca que ese día fue un turno extra cubierto (domingo/feriado)
+  motivo?: string;
 }
 
 /**
@@ -59,8 +73,11 @@ export interface DiaCalculado {
   fecha: string;
   horaEntrada: string;
   horaSalida: string | null;
-  minutosRetraso: number;
+  minutosRetraso: number;        // retraso de entrada
+  minutosCierreTemprano: number; // minutos que cerró antes de su salida esperada
   horasTrabajadas: number;
+  justificado: boolean;          // día justificado (no descuenta)
+  esTurnoExtra: boolean;         // turno extra cubierto (domingo/feriado)
 }
 
 export interface ResumenSueldo {
@@ -68,6 +85,9 @@ export interface ResumenSueldo {
   horasTotales: number;
   cantidadRetrasos: number;
   minutosRetrasoTotal: number;
+  minutosCierreTempranoTotal: number;
+  turnosExtra: number;
+  pagoTurnosExtra: number;
   valorHora: number;
   descuento: number;
   sueldoBase: number;           // sueldo antes de descuentos (según el tipo)
@@ -90,73 +110,108 @@ export function calcularRetraso(horaApertura: string, cfg: ConfigTrabajador): nu
   return Math.max(0, real - esperado - cfg.toleranciaMin);
 }
 
-/** Calcula horas trabajadas entre apertura y cierre, manejando cruce de medianoche. */
-export function calcularHoras(horaApertura: string, horaCierre?: string): number {
+/** Calcula horas trabajadas entre apertura y cierre, manejando cruce de medianoche y turnos largos. */
+export function calcularHoras(horaApertura: string, horaCierre?: string, esTurno24 = false): number {
   if (!horaCierre) return 0;
   let diff = aMinutos(horaCierre) - aMinutos(horaApertura);
   if (diff < 0) diff += 24 * 60;     // cerró pasada la medianoche
-  if (diff > 16 * 60) return 0;       // dato inconsistente, ignorar
+  // En turnos de 24h, si la diferencia es pequeña, el cierre real fue ~24h después
+  if (esTurno24 && diff < 60) diff += 24 * 60;
+  if (!esTurno24 && diff > 16 * 60) return 0; // dato inconsistente (no turno)
+  if (esTurno24 && diff > 26 * 60) return 24;  // acotar turno a 24h
   return redondear(diff / 60);
 }
 
+/** Calcula minutos de cierre temprano respecto a la salida esperada (con tolerancia). */
+export function calcularCierreTemprano(horaCierre: string | undefined, horaSalidaEsperada: string | undefined, toleranciaMin: number): number {
+  if (!horaCierre || !horaSalidaEsperada) return 0;
+  const esperado = aMinutos(horaSalidaEsperada);
+  const real = aMinutos(horaCierre);
+  // Solo cuenta si cerró ANTES de la salida esperada, más allá de la tolerancia
+  const antes = esperado - real;
+  return antes > toleranciaMin ? antes : 0;
+}
+
 /** Construye el resumen mensual de sueldo a partir de las aperturas de caja. */
-export function calcularResumenMensual(aperturas: Apertura[], cfg: ConfigTrabajador, anioMes?: string): ResumenSueldo {
-  const detalle: DiaCalculado[] = aperturas.map((a) => ({
-    fecha: a.fecha,
-    horaEntrada: a.horaApertura,
-    horaSalida: a.horaCierre || null,
-    minutosRetraso: calcularRetraso(a.horaApertura, cfg),
-    horasTrabajadas: calcularHoras(a.horaApertura, a.horaCierre),
-  }));
+export function calcularResumenMensual(
+  aperturas: Apertura[],
+  cfg: ConfigTrabajador,
+  anioMes?: string,
+  ajustes: AjusteDia[] = []
+): ResumenSueldo {
+  const esTurno24 = cfg.tipoTrabajador === "fijo_turnos";
+  const ajustePorFecha = new Map(ajustes.map((a) => [a.fecha, a]));
+
+  const detalle: DiaCalculado[] = aperturas.map((a) => {
+    const aj = ajustePorFecha.get(a.fecha);
+    // Hora de entrada: la manual si se justificó/corrigió, si no la real
+    const horaEntrada = aj?.horaIngresoManual || a.horaApertura;
+    const justificado = aj?.justificado ?? false;
+    const esTurnoExtra = aj?.esTurnoExtra ?? false;
+
+    const minutosRetraso = justificado ? 0 : calcularRetraso(horaEntrada, cfg);
+    const minutosCierreTemprano = justificado ? 0 : calcularCierreTemprano(a.horaCierre, cfg.horaSalida, cfg.toleranciaSalidaMin);
+    const horasTrabajadas = calcularHoras(horaEntrada, a.horaCierre, esTurno24);
+
+    return { fecha: a.fecha, horaEntrada, horaSalida: a.horaCierre || null,
+      minutosRetraso, minutosCierreTemprano, horasTrabajadas, justificado, esTurnoExtra };
+  });
 
   const diasTrabajados = detalle.length;
   const horasTotales = redondear(detalle.reduce((s, d) => s + d.horasTrabajadas, 0));
   const retrasos = detalle.filter((d) => d.minutosRetraso > 0);
   const minutosRetrasoTotal = detalle.reduce((s, d) => s + d.minutosRetraso, 0);
+  const minutosCierreTempranoTotal = detalle.reduce((s, d) => s + d.minutosCierreTemprano, 0);
+  const turnosExtra = detalle.filter((d) => d.esTurnoExtra).length;
 
-  // Días laborables esperados del mes (según días de la semana configurados)
+  // Días laborables esperados del mes
   let diasLaborables = cfg.diasMes;
   if (cfg.diasSemana && cfg.diasSemana.length > 0 && anioMes) {
     diasLaborables = contarDiasDelMes(anioMes, cfg.diasSemana);
   }
 
-  // ── Cálculo del sueldo base según el TIPO de trabajador ──
-  let sueldoBase = 0;       // lo que ganaría sin descuentos
-  let valorHora = 0;        // para el descuento por retraso
-  let horasBase = 0;        // horas del mes usadas para el valor hora
-
+  // ── Sueldo base según el tipo ──
+  let sueldoBase = 0, valorHora = 0, horasBase = 0;
   if (cfg.tipoTrabajador === "por_dia") {
-    // Pago por día trabajado (domingos/feriados): días con caja × monto por día
+    // pago por día: solo días NO marcados como turno extra cuentan al monto/día normal
     sueldoBase = diasTrabajados * cfg.montoPorDia;
-    // valor hora para descuento: monto por día / horas por día
     valorHora = cfg.horasDia > 0 ? cfg.montoPorDia / cfg.horasDia : 0;
     horasBase = diasTrabajados * cfg.horasDia;
   } else {
-    // Tipos fijos: sueldo mensual fijo
     sueldoBase = cfg.sueldoMensual;
-    // horas base: las fijas configuradas (192, 120, etc.); si no, días esperados × horas/día
     horasBase = cfg.horasMesFijas > 0 ? cfg.horasMesFijas : diasLaborables * cfg.horasDia;
     valorHora = horasBase > 0 ? cfg.sueldoMensual / horasBase : 0;
   }
 
-  // ── Descuento por retraso (aplica a TODOS los tipos) ──
+  // ── Pago extra por turnos cubiertos (domingos/feriados) ──
+  const pagoTurnosExtra = redondear(turnosExtra * cfg.montoTurnoExtra);
+
+  // ── Descuento: retraso de entrada + cierre temprano (ambos en minutos) ──
+  const minutosPenalizables = minutosRetrasoTotal + minutosCierreTempranoTotal;
   let descuento = 0;
   if (cfg.tipoDescuento === "fijo") {
-    descuento = retrasos.length * cfg.montoDescuentoFijo;
+    // monto fijo por cada evento (retraso o cierre temprano)
+    const eventos = retrasos.length + detalle.filter((d) => d.minutosCierreTemprano > 0).length;
+    descuento = eventos * cfg.montoDescuentoFijo;
   } else {
-    descuento = valorHora * (minutosRetrasoTotal / 60);
+    descuento = valorHora * (minutosPenalizables / 60);
   }
   descuento = redondear(descuento);
+
+  const sueldoFinal = redondear(sueldoBase + pagoTurnosExtra - descuento);
 
   return {
     diasTrabajados,
     horasTotales,
     cantidadRetrasos: retrasos.length,
     minutosRetrasoTotal,
+    minutosCierreTempranoTotal,
+    turnosExtra,
+    pagoTurnosExtra,
     valorHora: redondear(valorHora),
     descuento,
     sueldoBase: redondear(sueldoBase),
-    sueldoFinal: redondear(sueldoBase - descuento),
+    sueldoFinal,
     detalle,
     diasLaborablesMes: diasLaborables,
     horasLaborablesMes: redondear(horasBase),

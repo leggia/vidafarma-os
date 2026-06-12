@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import {
   Users, Plus, Clock, AlertTriangle, Calendar, DollarSign,
   Loader2, Save, ChevronLeft, Pencil, TrendingDown,
+  CheckCircle2, ShieldCheck, Star,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +33,14 @@ export default function Asistencia() {
     { trabajadorId: trabajadorSel || 0, anioMes },
     { enabled: !!trabajadorSel }
   );
+  const marcarPagadoMut = trpc.asistencia.marcarPagado.useMutation({
+    onSuccess: () => { resumen.refetch(); toast.success("Estado de pago actualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const guardarAjusteMut = trpc.asistencia.guardarAjusteDia.useMutation({
+    onSuccess: () => { resumen.refetch(); toast.success("Día actualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
 
   // ─── Vista: Resumen mensual (principal) ───
   if (vista === "resumen") {
@@ -109,17 +118,36 @@ export default function Asistencia() {
             </div>
 
             {/* Sueldo a pagar */}
-            <Card className="border-2 border-primary">
-              <CardContent className="p-4">
+            <Card className={`border-2 ${resumen.data.pagado ? "border-green-600" : "border-primary"}`}>
+              <CardContent className="p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2 text-muted-foreground text-xs"><DollarSign className="h-4 w-4" /> Sueldo a pagar</div>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      {resumen.data.sueldoBase.toFixed(2)} − {resumen.data.descuento.toFixed(2)} descuento
+                      {resumen.data.sueldoBase.toFixed(2)} base
+                      {resumen.data.pagoTurnosExtra > 0 ? ` + ${resumen.data.pagoTurnosExtra.toFixed(2)} turnos extra` : ""}
+                      {" "}− {resumen.data.descuento.toFixed(2)} descuento
                     </p>
                   </div>
                   <p className="text-3xl font-black text-primary">{resumen.data.sueldoFinal.toFixed(2)} <span className="text-base">Bs</span></p>
                 </div>
+                {/* Marcar pagado */}
+                {resumen.data.pagado ? (
+                  <div className="flex items-center justify-between bg-green-50 dark:bg-green-950/40 rounded px-3 py-2">
+                    <span className="text-xs text-green-700 dark:text-green-300 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="h-4 w-4" /> Pagado{resumen.data.fechaPago ? ` el ${new Date(resumen.data.fechaPago).toLocaleDateString("es-BO")}` : ""}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+                      onClick={() => marcarPagadoMut.mutate({ trabajadorId: trabajadorSel!, anioMes, montoPagado: resumen.data!.sueldoFinal, pagado: false })}>
+                      Desmarcar
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm" className="w-full gap-1 bg-green-700 hover:bg-green-800 text-white"
+                    onClick={() => marcarPagadoMut.mutate({ trabajadorId: trabajadorSel!, anioMes, montoPagado: resumen.data!.sueldoFinal, pagado: true })}>
+                    <CheckCircle2 className="h-4 w-4" /> Marcar como pagado
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -127,15 +155,32 @@ export default function Asistencia() {
             {resumen.data.detalle.length > 0 ? (
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Detalle por día</p>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {resumen.data.detalle.map((d: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between bg-muted/40 rounded px-3 py-2 text-xs">
-                      <span className="font-medium">{d.fecha}</span>
-                      <span className="text-muted-foreground">Entró: {d.horaEntrada?.slice(0, 5) || "—"}</span>
-                      <span>{d.horasTrabajadas}h</span>
-                      {d.minutosRetraso > 0
-                        ? <span className="text-orange-600 font-medium">+{d.minutosRetraso} min</span>
-                        : <span className="text-green-600">A tiempo</span>}
+                    <div key={i} className={`rounded-lg px-3 py-2 text-xs border ${d.justificado ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200" : d.esTurnoExtra ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200" : "bg-muted/40 border-transparent"}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="font-medium">{d.fecha}</span>
+                        <span className="text-muted-foreground">Entró {d.horaEntrada?.slice(0, 5) || "—"}{d.horaSalida ? ` · Salió ${d.horaSalida?.slice(0,5)}` : ""}</span>
+                        <span className="font-medium">{d.horasTrabajadas}h</span>
+                        {d.justificado ? <span className="text-blue-600 font-medium">Justificado</span>
+                          : d.minutosRetraso > 0 ? <span className="text-orange-600 font-medium">+{d.minutosRetraso}min tarde</span>
+                          : <span className="text-green-600">A tiempo</span>}
+                        {d.minutosCierreTemprano > 0 && !d.justificado && <span className="text-red-600">−{d.minutosCierreTemprano}min cierre</span>}
+                        {d.esTurnoExtra && <span className="text-amber-600 font-medium flex items-center gap-0.5"><Star className="h-3 w-3" />extra</span>}
+                      </div>
+                      {/* Acciones del día */}
+                      <div className="flex gap-2 mt-1.5">
+                        <button
+                          onClick={() => guardarAjusteMut.mutate({ trabajadorId: trabajadorSel!, fecha: d.fecha, justificado: !d.justificado, esTurnoExtra: d.esTurnoExtra, motivo: d.justificado ? null : "Justificado" })}
+                          className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 ${d.justificado ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground hover:bg-blue-100"}`}>
+                          <ShieldCheck className="h-3 w-3" /> {d.justificado ? "Justificado" : "Justificar"}
+                        </button>
+                        <button
+                          onClick={() => guardarAjusteMut.mutate({ trabajadorId: trabajadorSel!, fecha: d.fecha, justificado: d.justificado, esTurnoExtra: !d.esTurnoExtra })}
+                          className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 ${d.esTurnoExtra ? "bg-amber-600 text-white" : "bg-muted text-muted-foreground hover:bg-amber-100"}`}>
+                          <Star className="h-3 w-3" /> {d.esTurnoExtra ? "Turno extra" : "Marcar extra"}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -297,6 +342,8 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
   const [horasMesFijas, setHorasMesFijas] = useState(editando?.horasMesFijas ?? 192);
   const [montoPorDia, setMontoPorDia] = useState(editando?.montoPorDia ? parseFloat(editando.montoPorDia) : 0);
   const [horaIngreso, setHoraIngreso] = useState(editando?.horaIngreso || "08:00");
+  const [horaSalida, setHoraSalida] = useState(editando?.horaSalida && editando?.horaSalida !== "00:00" ? editando.horaSalida : "");
+  const [montoTurnoExtra, setMontoTurnoExtra] = useState(editando?.montoTurnoExtra ? parseFloat(editando.montoTurnoExtra) : 0);
   const [horasDia, setHorasDia] = useState(editando?.horasDia ? parseFloat(editando.horasDia) : 8);
   const [diasMes, setDiasMes] = useState(editando?.diasMes || 26);
   // Días de la semana que trabaja (0=domingo..6=sábado), como Set
@@ -326,6 +373,8 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
       tipoTrabajador,
       horasMesFijas: Number(horasMesFijas),
       montoPorDia: Number(montoPorDia),
+      horaSalida: horaSalida || "00:00",
+      montoTurnoExtra: Number(montoTurnoExtra),
       sueldoMensual: Number(sueldo),
       tipoDescuento,
       montoDescuentoFijo: Number(montoFijo),
@@ -381,8 +430,20 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
             <Input type="time" value={horaIngreso} onChange={(e) => setHoraIngreso(e.target.value)} />
           </div>
           <div>
+            <Label className="text-xs">Hora salida esperada</Label>
+            <Input type="time" value={horaSalida} onChange={(e) => setHoraSalida(e.target.value)} />
+            <p className="text-[10px] text-muted-foreground mt-0.5">Para detectar cierre temprano. Vacío = sin control.</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
             <Label className="text-xs">Horas/día</Label>
             <Input type="number" value={horasDia} onChange={(e) => setHorasDia(parseFloat(e.target.value) || 0)} step="0.5" />
+          </div>
+          <div>
+            <Label className="text-xs">Pago por turno extra (Bs)</Label>
+            <Input type="number" value={montoTurnoExtra} onChange={(e) => setMontoTurnoExtra(parseFloat(e.target.value) || 0)} step="0.01" />
+            <p className="text-[10px] text-muted-foreground mt-0.5">Si cubre domingos/feriados.</p>
           </div>
         </div>
 

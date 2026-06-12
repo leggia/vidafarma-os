@@ -282,6 +282,7 @@ export const trabajadores = mysqlTable("trabajadores", {
   usuarioSistemaId: varchar("usuarioSistemaId", { length: 50 }), // id del usuario en inventarios365
   usuarioSistemaNombre: varchar("usuarioSistemaNombre", { length: 255 }), // nombre/login en el sistema
   horaIngreso: varchar("horaIngreso", { length: 5 }).notNull().default("08:00"), // HH:MM esperada
+  horaSalida: varchar("horaSalida", { length: 5 }).notNull().default("00:00"), // HH:MM salida esperada (0=sin control)
   horasDia: decimal("horasDia", { precision: 4, scale: 2 }).notNull().default("8"), // horas diarias
   diasMes: int("diasMes").notNull().default(26), // días laborales al mes (respaldo si no hay diasSemana)
   // Días de la semana que trabaja: CSV de 0-6 (0=domingo, 1=lunes... 6=sábado). Ej: "1,2,3,4,5,6" = lun-sáb
@@ -290,6 +291,8 @@ export const trabajadores = mysqlTable("trabajadores", {
   tipoTrabajador: varchar("tipoTrabajador", { length: 20 }).notNull().default("fijo_mensual"),
   horasMesFijas: int("horasMesFijas").notNull().default(192), // horas base del mes (para valor hora)
   montoPorDia: decimal("montoPorDia", { precision: 10, scale: 2 }).notNull().default("0"), // pago por día (tipo por_dia)
+  montoTurnoExtra: decimal("montoTurnoExtra", { precision: 10, scale: 2 }).notNull().default("0"), // pago por turno extra cubierto
+  toleranciaSalidaMin: int("toleranciaSalidaMin").notNull().default(10), // min antes de salida sin descuento
   sueldoMensual: decimal("sueldoMensual", { precision: 12, scale: 2 }).notNull().default("0"),
   // Regla de descuento por retraso: "proporcional" (valor hora × tiempo) o "fijo" (monto por retraso)
   tipoDescuento: varchar("tipoDescuento", { length: 20 }).notNull().default("proporcional"),
@@ -331,3 +334,32 @@ export const descuentosProveedor = mysqlTable("descuentos_proveedor", {
 
 export type DescuentoProveedor = typeof descuentosProveedor.$inferSelect;
 export type InsertDescuentoProveedor = typeof descuentosProveedor.$inferInsert;
+
+// ─── Ajustes de día (justificaciones, hora manual, turno extra) ───────────────
+export const ajustesDia = mysqlTable("ajustes_dia", {
+  id: int("id").autoincrement().primaryKey(),
+  trabajadorId: int("trabajadorId").notNull(),
+  fecha: varchar("fecha", { length: 10 }).notNull(), // YYYY-MM-DD
+  justificado: int("justificado").notNull().default(0), // 1 = no descontar ese día
+  horaIngresoManual: varchar("horaIngresoManual", { length: 8 }), // HH:MM:SS corrige entrada
+  esTurnoExtra: int("esTurnoExtra").notNull().default(0), // 1 = domingo/feriado cubierto
+  motivo: varchar("motivo", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AjusteDiaRow = typeof ajustesDia.$inferSelect;
+export type InsertAjusteDia = typeof ajustesDia.$inferInsert;
+
+// ─── Pagos de sueldo (marca de mes pagado) ────────────────────────────────────
+export const pagosSueldo = mysqlTable("pagos_sueldo", {
+  id: int("id").autoincrement().primaryKey(),
+  trabajadorId: int("trabajadorId").notNull(),
+  anioMes: varchar("anioMes", { length: 7 }).notNull(), // YYYY-MM
+  montoPagado: decimal("montoPagado", { precision: 12, scale: 2 }).notNull().default("0"),
+  pagado: int("pagado").notNull().default(1),
+  fechaPago: timestamp("fechaPago").defaultNow().notNull(),
+  notas: varchar("notas", { length: 255 }),
+});
+
+export type PagoSueldo = typeof pagosSueldo.$inferSelect;
+export type InsertPagoSueldo = typeof pagosSueldo.$inferInsert;
