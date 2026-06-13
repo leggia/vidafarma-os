@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-type Vista = "resumen" | "trabajadores" | "form";
+type Vista = "resumen" | "trabajadores" | "form" | "pagos";
 
 const mesActual = () => new Date().toISOString().slice(0, 7);
 
@@ -41,6 +41,10 @@ export default function Asistencia() {
     onSuccess: () => { utils.asistencia.resumenMensual.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  const dashboardPagos = trpc.asistencia.dashboardPagos.useQuery(
+    { anioMes },
+    { enabled: vista === "pagos" }
+  );
 
   // ─── Vista: Resumen mensual (principal) ───
   if (vista === "resumen") {
@@ -51,9 +55,14 @@ export default function Asistencia() {
             <Users className="h-6 w-6 text-primary" />
             <h1 className="text-xl font-black uppercase tracking-tight">Asistencia</h1>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setVista("trabajadores")} className="gap-1 text-xs">
-            <Pencil className="h-3 w-3" /> Personal
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setVista("pagos")} className="gap-1 text-xs">
+              <DollarSign className="h-3 w-3" /> Pagos
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setVista("trabajadores")} className="gap-1 text-xs">
+              <Pencil className="h-3 w-3" /> Personal
+            </Button>
+          </div>
         </div>
 
         <p className="text-xs text-muted-foreground">
@@ -204,6 +213,97 @@ export default function Asistencia() {
   }
 
   // ─── Vista: Lista de trabajadores ───
+  if (vista === "pagos") {
+    const d = dashboardPagos.data;
+    return (
+      <div className="max-w-2xl mx-auto p-4 space-y-4">
+        <div className="flex items-center justify-between border-b border-foreground pb-3">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => setVista("resumen")}><ChevronLeft className="h-5 w-5" /></Button>
+            <h1 className="text-lg font-black uppercase tracking-tight">Pagos del mes</h1>
+          </div>
+          <Input type="month" value={anioMes} onChange={(e) => setAnioMes(e.target.value)} className="h-9 w-40" />
+        </div>
+
+        {dashboardPagos.isLoading ? (
+          <div className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></div>
+        ) : !d || d.trabajadores.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">No hay trabajadores activos configurados.</p>
+          </div>
+        ) : (
+          <>
+            {/* Alerta de pendientes (después del día 15) */}
+            {d.totales?.alertaActiva && (
+              <Card className="border-2 border-red-500 bg-red-50 dark:bg-red-950/30">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-sm text-red-700 dark:text-red-300">
+                        Pagos pendientes ({d.totales.pendientes})
+                      </p>
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                        Faltan por pagar: {d.totales.nombresPendientes.join(", ")}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Totales */}
+            <div className="grid grid-cols-2 gap-3">
+              <Card><CardContent className="p-3">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1"><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Pagado</div>
+                <p className="text-xl font-black">{d.totales?.totalPagado.toFixed(2)} <span className="text-sm">Bs</span></p>
+                <p className="text-[11px] text-muted-foreground">{d.totales?.pagados} de {d.totales?.cantidad} trabajadores</p>
+              </CardContent></Card>
+              <Card className={d.totales && d.totales.totalPendiente > 0 ? "border-red-300" : ""}><CardContent className="p-3">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1"><Clock className="h-3.5 w-3.5 text-red-600" /> Por pagar</div>
+                <p className="text-xl font-black">{d.totales?.totalPendiente.toFixed(2)} <span className="text-sm">Bs</span></p>
+                <p className="text-[11px] text-muted-foreground">{d.totales?.pendientes} pendiente(s)</p>
+              </CardContent></Card>
+            </div>
+
+            {/* Lista de trabajadores */}
+            <div className="space-y-2">
+              {d.trabajadores.map((t: any) => (
+                <Card key={t.trabajadorId} className={t.pagado ? "border-green-200" : ""}>
+                  <CardContent className="p-3 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-sm">{t.nombre}</p>
+                      {t.pagado ? (
+                        <p className="text-[11px] text-green-600 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" /> Pagado{t.fechaPago ? ` el ${new Date(t.fechaPago).toLocaleDateString("es-BO")}` : ""}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-red-600">Pendiente de pago</p>
+                      )}
+                      {t.pagoTurnosExtra > 0 && (
+                        <p className="text-[10px] text-amber-600 flex items-center gap-0.5"><Star className="h-2.5 w-2.5" /> +{t.pagoTurnosExtra.toFixed(2)} turnos extra (aparte)</p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-lg font-black ${t.pagado ? "text-green-600" : "text-primary"}`}>
+                        {(t.pagado ? t.montoPagado : t.sueldoFinal).toFixed(2)}
+                      </p>
+                      <button
+                        onClick={() => { setTrabajadorSel(t.trabajadorId); setVista("resumen"); }}
+                        className="text-[10px] text-muted-foreground underline">Ver detalle</button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+
   if (vista === "trabajadores") {
     // Cruzar usuarios del sistema con trabajadores ya configurados
     const trabajadoresPorUsuario = new Map(

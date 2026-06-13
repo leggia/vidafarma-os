@@ -1315,6 +1315,99 @@ const asistenciaRouter = router({
       if (!db) return [];
       return db.select().from(pagosSueldo).where(eq(pagosSueldo.anioMes, input.anioMes));
     }),
+
+  // Dashboard de pagos: resumen de TODOS los trabajadores activos para un mes
+  dashboardPagos: publicProcedure
+    .input(z.object({ anioMes: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { trabajadores, ajustesDia, pagosSueldo } = await import("../drizzle/schema");
+      const { eq, and, like } = await import("drizzle-orm");
+      const { inventarios365 } = await import("./inventarios365");
+      const { calcularResumenMensual } = await import("./domain/sueldos");
+      const db = await getDb();
+      if (!db) return { trabajadores: [], totales: null };
+
+      const lista = await db.select().from(trabajadores).where(eq(trabajadores.activo, 1));
+      const pagos = await db.select().from(pagosSueldo).where(eq(pagosSueldo.anioMes, input.anioMes));
+      const pagoPorTrab = new Map(pagos.map((p: any) => [p.trabajadorId, p]));
+
+      // Alerta de pendientes: activa después del día 15 del mes en curso
+      const hoy = new Date();
+      const [anioActual, mesActual] = [hoy.getFullYear(), hoy.getMonth() + 1];
+      const mesConsultado = input.anioMes;
+      const esMesActual = mesConsultado === `${anioActual}-${String(mesActual).padStart(2, "0")}`;
+      const pasoDia15 = hoy.getDate() >= 15;
+      const alertaActiva = esMesActual ? pasoDia15 : true; // meses pasados siempre alertan
+
+      const resultado = [];
+      for (const trab of lista) {
+        let sueldoFinal = 0, pagoTurnosExtra = 0;
+        try {
+          if (trab.usuarioSistemaId) {
+            const aperturas = await inventarios365.aperturasCajaDelMes(trab.usuarioSistemaId, input.anioMes);
+            const ajustesRows = await db.select().from(ajustesDia)
+              .where(and(eq(ajustesDia.trabajadorId, trab.id), like(ajustesDia.fecha, `${input.anioMes}%`)));
+            const ajustes = ajustesRows.map((a: any) => ({
+              fecha: a.fecha, justificado: a.justificado === 1,
+              horaIngresoManual: a.horaIngresoManual || undefined,
+              esTurnoExtra: a.esTurnoExtra === 1, motivo: a.motivo || undefined,
+            }));
+            const r = calcularResumenMensual(aperturas, {
+              tipoTrabajador: (trab.tipoTrabajador || "fijo_mensual") as any,
+              horaIngreso: trab.horaIngreso,
+              horaSalida: trab.horaSalida && trab.horaSalida !== "00:00" ? trab.horaSalida : undefined,
+              horasDia: parseFloat(String(trab.horasDia)) || 8,
+              diasMes: trab.diasMes || 26,
+              diasSemana: (trab.diasSemana || "").split(",").map(Number).filter((n: number) => !isNaN(n)),
+              horasMesFijas: trab.horasMesFijas ?? 192,
+              montoPorDia: parseFloat(String(trab.montoPorDia)) || 0,
+              montoTurnoExtra: parseFloat(String(trab.montoTurnoExtra)) || 0,
+              sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
+              tipoDescuento: trab.tipoDescuento as any,
+              montoDescuentoFijo: parseFloat(String(trab.montoDescuentoFijo)) || 0,
+              toleranciaMin: trab.toleranciaMin ?? 5,
+              toleranciaSalidaMin: trab.toleranciaSalidaMin ?? 10,
+            }, input.anioMes, ajustes);
+            sueldoFinal = r.sueldoFinal;
+            pagoTurnosExtra = r.pagoTurnosExtra;
+          }
+        } catch (e) {
+          console.warn(`[dashboardPagos] Error con ${trab.nombre}:`, e);
+        }
+
+        const pago = pagoPorTrab.get(trab.id);
+        const pagado = pago?.pagado === 1;
+        resultado.push({
+          trabajadorId: trab.id,
+          nombre: trab.nombre,
+          tipoTrabajador: trab.tipoTrabajador,
+          sueldoFinal,
+          pagoTurnosExtra,
+          pagado,
+          montoPagado: pago ? parseFloat(String(pago.montoPagado)) : 0,
+          fechaPago: pago?.fechaPago || null,
+        });
+      }
+
+      // Totales
+      const totalPagado = resultado.filter((r) => r.pagado).reduce((s, r) => s + r.montoPagado, 0);
+      const totalPendiente = resultado.filter((r) => !r.pagado).reduce((s, r) => s + r.sueldoFinal, 0);
+      const pendientes = resultado.filter((r) => !r.pagado);
+
+      return {
+        trabajadores: resultado,
+        totales: {
+          cantidad: resultado.length,
+          pagados: resultado.filter((r) => r.pagado).length,
+          pendientes: pendientes.length,
+          totalPagado: Math.round(totalPagado * 100) / 100,
+          totalPendiente: Math.round(totalPendiente * 100) / 100,
+          alertaActiva: alertaActiva && pendientes.length > 0,
+          nombresPendientes: pendientes.map((p) => p.nombre),
+        },
+      };
+    }),
 });
 
 // ─── Consulta (solo lectura: precio + stock, para contingencias) ──────────────
