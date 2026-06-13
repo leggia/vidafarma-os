@@ -173,9 +173,18 @@ export default function Asistencia() {
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Detalle por día</p>
                 <div className="space-y-1.5">
                   {resumen.data.detalle.map((d: any, i: number) => (
-                    <div key={i} className={`rounded-lg px-3 py-2 text-xs border ${d.justificado ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200" : d.esTurnoExtra ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200" : "bg-muted/40 border-transparent"}`}>
+                    <div key={i} className={`rounded-lg px-3 py-2 text-xs border ${
+                      d.justificado ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200"
+                      : d.esTurnoExtra ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200"
+                      : d.tipoDia === "feriado" ? "bg-purple-50 dark:bg-purple-950/20 border-purple-200"
+                      : d.tipoDia === "domingo" ? "bg-rose-50/60 dark:bg-rose-950/20 border-rose-100"
+                      : "bg-muted/40 border-transparent"}`}>
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="font-medium">{d.fecha}</span>
+                        <span className="font-medium capitalize">
+                          {d.fechaLarga}
+                          {d.tipoDia === "feriado" && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200 align-middle">🎉 {d.nombreFeriado}</span>}
+                          {d.tipoDia === "domingo" && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 align-middle">Domingo</span>}
+                        </span>
                         <span className="text-muted-foreground">Entró {d.horaEntrada?.slice(0, 5) || "—"}{d.horaSalida ? ` · Salió ${d.horaSalida?.slice(0,5)}` : ""}</span>
                         <span className="font-medium">{d.horasTrabajadas}h</span>
                         {d.justificado ? <span className="text-blue-600 font-medium">Justificado</span>

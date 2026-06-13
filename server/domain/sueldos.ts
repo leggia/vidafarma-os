@@ -7,6 +7,8 @@
  * Descuento: proporcional (valor hora × tiempo) o monto fijo por retraso.
  */
 
+import { formatearFechaLarga, tipoDia, nombreFeriado } from "./feriados";
+
 /**
  * Tipos de trabajador (modo de cálculo del sueldo):
  *  - fijo_mensual:    sueldo fijo, valor hora = sueldo / horasMesFijas (192 por defecto)
@@ -71,6 +73,9 @@ export interface Apertura {
 
 export interface DiaCalculado {
   fecha: string;
+  fechaLarga: string;            // "Lunes 21/04/2026"
+  tipoDia: "feriado" | "domingo" | "normal";
+  nombreFeriado: string | null;  // si es feriado, su nombre
   horaEntrada: string;
   horaSalida: string | null;
   minutosRetraso: number;        // retraso de entrada
@@ -155,7 +160,11 @@ export function calcularResumenMensual(
     const minutosCierreTemprano = sinPenalizar ? 0 : calcularCierreTemprano(a.horaCierre, cfg.horaSalida, cfg.toleranciaSalidaMin);
     const horasTrabajadas = calcularHoras(horaEntrada, a.horaCierre, esTurno24);
 
-    return { fecha: a.fecha, horaEntrada, horaSalida: a.horaCierre || null,
+    return { fecha: a.fecha,
+      fechaLarga: formatearFechaLarga(a.fecha),
+      tipoDia: tipoDia(a.fecha),
+      nombreFeriado: nombreFeriado(a.fecha),
+      horaEntrada, horaSalida: a.horaCierre || null,
       minutosRetraso, minutosCierreTemprano, horasTrabajadas, justificado, esTurnoExtra };
   });
 
