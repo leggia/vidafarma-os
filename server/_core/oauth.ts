@@ -161,14 +161,18 @@ export function registerOAuthRoutes(app: Express) {
       console.log("[Auth] Login attempt for:", usuario, "rol:", rol);
       const openId = `local-${crypto.createHash("md5").update(usuario).digest("hex")}`;
 
-      await db.upsertUser({
-        openId,
-        name: nombre,
-        email,
-        loginMethod: "local",
-        role: rol,
-        lastSignedIn: new Date(),
-      });
+      // Intentar guardar con rol; si el enum aún no acepta 'viewer' (migración pendiente),
+      // reintentar sin el rol para no bloquear el acceso.
+      try {
+        await db.upsertUser({
+          openId, name: nombre, email, loginMethod: "local", role: rol, lastSignedIn: new Date(),
+        });
+      } catch (roleErr) {
+        console.warn("[Auth] upsert con rol falló, reintentando sin rol:", roleErr);
+        await db.upsertUser({
+          openId, name: nombre, email, loginMethod: "local", lastSignedIn: new Date(),
+        });
+      }
 
       const sessionToken = await sdk.createSessionToken(openId, {
         name: nombre,

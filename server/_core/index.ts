@@ -200,6 +200,20 @@ async function startServer() {
     setTimeout(async () => {
       try {
         console.log("[DB] Corriendo migraciones en background...");
+        // Asegurar que el enum de role acepte 'viewer' (drizzle push no siempre altera enums)
+        try {
+          const { getDb } = await import("../db");
+          const { sql } = await import("drizzle-orm");
+          const dbConn = await getDb();
+          if (dbConn) {
+            await dbConn.execute(
+              sql.raw("ALTER TABLE users MODIFY COLUMN role ENUM('user','admin','viewer') NOT NULL DEFAULT 'user'")
+            );
+            console.log("[DB] Enum role actualizado (viewer habilitado)");
+          }
+        } catch (enumErr) {
+          console.warn("[DB] No se pudo alterar enum role (puede ya estar correcto):", enumErr);
+        }
         const { execSync } = await import("child_process");
         execSync("npx drizzle-kit push --force", { stdio: "inherit" });
         console.log("[DB] Migraciones completadas");
