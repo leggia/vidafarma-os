@@ -228,18 +228,20 @@ async function startServer() {
     (await import("path")).default.join(process.cwd(), "uploads")
   ));
 
-  // Sincronizar almacenes desde inventarios365 al arrancar
-  try {
-    const almacenes = await inventarios365.listarAlmacenes();
-    const { upsertBranchByName } = await import("../db");
-    for (let i = 0; i < almacenes.length; i++) {
-      const a = almacenes[i] as any;
-      await upsertBranchByName(a.nombre_almacen, i === 0 ? 1 : 0);
+  // Sincronizar almacenes desde inventarios365 (en BACKGROUND, no bloquea el arranque)
+  setTimeout(async () => {
+    try {
+      const almacenes = await inventarios365.listarAlmacenes();
+      const { upsertBranchByName } = await import("../db");
+      for (let i = 0; i < almacenes.length; i++) {
+        const a = almacenes[i] as any;
+        await upsertBranchByName(a.nombre_almacen, i === 0 ? 1 : 0);
+      }
+      console.log(`[Sync] ${almacenes.length} almacenes sincronizados`);
+    } catch (e) {
+      console.warn("[Sync] No se pudieron sincronizar almacenes:", e);
     }
-    console.log(`[Sync] ${almacenes.length} almacenes sincronizados`);
-  } catch (e) {
-    console.warn("[Sync] No se pudieron sincronizar almacenes:", e);
-  }
+  }, 8000);
 
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
@@ -303,7 +305,10 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  // Producción (Railway): usar EXACTAMENTE el puerto asignado (buscar otro rompe el ruteo)
+  const port = process.env.NODE_ENV === "production"
+    ? preferredPort
+    : await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
