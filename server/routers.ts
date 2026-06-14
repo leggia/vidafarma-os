@@ -377,17 +377,6 @@ INSTRUCCIONES GENERALES:
             if (syncResult.productosNoEncontrados && syncResult.productosNoEncontrados.length > 0) {
               syncMessage += ` | Productos no encontrados: ${syncResult.productosNoEncontrados.map((p: any) => p.nombre).join(", ")}`;
             }
-            // Inteligencia de negocio (no bloquea): acumular unidades compradas por producto
-            import("./inteligencia").then(({ registrarCompraProducto }) => {
-              for (const item of input.items) {
-                registrarCompraProducto({
-                  articuloId: (item as any).articuloId ?? 0,
-                  articuloNombre: item.productName,
-                  unidades: item.quantity,
-                  costoUnitario: item.unitCost,
-                });
-              }
-            }).catch(() => { /* nunca debe afectar la compra */ });
           } else {
             syncSuccess = false;
             syncMessage = syncResult.message;
@@ -1428,174 +1417,7 @@ const consultaRouter = router({
     .query(async ({ input }) => {
       if (!input.buscar || input.buscar.trim().length < 2) return [];
       const { inventarios365 } = await import("./inventarios365");
-      const resultados = await inventarios365.consultarProductos(input.buscar.trim());
-
-      // Inteligencia de negocio (no bloquea la respuesta): registrar el producto
-      // más relevante como consultado. Si está sin stock, también se anota.
-      if (resultados.length > 0) {
-        const top = resultados[0];
-        import("./inteligencia").then(({ registrarConsultaProducto }) => {
-          registrarConsultaProducto({
-            articuloId: top.id,
-            articuloNombre: top.nombre,
-            sinStock: top.stock <= 0,
-          });
-        }).catch(() => { /* nunca debe afectar la consulta */ });
-      }
-
-      return resultados;
-    }),
-});
-
-// ─── Inteligencia de negocio (lectura: estadísticas + sugerencias) ────────────
-const inteligenciaRouter = router({
-  // Top productos del mes por unidades compradas (o consultadas)
-  topProductos: publicProcedure
-    .input(z.object({
-      anioMes: z.string(),
-      criterio: z.enum(["comprados", "consultados", "sinStock"]).default("comprados"),
-      limite: z.number().default(15),
-    }))
-    .query(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { estadisticasProducto } = await import("../drizzle/schema");
-      const { eq, desc } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) return [];
-      const orden =
-        input.criterio === "consultados" ? desc(estadisticasProducto.vecesConsultado)
-        : input.criterio === "sinStock" ? desc(estadisticasProducto.vecesSinStock)
-        : desc(estadisticasProducto.unidadesCompradas);
-      return db.select().from(estadisticasProducto)
-        .where(eq(estadisticasProducto.anioMes, input.anioMes))
-        .orderBy(orden)
-        .limit(input.limite);
-    }),
-
-  // Listar sugerencias de mejora (bitácora)
-  listarSugerencias: publicProcedure
-    .input(z.object({ estado: z.string().optional() }))
-    .query(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { sugerenciasSistema } = await import("../drizzle/schema");
-      const { eq, desc } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) return [];
-      const q = db.select().from(sugerenciasSistema);
-      const rows = input.estado
-        ? await q.where(eq(sugerenciasSistema.estado, input.estado)).orderBy(desc(sugerenciasSistema.actualizadoEn))
-        : await q.orderBy(desc(sugerenciasSistema.actualizadoEn));
-      return rows;
-    }),
-
-  // Cambiar el estado de una sugerencia (revisada/implementada/descartada)
-  actualizarSugerencia: publicProcedure
-    .input(z.object({ id: z.number(), estado: z.enum(["nueva", "revisada", "implementada", "descartada"]) }))
-    .mutation(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { sugerenciasSistema } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) throw new Error("Sin base de datos");
-      await db.update(sugerenciasSistema).set({ estado: input.estado }).where(eq(sugerenciasSistema.id, input.id));
-      return { success: true };
-    }),
-
-  // Sincronizar ventas ahora (botón manual) — incremental
-  sincronizarVentas: publicProcedure.mutation(async () => {
-    const { sincronizarVentasIncremental } = await import("./sync-ventas");
-    return sincronizarVentasIncremental();
-  }),
-
-  // Estado de la última sincronización
-  estadoSync: publicProcedure.query(async () => {
-    const { getDb } = await import("./db");
-    const { syncEstado, ventas } = await import("../drizzle/schema");
-    const { eq, sql } = await import("drizzle-orm");
-    const db = await getDb();
-    if (!db) return null;
-    const [estado] = await db.select().from(syncEstado).where(eq(syncEstado.clave, "ventas"));
-    const [conteo] = await db.select({ n: sql<number>`count(*)` }).from(ventas);
-    return { ultimoId: estado?.ultimoId ?? 0, ultimaSync: estado?.ultimaSync ?? null, totalVentasGuardadas: Number(conteo?.n ?? 0) };
-  }),
-
-  // ── REPORTES (consultas SQL agrupadas, con índices para velocidad) ──
-
-  // Producto más vendido (global o por sucursal) en un rango de fechas
-  productosMasVendidos: publicProcedure
-    .input(z.object({ desde: z.string(), hasta: z.string(), sucursal: z.string().optional(), limite: z.number().default(15) }))
-    .query(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { ventasDetalle } = await import("../drizzle/schema");
-      const { and, gte, lte, eq, sql, desc } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) return [];
-      const filtros = [gte(ventasDetalle.fecha, input.desde), lte(ventasDetalle.fecha, input.hasta)];
-      if (input.sucursal) filtros.push(eq(ventasDetalle.nombreSucursal, input.sucursal));
-      return db.select({
-        articulo: ventasDetalle.articuloNombre,
-        unidades: sql<number>`sum(${ventasDetalle.cantidad})`,
-        monto: sql<number>`sum(${ventasDetalle.subtotal})`,
-        veces: sql<number>`count(*)`,
-      }).from(ventasDetalle).where(and(...filtros))
-        .groupBy(ventasDetalle.articuloNombre)
-        .orderBy(desc(sql`sum(${ventasDetalle.cantidad})`))
-        .limit(input.limite);
-    }),
-
-  // Mejor vendedor (por monto total) en un rango
-  mejoresVendedores: publicProcedure
-    .input(z.object({ desde: z.string(), hasta: z.string(), limite: z.number().default(10) }))
-    .query(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { ventas } = await import("../drizzle/schema");
-      const { and, gte, lte, sql, desc } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) return [];
-      return db.select({
-        vendedor: ventas.vendedor,
-        monto: sql<number>`sum(${ventas.total})`,
-        ventas: sql<number>`count(*)`,
-      }).from(ventas).where(and(gte(ventas.fecha, input.desde), lte(ventas.fecha, input.hasta)))
-        .groupBy(ventas.vendedor)
-        .orderBy(desc(sql`sum(${ventas.total})`))
-        .limit(input.limite);
-    }),
-
-  // Ventas por sucursal en un rango
-  ventasPorSucursal: publicProcedure
-    .input(z.object({ desde: z.string(), hasta: z.string() }))
-    .query(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { ventas } = await import("../drizzle/schema");
-      const { and, gte, lte, sql, desc } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) return [];
-      return db.select({
-        sucursal: ventas.nombreSucursal,
-        monto: sql<number>`sum(${ventas.total})`,
-        ventas: sql<number>`count(*)`,
-      }).from(ventas).where(and(gte(ventas.fecha, input.desde), lte(ventas.fecha, input.hasta)))
-        .groupBy(ventas.nombreSucursal)
-        .orderBy(desc(sql`sum(${ventas.total})`));
-    }),
-
-  // Mejores días de venta (por día de la semana) en un rango
-  ventasPorDiaSemana: publicProcedure
-    .input(z.object({ desde: z.string(), hasta: z.string() }))
-    .query(async ({ input }) => {
-      const { getDb } = await import("./db");
-      const { ventas } = await import("../drizzle/schema");
-      const { and, gte, lte, sql } = await import("drizzle-orm");
-      const db = await getDb();
-      if (!db) return [];
-      return db.select({
-        diaSemana: ventas.diaSemana,
-        monto: sql<number>`sum(${ventas.total})`,
-        ventas: sql<number>`count(*)`,
-      }).from(ventas).where(and(gte(ventas.fecha, input.desde), lte(ventas.fecha, input.hasta)))
-        .groupBy(ventas.diaSemana)
-        .orderBy(ventas.diaSemana);
+      return inventarios365.consultarProductos(input.buscar.trim());
     }),
 });
 
@@ -1621,7 +1443,6 @@ export const appRouter = router({
   inventario: inventarioRouter,
   asistencia: asistenciaRouter,
   consulta: consultaRouter,
-  inteligencia: inteligenciaRouter,
 });
 
 export type AppRouter = typeof appRouter;

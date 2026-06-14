@@ -151,57 +151,6 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // Diagnóstico: estructura de clientes
-  app.get("/api/admin/test-clientes", async (_req, res) => {
-    try {
-      const raw = await inventarios365.diagRaw("/cliente?page=1&buscar=&criterio=global&usuarioid=1");
-      // La clave real parece ser "usuarios" — inspeccionar su forma
-      const usuarios = raw?.usuarios;
-      let arr: any[] = [];
-      let formaUsuarios = "desconocida";
-      if (Array.isArray(usuarios)) { arr = usuarios; formaUsuarios = "array directo"; }
-      else if (Array.isArray(usuarios?.data)) { arr = usuarios.data; formaUsuarios = "paginado .data"; }
-      else if (usuarios && typeof usuarios === "object") { formaUsuarios = `objeto con keys: ${Object.keys(usuarios).join(",")}`; }
-      const ejemplo = arr[0] || null;
-      res.json({
-        rawKeys: raw && typeof raw === "object" ? Object.keys(raw) : typeof raw,
-        total: raw?.total ?? "?",
-        formaUsuarios,
-        cantidad: arr.length,
-        camposCliente: ejemplo ? Object.keys(ejemplo) : [],
-        ejemploCliente: ejemplo,
-        primeros3: arr.slice(0, 3),
-        // Si usuarios es objeto raro, mostrar un pedazo crudo para ver su forma
-        usuariosCrudo: Array.isArray(usuarios) ? `array[${usuarios.length}]` : JSON.stringify(usuarios).substring(0, 500),
-      });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
-  });
-
-  // Diagnóstico: estructura de ventas y detalle de productos vendidos
-  app.get("/api/admin/test-ventas", async (req, res) => {
-    try {
-      const { ventas, pagination, raw } = await inventarios365.listarVentasPagina(1);
-      const ejemplo = ventas[0] || null;
-      // Si hay una venta, traer su detalle de productos
-      let detalleEjemplo: any[] = [];
-      let cabeceraEjemplo: any = null;
-      if (ejemplo?.id) {
-        detalleEjemplo = await inventarios365.obtenerDetallesVenta(ejemplo.id);
-        cabeceraEjemplo = await inventarios365.obtenerCabeceraVenta(ejemplo.id);
-      }
-      res.json({
-        rawKeys: raw && typeof raw === "object" ? Object.keys(raw) : typeof raw,
-        totalVentas: pagination?.total ?? "?",
-        ultimaPagina: pagination?.last_page ?? "?",
-        camposVenta: ejemplo ? Object.keys(ejemplo) : [],
-        ejemploVenta: ejemplo,
-        camposDetalle: detalleEjemplo[0] ? Object.keys(detalleEjemplo[0]) : [],
-        detalleEjemplo: detalleEjemplo.slice(0, 3),
-        cabeceraEjemplo,
-      });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
-  });
-
   // Diagnóstico: total de proveedores del sistema
   app.get("/api/admin/test-proveedores", async (_req, res) => {
     try {
@@ -271,31 +220,7 @@ async function startServer() {
       } catch (e) {
         console.warn("[DB] Error en migraciones:", e);
       }
-      // NOTA: la carga histórica de ventas NO corre al arrancar (saturaba el sistema:
-      // miles de llamadas a inventarios365). Se hará bajo demanda y por lotes pequeños.
     }, 3000);
-
-    // ── Cron diario de ventas DESHABILITADO temporalmente ──
-    // Se reactivará una vez confirmado que el arranque es 100% estable.
-    // (Evita cualquier proceso en background que pueda afectar recursos limitados.)
-    /* let ultimoDiaSync = "";
-    setInterval(async () => {
-      try {
-        const ahora = new Date();
-        const hora = ahora.getHours();
-        const min = ahora.getMinutes();
-        const hoy = ahora.toISOString().slice(0, 10);
-        if (hora === 8 && min < 5 && ultimoDiaSync !== hoy) {
-          ultimoDiaSync = hoy;
-          console.log("[SyncVentas] Sincronización diaria 8 AM iniciada");
-          const { sincronizarVentasIncremental } = await import("../sync-ventas");
-          const r = await sincronizarVentasIncremental();
-          console.log(`[SyncVentas] Diaria completada: +${r.nuevas} ventas nuevas`);
-        }
-      } catch (e) {
-        console.warn("[SyncVentas] Error en cron diario:", e);
-      }
-    }, 5 * 60 * 1000); */
   }
 
   // Servir archivos subidos localmente
@@ -303,21 +228,18 @@ async function startServer() {
     (await import("path")).default.join(process.cwd(), "uploads")
   ));
 
-  // Sincronizar almacenes desde inventarios365 (NO bloquea el arranque)
-  // Se mueve a background: si inventarios365 está lento, el server igual escucha.
-  setTimeout(async () => {
-    try {
-      const almacenes = await inventarios365.listarAlmacenes();
-      const { upsertBranchByName } = await import("../db");
-      for (let i = 0; i < almacenes.length; i++) {
-        const a = almacenes[i] as any;
-        await upsertBranchByName(a.nombre_almacen, i === 0 ? 1 : 0);
-      }
-      console.log(`[Sync] ${almacenes.length} almacenes sincronizados`);
-    } catch (e) {
-      console.warn("[Sync] No se pudieron sincronizar almacenes:", e);
+  // Sincronizar almacenes desde inventarios365 al arrancar
+  try {
+    const almacenes = await inventarios365.listarAlmacenes();
+    const { upsertBranchByName } = await import("../db");
+    for (let i = 0; i < almacenes.length; i++) {
+      const a = almacenes[i] as any;
+      await upsertBranchByName(a.nombre_almacen, i === 0 ? 1 : 0);
     }
-  }, 5000);
+    console.log(`[Sync] ${almacenes.length} almacenes sincronizados`);
+  } catch (e) {
+    console.warn("[Sync] No se pudieron sincronizar almacenes:", e);
+  }
 
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
@@ -381,11 +303,7 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  // En producción (Railway/Cloud) usar EXACTAMENTE el puerto asignado.
-  // Buscar otro puerto rompería el ruteo de la plataforma ("failed to respond").
-  const port = process.env.NODE_ENV === "production"
-    ? preferredPort
-    : await findAvailablePort(preferredPort);
+  const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
