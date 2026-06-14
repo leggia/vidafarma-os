@@ -152,3 +152,84 @@ export async function sincronizarClientes(maxPaginas = 60): Promise<{ total: num
   }
   return { total };
 }
+
+/**
+ * Carga histórica POR LOTES (segura). Procesa un bloque pequeño de páginas por llamada
+ * y guarda el progreso en sync_estado (clave 'historico'). El usuario la dispara
+ * repetidamente; cada vez avanza un poco. Nunca una operación larga que cuelgue.
+ *
+ * @param desde "YYYY-MM-DD" inicio del rango a capturar
+ * @param hasta "YYYY-MM-DD" fin del rango
+ * @param paginasPorLote cuántas páginas procesar en esta llamada (bajo)
+ */
+export async function cargarHistoricoLote(
+  desde: string,
+  hasta: string,
+  paginasPorLote = 8
+): Promise<{ guardadas: number; paginaActual: number; terminado: boolean; mensaje: string }> {
+  const { getDb } = await import("./db");
+  const { sql } = await import("drizzle-orm");
+  const { inventarios365 } = await import("./inventarios365");
+  const db = await getDb();
+  if (!db) return { guardadas: 0, paginaActual: 0, terminado: true, mensaje: "Sin BD" };
+
+  // Leer desde qué página continuar (progreso guardado)
+  let paginaInicio = 1;
+  try {
+    const r: any = await db.execute(sql.raw("SELECT ultimoId FROM sync_estado WHERE clave='historico' LIMIT 1"));
+    const rows = Array.isArray(r) ? r[0] : r?.rows ?? r;
+    const val = Array.isArray(rows) ? rows[0]?.ultimoId : rows?.ultimoId;
+    paginaInicio = Number(val ?? 0) + 1;
+    if (paginaInicio < 1) paginaInicio = 1;
+  } catch { paginaInicio = 1; }
+
+  let guardadas = 0;
+  let pagina = paginaInicio;
+  let terminado = false;
+  let mensaje = "";
+
+  try {
+    const finLote = paginaInicio + paginasPorLote - 1;
+    for (pagina = paginaInicio; pagina <= finLote; pagina++) {
+      const { ventas: lista } = await inventarios365.listarVentasPagina(pagina);
+      if (lista.length === 0) { terminado = true; mensaje = "No hay más ventas"; break; }
+
+      // Fechas de esta página
+      const fechas = lista.map((v: any) => String(v.fecha_hora || "").slice(0, 10)).filter(Boolean);
+      const todasMasViejas = fechas.length > 0 && fechas.every((f: string) => f < desde);
+      if (todasMasViejas) { terminado = true; mensaje = `Llegamos antes de ${desde}, histórico completo`; break; }
+
+      // Guardar solo las del rango
+      for (const v of lista) {
+        const fecha = String(v.fecha_hora || "").slice(0, 10);
+        if (!fecha || fecha < desde || fecha > hasta) continue;
+        const guardada = await guardarVenta(db, sql, v);
+        if (guardada) guardadas++;
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    // Guardar progreso (última página procesada)
+    const ultimaPagina = pagina - 1;
+    await db.execute(sql.raw(
+      `INSERT INTO sync_estado (clave, ultimoId, notas) VALUES ('historico', ${ultimaPagina}, ${esc(`${desde}..${hasta}`)})
+       ON DUPLICATE KEY UPDATE ultimoId=${ultimaPagina}, notas=${esc(`${desde}..${hasta}`)}, ultimaSync=CURRENT_TIMESTAMP`
+    ));
+    if (!mensaje) mensaje = `Lote procesado hasta página ${ultimaPagina}`;
+  } catch (e: any) {
+    mensaje = `Error: ${e.message}`;
+  }
+
+  return { guardadas, paginaActual: pagina - 1, terminado, mensaje };
+}
+
+/** Reinicia el progreso de la carga histórica (para empezar de nuevo). */
+export async function reiniciarProgresoHistorico(): Promise<void> {
+  const { getDb } = await import("./db");
+  const { sql } = await import("drizzle-orm");
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql.raw("DELETE FROM sync_estado WHERE clave='historico'"));
+  } catch (e) { console.warn("[Historico] Error reiniciando:", e); }
+}

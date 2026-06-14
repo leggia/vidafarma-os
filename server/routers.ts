@@ -1435,6 +1435,21 @@ const ventasRouter = router({
     return sincronizarClientes();
   }),
 
+  // Carga histórica del mes anterior, POR LOTES (se llama repetidamente)
+  cargarHistoricoLote: publicProcedure
+    .input(z.object({ desde: z.string(), hasta: z.string() }))
+    .mutation(async ({ input }) => {
+      const { cargarHistoricoLote } = await import("./sync-ventas");
+      return cargarHistoricoLote(input.desde, input.hasta);
+    }),
+
+  // Reiniciar el progreso de la carga histórica
+  reiniciarHistorico: publicProcedure.mutation(async () => {
+    const { reiniciarProgresoHistorico } = await import("./sync-ventas");
+    await reiniciarProgresoHistorico();
+    return { success: true };
+  }),
+
   // Estado de la sincronización
   estado: publicProcedure.query(async () => {
     const { getDb } = await import("./db");

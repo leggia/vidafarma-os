@@ -41,6 +41,26 @@ export default function Reportes() {
     onError: (e) => toast.error(e.message),
   });
 
+  // Carga histórica del mes anterior, por lotes
+  const [histProgreso, setHistProgreso] = useState<string>("");
+  const cargarHistorico = trpc.ventas.cargarHistoricoLote.useMutation({
+    onSuccess: (d: any) => {
+      setHistProgreso(`${d.mensaje} · +${d.guardadas} ventas (pág. ${d.paginaActual})`);
+      utils.ventas.estado.invalidate();
+      utils.ventas.reportes.invalidate();
+      if (d.terminado) toast.success("Histórico completo");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  function rangoMesAnterior() {
+    const hoy = new Date();
+    const ini = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const fin = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+    const fmt = (dt: Date) => dt.toISOString().slice(0, 10);
+    return { desde: fmt(ini), hasta: fmt(fin) };
+  }
+
   const d = reportes.data;
   const fmtBs = (n: any) => Number(n || 0).toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -62,6 +82,25 @@ export default function Reportes() {
         <span>{estado.data?.totalVentas ?? 0} ventas · {estado.data?.totalClientes ?? 0} clientes guardados</span>
         {estado.data?.ultimaSync && <span>Últ. sync: {new Date(estado.data.ultimaSync).toLocaleString("es-BO")}</span>}
       </div>
+
+      {/* Carga histórica del mes anterior (por lotes) */}
+      <Card className="border-dashed">
+        <CardContent className="p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-bold flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> Cargar histórico (mes anterior)</p>
+              <p className="text-[10px] text-muted-foreground">Trae las ventas pasadas por lotes. Presiona varias veces hasta "completo".</p>
+            </div>
+            <Button size="sm" variant="outline" disabled={cargarHistorico.isPending}
+              onClick={() => { const r = rangoMesAnterior(); cargarHistorico.mutate(r); }}
+              className="gap-1 text-xs shrink-0">
+              {cargarHistorico.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Cargar lote
+            </Button>
+          </div>
+          {histProgreso && <p className="text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/30 rounded px-2 py-1">{histProgreso}</p>}
+        </CardContent>
+      </Card>
 
       {/* Filtros de fecha y sucursal */}
       <div className="grid grid-cols-2 gap-2">
