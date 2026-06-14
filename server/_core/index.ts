@@ -152,6 +152,65 @@ async function startServer() {
   });
 
   // Diagnóstico: total de proveedores del sistema
+  // Diagnóstico de ventas: tablas, inserción y respuesta de inventarios365
+  app.get("/api/admin/test-ventas-diag", async (_req, res) => {
+    const out: any = {};
+    try {
+      const { getDb } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) { res.json({ error: "Sin BD" }); return; }
+
+      // 1. ¿Existen las tablas?
+      try {
+        const t: any = await db.execute(sql.raw("SHOW TABLES LIKE 'ventas'"));
+        const rows = Array.isArray(t) ? t[0] : t?.rows ?? t;
+        out.tablaVentasExiste = Array.isArray(rows) ? rows.length > 0 : !!rows;
+      } catch (e: any) { out.tablaVentasError = e.message; }
+
+      // 2. ¿Cuántas ventas hay?
+      try {
+        const c: any = await db.execute(sql.raw("SELECT COUNT(*) as n FROM ventas"));
+        const rows = Array.isArray(c) ? c[0] : c?.rows ?? c;
+        out.totalVentas = Number((Array.isArray(rows) ? rows[0]?.n : rows?.n) ?? 0);
+      } catch (e: any) { out.contarError = e.message; }
+
+      // 3. ¿Qué devuelve inventarios365 en la página 1?
+      const { ventas, pagination } = await inventarios365.listarVentasPagina(1);
+      out.ventasPagina1 = ventas.length;
+      out.totalEnSistema = pagination?.total ?? "?";
+      out.ejemploVenta = ventas[0] ? {
+        id: ventas[0].id, fecha_hora: ventas[0].fecha_hora,
+        total: ventas[0].total, usuario: ventas[0].usuario, nombre_sucursal: ventas[0].nombre_sucursal,
+      } : null;
+
+      // 4. Probar insertar la primera venta directamente
+      if (ventas[0]) {
+        const v = ventas[0];
+        const fecha = String(v.fecha_hora || "").slice(0, 10);
+        try {
+          await db.execute(sql.raw(
+            `INSERT INTO ventas (id, fechaHora, fecha, diaSemana, total, vendedor, nombreSucursal, estado)
+             VALUES (${Number(v.id)}, '${String(v.fecha_hora)}', '${fecha}', 0, ${Number(v.total) || 0}, '${String(v.usuario || "").replace(/'/g, "''")}', '${String(v.nombre_sucursal || "").replace(/'/g, "''")}', '1')
+             ON DUPLICATE KEY UPDATE total=${Number(v.total) || 0}`
+          ));
+          out.insercionPrueba = "OK";
+        } catch (e: any) { out.insercionError = e.message; }
+      }
+
+      // 5. Estado del progreso histórico
+      try {
+        const h: any = await db.execute(sql.raw("SELECT * FROM sync_estado"));
+        const rows = Array.isArray(h) ? h[0] : h?.rows ?? h;
+        out.syncEstado = rows;
+      } catch (e: any) { out.syncEstadoError = e.message; }
+
+      res.json(out);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, parcial: out });
+    }
+  });
+
   app.get("/api/admin/test-proveedores", async (_req, res) => {
     try {
       const result = await inventarios365.contarProveedores();
