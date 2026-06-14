@@ -151,6 +151,31 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Diagnóstico: estructura de ventas y detalle de productos vendidos
+  app.get("/api/admin/test-ventas", async (req, res) => {
+    try {
+      const { ventas, pagination, raw } = await inventarios365.listarVentasPagina(1);
+      const ejemplo = ventas[0] || null;
+      // Si hay una venta, traer su detalle de productos
+      let detalleEjemplo: any[] = [];
+      let cabeceraEjemplo: any = null;
+      if (ejemplo?.id) {
+        detalleEjemplo = await inventarios365.obtenerDetallesVenta(ejemplo.id);
+        cabeceraEjemplo = await inventarios365.obtenerCabeceraVenta(ejemplo.id);
+      }
+      res.json({
+        rawKeys: raw && typeof raw === "object" ? Object.keys(raw) : typeof raw,
+        totalVentas: pagination?.total ?? "?",
+        ultimaPagina: pagination?.last_page ?? "?",
+        camposVenta: ejemplo ? Object.keys(ejemplo) : [],
+        ejemploVenta: ejemplo,
+        camposDetalle: detalleEjemplo[0] ? Object.keys(detalleEjemplo[0]) : [],
+        detalleEjemplo: detalleEjemplo.slice(0, 3),
+        cabeceraEjemplo,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Diagnóstico: total de proveedores del sistema
   app.get("/api/admin/test-proveedores", async (_req, res) => {
     try {

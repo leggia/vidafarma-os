@@ -784,6 +784,39 @@ class Inventarios365Service {
    * Endpoint pendiente de confirmar por captura de red.
    * Devuelve [{fecha:"YYYY-MM-DD", horaApertura:"HH:MM:SS", horaCierre?:"HH:MM:SS"}]
    */
+  /**
+   * Lee una página del listado de ventas. Devuelve la estructura cruda + metadatos
+   * de paginación. Cada venta es una cabecera (id, vendedor, sucursal, fecha, total).
+   */
+  async listarVentasPagina(page: number): Promise<{ ventas: any[]; pagination: any; raw?: any }> {
+    const data = await this.get<any>(`/venta?page=${page}&buscar=&criterio=`);
+    // El array de ventas viene en ventas.data (Laravel paginator anidado)
+    const ventas = data?.ventas?.data ?? data?.ventas ?? data?.data ?? (Array.isArray(data) ? data : []);
+    const pagination = data?.ventas ?? data?.pagination ?? {};
+    return { ventas: Array.isArray(ventas) ? ventas : [], pagination, raw: data };
+  }
+
+  /** Detalle de productos de una venta (producto + cantidad + precio por línea). */
+  async obtenerDetallesVenta(idVenta: number): Promise<any[]> {
+    try {
+      const data = await this.get<any>(`/venta/obtenerDetalles?id=${idVenta}`);
+      const arr = data?.detalles ?? data?.data ?? (Array.isArray(data) ? data : []);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** Cabecera de una venta (datos generales). */
+  async obtenerCabeceraVenta(idVenta: number): Promise<any | null> {
+    try {
+      const data = await this.get<any>(`/venta/obtenerCabecera?id=${idVenta}`);
+      return data?.cabecera ?? data?.data ?? data ?? null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async aperturasCajaDelMes(usuarioId: string, anioMes: string): Promise<Array<{ fecha: string; horaApertura: string; horaCierre?: string }>> {
     if (!usuarioId) return [];
     const resultado: Array<{ fecha: string; horaApertura: string; horaCierre?: string }> = [];
