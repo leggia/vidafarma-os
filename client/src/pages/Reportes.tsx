@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   TrendingUp, RefreshCw, Loader2, Package, Users, Building2,
-  Calendar, DollarSign, ShoppingCart, Award,
+  Calendar, DollarSign, ShoppingCart, Award, Coins, Percent,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
@@ -30,6 +30,7 @@ export default function Reportes() {
   const estado = trpc.ventas.estado.useQuery();
   const sucursales = trpc.ventas.sucursalesDisponibles.useQuery();
   const reportes = trpc.ventas.reportes.useQuery({ desde, hasta, sucursal: sucursal || undefined });
+  const rentabilidad = trpc.ventas.rentabilidad.useQuery({ desde, hasta, sucursal: sucursal || undefined });
 
   const sincronizar = trpc.ventas.sincronizar.useMutation({
     onSuccess: (d: any) => {
@@ -165,6 +166,64 @@ export default function Reportes() {
               ))}
             </div>
           </CardContent></Card>
+
+          {/* Resumen de ganancia del periodo */}
+          {rentabilidad.data?.resumen && Number(rentabilidad.data.resumen.ganancia) > 0 && (
+            <Card className="border-emerald-200 dark:border-emerald-900"><CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2 text-sm font-bold"><Coins className="h-4 w-4 text-emerald-600" /> Ganancia estimada del periodo</div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Ingreso</p>
+                  <p className="text-sm font-black">{fmtBs(rentabilidad.data.resumen.ingreso)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Costo</p>
+                  <p className="text-sm font-black text-muted-foreground">{fmtBs(rentabilidad.data.resumen.costo)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Ganancia</p>
+                  <p className="text-sm font-black text-emerald-600">{fmtBs(rentabilidad.data.resumen.ganancia)}</p>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-2 text-center">Calculado sobre {rentabilidad.data.resumen.productosConCosto} productos con costo conocido</p>
+            </CardContent></Card>
+          )}
+
+          {/* Productos que más ganancia generaron */}
+          {(rentabilidad.data?.masGanancia?.length ?? 0) > 0 && (
+            <Card><CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3 text-sm font-bold"><Coins className="h-4 w-4 text-emerald-600" /> Productos que más ganancia generaron</div>
+              <div className="space-y-1.5">
+                {rentabilidad.data!.masGanancia.map((p: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-muted-foreground w-4 text-right">{i + 1}</span>
+                      <span className="truncate">{p.articuloNombre}</span>
+                    </span>
+                    <span className="font-bold shrink-0 text-emerald-600">+{fmtBs(p.ganancia)} Bs</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent></Card>
+          )}
+
+          {/* Productos con mayor margen % */}
+          {(rentabilidad.data?.mayorMargen?.length ?? 0) > 0 && (
+            <Card><CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3 text-sm font-bold"><Percent className="h-4 w-4 text-blue-600" /> Productos con mayor margen</div>
+              <div className="space-y-1.5">
+                {rentabilidad.data!.mayorMargen.map((p: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-muted-foreground w-4 text-right">{i + 1}</span>
+                      <span className="truncate">{p.articuloNombre}</span>
+                    </span>
+                    <span className="font-bold shrink-0 text-blue-600">{Number(p.margenPct).toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent></Card>
+          )}
 
           {/* Mejores vendedores */}
           <Card><CardContent className="p-4">

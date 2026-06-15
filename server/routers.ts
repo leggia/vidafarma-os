@@ -1553,6 +1553,71 @@ const ventasRouter = router({
       return (Array.isArray(rows) ? rows : []).map((x: any) => x.nombreSucursal).filter(Boolean);
     } catch { return []; }
   }),
+
+  // Rentabilidad: une ventas con el costo (productos_cache por nombre).
+  // Calcula ganancia = (precio - costo) * cantidad, y margen % = (precio-costo)/precio.
+  rentabilidad: publicProcedure
+    .input(z.object({ desde: z.string(), hasta: z.string(), sucursal: z.string().optional() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return null;
+      const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      const rango = `d.fecha >= ${esc(input.desde)} AND d.fecha <= ${esc(input.hasta)}`;
+      const filtroSuc = input.sucursal ? ` AND d.nombreSucursal = ${esc(input.sucursal)}` : "";
+
+      try {
+        // Productos que MÁS GANANCIA generaron (suma de ganancia por línea)
+        const masGanancia = await db.execute(sql.raw(
+          `SELECT d.articuloNombre,
+                  SUM(d.cantidad) as unidades,
+                  SUM(d.subtotal) as ingreso,
+                  SUM(d.cantidad * c.precioCostoUnid) as costoTotal,
+                  SUM(d.subtotal - (d.cantidad * c.precioCostoUnid)) as ganancia
+           FROM ventas_detalle d
+           JOIN productos_cache c ON c.nombre = d.articuloNombre
+           WHERE ${rango}${filtroSuc} AND c.precioCostoUnid > 0
+           GROUP BY d.articuloNombre
+           HAVING ganancia IS NOT NULL
+           ORDER BY ganancia DESC LIMIT 15`
+        ));
+
+        // Productos con MAYOR MARGEN % (promedio ponderado por línea)
+        const mayorMargen = await db.execute(sql.raw(
+          `SELECT d.articuloNombre,
+                  SUM(d.cantidad) as unidades,
+                  AVG((d.precio - c.precioCostoUnid) / d.precio * 100) as margenPct,
+                  SUM(d.subtotal - (d.cantidad * c.precioCostoUnid)) as ganancia
+           FROM ventas_detalle d
+           JOIN productos_cache c ON c.nombre = d.articuloNombre
+           WHERE ${rango}${filtroSuc} AND c.precioCostoUnid > 0 AND d.precio > 0
+           GROUP BY d.articuloNombre
+           HAVING margenPct IS NOT NULL
+           ORDER BY margenPct DESC LIMIT 15`
+        ));
+
+        // Resumen: ganancia total estimada del periodo (solo productos con costo conocido)
+        const resumen = await db.execute(sql.raw(
+          `SELECT SUM(d.subtotal) as ingreso,
+                  SUM(d.cantidad * c.precioCostoUnid) as costo,
+                  SUM(d.subtotal - (d.cantidad * c.precioCostoUnid)) as ganancia,
+                  COUNT(DISTINCT d.articuloNombre) as productosConCosto
+           FROM ventas_detalle d
+           JOIN productos_cache c ON c.nombre = d.articuloNombre
+           WHERE ${rango}${filtroSuc} AND c.precioCostoUnid > 0`
+        ));
+
+        return {
+          masGanancia: rows(masGanancia),
+          mayorMargen: rows(mayorMargen),
+          resumen: rows(resumen)[0] || null,
+        };
+      } catch (err: any) {
+        return { error: err.message, masGanancia: [], mayorMargen: [], resumen: null };
+      }
+    }),
 });
 
 export const appRouter = router({
