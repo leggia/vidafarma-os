@@ -1620,6 +1620,130 @@ const ventasRouter = router({
     }),
 });
 
+// ─── Gastos de la farmacia (fijos recurrentes + ocasionales) ──────────────────
+const gastosRouter = router({
+  // Listar plantilla de gastos fijos
+  listarFijos: publicProcedure.query(async () => {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const db = await getDb();
+    if (!db) return [];
+    try {
+      const r: any = await db.execute(sql.raw("SELECT * FROM gastos_fijos WHERE activo=1 ORDER BY categoria, nombre"));
+      const rows = Array.isArray(r) ? r[0] : r?.rows ?? r;
+      return Array.isArray(rows) ? rows : [];
+    } catch { return []; }
+  }),
+
+  // Crear un gasto fijo (plantilla)
+  crearFijo: publicProcedure
+    .input(z.object({ nombre: z.string(), categoria: z.string(), montoEstimado: z.number(), diaVencimiento: z.number().optional() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin BD");
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      await db.execute(sql.raw(
+        `INSERT INTO gastos_fijos (nombre, categoria, montoEstimado, diaVencimiento)
+         VALUES (${esc(input.nombre)}, ${esc(input.categoria)}, ${input.montoEstimado}, ${input.diaVencimiento ?? "NULL"})`
+      ));
+      return { success: true };
+    }),
+
+  // Eliminar (desactivar) un gasto fijo
+  eliminarFijo: publicProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin BD");
+      await db.execute(sql.raw(`UPDATE gastos_fijos SET activo=0 WHERE id=${input.id}`));
+      return { success: true };
+    }),
+
+  // Obtener los gastos de un mes (genera los fijos si no existen aún + ocasionales)
+  delMes: publicProcedure
+    .input(z.object({ anioMes: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { gastos: [], totalPagado: 0, totalPendiente: 0 };
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+
+      try {
+        // Generar registros de gastos fijos para el mes si aún no existen
+        const fijos = rows(await db.execute(sql.raw("SELECT * FROM gastos_fijos WHERE activo=1")));
+        const existentes = rows(await db.execute(sql.raw(`SELECT gastoFijoId FROM gastos_registro WHERE anioMes=${esc(input.anioMes)} AND gastoFijoId IS NOT NULL`)));
+        const idsExistentes = new Set(existentes.map((e: any) => e.gastoFijoId));
+        for (const f of fijos) {
+          if (!idsExistentes.has(f.id)) {
+            await db.execute(sql.raw(
+              `INSERT INTO gastos_registro (anioMes, gastoFijoId, nombre, categoria, monto, pagado, esOcasional)
+               VALUES (${esc(input.anioMes)}, ${f.id}, ${esc(f.nombre)}, ${esc(f.categoria)}, ${Number(f.montoEstimado) || 0}, 0, 0)`
+            ));
+          }
+        }
+
+        // Devolver todos los gastos del mes
+        const gastos = rows(await db.execute(sql.raw(`SELECT * FROM gastos_registro WHERE anioMes=${esc(input.anioMes)} ORDER BY esOcasional, categoria, nombre`)));
+        const totalPagado = gastos.filter((g: any) => g.pagado).reduce((s: number, g: any) => s + Number(g.monto), 0);
+        const totalPendiente = gastos.filter((g: any) => !g.pagado).reduce((s: number, g: any) => s + Number(g.monto), 0);
+        return { gastos, totalPagado, totalPendiente };
+      } catch (err: any) {
+        return { gastos: [], totalPagado: 0, totalPendiente: 0, error: err.message };
+      }
+    }),
+
+  // Marcar pagado/no pagado un gasto + ajustar monto real
+  marcarPago: publicProcedure
+    .input(z.object({ id: z.number(), pagado: z.boolean(), monto: z.number().optional() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin BD");
+      const hoy = new Date().toISOString().slice(0, 10);
+      const setMonto = input.monto != null ? `, monto=${input.monto}` : "";
+      await db.execute(sql.raw(
+        `UPDATE gastos_registro SET pagado=${input.pagado ? 1 : 0}, fechaPago=${input.pagado ? `'${hoy}'` : "NULL"}${setMonto} WHERE id=${input.id}`
+      ));
+      return { success: true };
+    }),
+
+  // Registrar un gasto ocasional
+  registrarOcasional: publicProcedure
+    .input(z.object({ anioMes: z.string(), nombre: z.string(), categoria: z.string(), monto: z.number(), pagado: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin BD");
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      const hoy = new Date().toISOString().slice(0, 10);
+      await db.execute(sql.raw(
+        `INSERT INTO gastos_registro (anioMes, nombre, categoria, monto, pagado, fechaPago, esOcasional)
+         VALUES (${esc(input.anioMes)}, ${esc(input.nombre)}, ${esc(input.categoria)}, ${input.monto}, ${input.pagado ? 1 : 0}, ${input.pagado ? `'${hoy}'` : "NULL"}, 1)`
+      ));
+      return { success: true };
+    }),
+
+  // Eliminar un gasto del registro
+  eliminar: publicProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin BD");
+      await db.execute(sql.raw(`DELETE FROM gastos_registro WHERE id=${input.id}`));
+      return { success: true };
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -1643,6 +1767,7 @@ export const appRouter = router({
   asistencia: asistenciaRouter,
   consulta: consultaRouter,
   ventas: ventasRouter,
+  gastos: gastosRouter,
 });
 
 export type AppRouter = typeof appRouter;

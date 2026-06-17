@@ -15,6 +15,7 @@ import Historial from "./pages/Historial";
 import Inventario from "./pages/Inventario";
 import Asistencia from "./pages/Asistencia";
 import Reportes from "./pages/Reportes";
+import Gastos from "./pages/Gastos";
 import Consulta from "./pages/Consulta";
 import { useAuth } from "./_core/hooks/useAuth";
 
@@ -44,6 +45,7 @@ function Router() {
         <Route path="/inventario" component={Inventario} />
         <Route path="/asistencia" component={Asistencia} />
         <Route path="/reportes" component={Reportes} />
+        <Route path="/gastos" component={Gastos} />
         <Route path="/consulta" component={Consulta} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

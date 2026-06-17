@@ -30,6 +30,7 @@ import {
   ListTodo,
   History,
   TrendingUp,
+  Wallet,
   ClipboardCheck,
   Users,
   Plus,
@@ -46,6 +47,7 @@ const menuItems = [
   { icon: ClipboardCheck, label: "Inventario", path: "/inventario" },
   { icon: Users, label: "Asistencia", path: "/asistencia" },
   { icon: TrendingUp, label: "Reportes", path: "/reportes" },
+  { icon: Wallet, label: "Gastos", path: "/gastos" },
   { icon: ListTodo, label: "Tareas Pendientes", path: "/tareas" },
   { icon: History, label: "Historial", path: "/historial" },
 ];

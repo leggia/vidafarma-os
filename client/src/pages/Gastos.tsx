@@ -1,0 +1,239 @@
+import { useState } from "react";
+import { trpc } from "@/lib/trpc";
+import {
+  Wallet, Plus, Check, Loader2, Trash2, Home, Zap, Wifi, Droplet,
+  Wrench, Package, ChevronDown, X, CalendarDays,
+} from "lucide-react";
+import { toast } from "sonner";
+
+const CATEGORIAS = [
+  { id: "alquiler", label: "Alquiler", icon: Home, color: "text-purple-600" },
+  { id: "servicios", label: "Servicios (luz, agua, internet)", icon: Zap, color: "text-amber-600" },
+  { id: "mantenimiento", label: "Mantenimiento", icon: Wrench, color: "text-blue-600" },
+  { id: "insumos", label: "Insumos / equipo", icon: Package, color: "text-teal-600" },
+  { id: "otros", label: "Otros", icon: Wallet, color: "text-slate-600" },
+];
+const catInfo = (id: string) => CATEGORIAS.find((c) => c.id === id) || CATEGORIAS[4];
+
+function ymd(d: Date) { return d.toISOString().slice(0, 10); }
+function mesActual() { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}`; }
+
+export default function Gastos() {
+  const [anioMes, setAnioMes] = useState(mesActual());
+  const [showNuevoFijo, setShowNuevoFijo] = useState(false);
+  const [showNuevoOcasional, setShowNuevoOcasional] = useState(false);
+
+  const utils = trpc.useUtils();
+  const gastosMes = trpc.gastos.delMes.useQuery({ anioMes });
+
+  const fmtBs = (n: any) => Number(n || 0).toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const marcarPago = trpc.gastos.marcarPago.useMutation({
+    onMutate: async (nuevo) => {
+      await utils.gastos.delMes.cancel();
+      const previo = utils.gastos.delMes.getData({ anioMes });
+      if (previo) {
+        utils.gastos.delMes.setData({ anioMes }, {
+          ...previo,
+          gastos: previo.gastos.map((g: any) => g.id === nuevo.id ? { ...g, pagado: nuevo.pagado ? 1 : 0 } : g),
+        });
+      }
+      return { previo };
+    },
+    onError: (e, _v, ctx) => { if (ctx?.previo) utils.gastos.delMes.setData({ anioMes }, ctx.previo); toast.error(e.message); },
+    onSettled: () => utils.gastos.delMes.invalidate(),
+  });
+
+  const eliminar = trpc.gastos.eliminar.useMutation({
+    onSuccess: () => { utils.gastos.delMes.invalidate(); toast.success("Gasto eliminado"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const data = gastosMes.data;
+  const gastos = data?.gastos ?? [];
+  const fijos = gastos.filter((g: any) => !g.esOcasional);
+  const ocasionales = gastos.filter((g: any) => g.esOcasional);
+  const totalMes = Number(data?.totalPagado ?? 0) + Number(data?.totalPendiente ?? 0);
+
+  return (
+    <div className="min-h-full bg-gradient-to-b from-muted/30 to-transparent">
+      <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
+
+        {/* Cabecera */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Wallet className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black tracking-tight leading-none">Gastos</h1>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Control de gastos fijos y ocasionales</p>
+            </div>
+          </div>
+          <input type="month" value={anioMes} onChange={(e) => setAnioMes(e.target.value)}
+            className="text-xs rounded-lg border bg-card px-3 py-2 shadow-sm font-medium" />
+        </div>
+
+        {/* Resumen */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl border bg-card p-3.5 shadow-sm">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Total del mes</p>
+            <p className="text-xl font-black tabular-nums">Bs {fmtBs(totalMes)}</p>
+          </div>
+          <div className="rounded-xl border bg-card p-3.5 shadow-sm">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Pagado</p>
+            <p className="text-xl font-black tabular-nums text-emerald-600">Bs {fmtBs(data?.totalPagado)}</p>
+          </div>
+          <div className="rounded-xl border bg-card p-3.5 shadow-sm">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Pendiente</p>
+            <p className="text-xl font-black tabular-nums text-amber-600">Bs {fmtBs(data?.totalPendiente)}</p>
+          </div>
+        </div>
+
+        {gastosMes.isLoading ? (
+          <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+        ) : (
+          <>
+            {/* Gastos fijos del mes */}
+            <div className="rounded-xl border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold flex items-center gap-2"><CalendarDays className="h-4 w-4" /> Gastos fijos del mes</h2>
+                <button onClick={() => setShowNuevoFijo(!showNuevoFijo)}
+                  className="text-[11px] inline-flex items-center gap-1 rounded-lg border px-2 py-1 hover:bg-muted transition">
+                  <Plus className="h-3 w-3" /> Nuevo fijo
+                </button>
+              </div>
+
+              {showNuevoFijo && <NuevoFijoForm anioMes={anioMes} onClose={() => setShowNuevoFijo(false)} />}
+
+              {fijos.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">Aún no hay gastos fijos. Crea uno (alquiler, luz, internet...) y aparecerá cada mes para marcar el pago.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {fijos.map((g: any) => <GastoFila key={g.id} g={g} fmtBs={fmtBs} marcarPago={marcarPago} eliminar={eliminar} />)}
+                </div>
+              )}
+            </div>
+
+            {/* Gastos ocasionales */}
+            <div className="rounded-xl border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold flex items-center gap-2"><Package className="h-4 w-4" /> Gastos ocasionales</h2>
+                <button onClick={() => setShowNuevoOcasional(!showNuevoOcasional)}
+                  className="text-[11px] inline-flex items-center gap-1 rounded-lg border px-2 py-1 hover:bg-muted transition">
+                  <Plus className="h-3 w-3" /> Registrar gasto
+                </button>
+              </div>
+
+              {showNuevoOcasional && <NuevoOcasionalForm anioMes={anioMes} onClose={() => setShowNuevoOcasional(false)} />}
+
+              {ocasionales.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">Sin gastos ocasionales este mes (reparaciones, compras puntuales, etc.).</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {ocasionales.map((g: any) => <GastoFila key={g.id} g={g} fmtBs={fmtBs} marcarPago={marcarPago} eliminar={eliminar} />)}
+                </div>
+              )}
+            </div>
+
+            <p className="text-[10px] text-muted-foreground text-center">
+              Los sueldos se gestionan en la sección Asistencia y se suman aparte para la rentabilidad total.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GastoFila({ g, fmtBs, marcarPago, eliminar }: any) {
+  const info = catInfo(g.categoria);
+  const Icon = info.icon;
+  return (
+    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 transition ${g.pagado ? "bg-emerald-50 dark:bg-emerald-950/20" : "bg-muted/40"}`}>
+      <Icon className={`h-4 w-4 shrink-0 ${info.color}`} />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium truncate">{g.nombre}</p>
+        <p className="text-[10px] text-muted-foreground">{info.label}{g.fechaPago ? ` · pagado ${g.fechaPago}` : ""}</p>
+      </div>
+      <span className="text-xs font-bold tabular-nums shrink-0">Bs {fmtBs(g.monto)}</span>
+      <button
+        onClick={() => marcarPago.mutate({ id: g.id, pagado: !g.pagado })}
+        className={`shrink-0 h-6 w-6 rounded-md grid place-items-center transition ${g.pagado ? "bg-emerald-600 text-white" : "border hover:bg-background"}`}
+        title={g.pagado ? "Marcar como no pagado" : "Marcar como pagado"}>
+        <Check className="h-3.5 w-3.5" />
+      </button>
+      <button onClick={() => eliminar.mutate({ id: g.id })} className="shrink-0 h-6 w-6 rounded-md grid place-items-center text-muted-foreground hover:text-red-600 hover:bg-red-50 transition" title="Eliminar">
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function NuevoFijoForm({ anioMes, onClose }: { anioMes: string; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const [nombre, setNombre] = useState("");
+  const [categoria, setCategoria] = useState("servicios");
+  const [monto, setMonto] = useState("");
+  const crear = trpc.gastos.crearFijo.useMutation({
+    onSuccess: () => { utils.gastos.delMes.invalidate(); toast.success("Gasto fijo creado"); onClose(); },
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 mb-3 space-y-2">
+      <input placeholder="Nombre (ej. Alquiler local)" value={nombre} onChange={(e) => setNombre(e.target.value)}
+        className="w-full text-xs rounded-md border px-2 py-1.5 bg-background" />
+      <div className="flex gap-2">
+        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="flex-1 text-xs rounded-md border px-2 py-1.5 bg-background">
+          {CATEGORIAS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+        <input type="number" placeholder="Monto Bs" value={monto} onChange={(e) => setMonto(e.target.value)}
+          className="w-28 text-xs rounded-md border px-2 py-1.5 bg-background" />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onClose} className="text-xs px-2 py-1 rounded-md hover:bg-muted">Cancelar</button>
+        <button onClick={() => nombre && monto && crear.mutate({ nombre, categoria, montoEstimado: parseFloat(monto) })}
+          disabled={crear.isPending || !nombre || !monto}
+          className="text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50">
+          {crear.isPending ? "Guardando..." : "Crear"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NuevoOcasionalForm({ anioMes, onClose }: { anioMes: string; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const [nombre, setNombre] = useState("");
+  const [categoria, setCategoria] = useState("otros");
+  const [monto, setMonto] = useState("");
+  const [pagado, setPagado] = useState(true);
+  const crear = trpc.gastos.registrarOcasional.useMutation({
+    onSuccess: () => { utils.gastos.delMes.invalidate(); toast.success("Gasto registrado"); onClose(); },
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 mb-3 space-y-2">
+      <input placeholder="Concepto (ej. Reparación refrigerador)" value={nombre} onChange={(e) => setNombre(e.target.value)}
+        className="w-full text-xs rounded-md border px-2 py-1.5 bg-background" />
+      <div className="flex gap-2">
+        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="flex-1 text-xs rounded-md border px-2 py-1.5 bg-background">
+          {CATEGORIAS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+        <input type="number" placeholder="Monto Bs" value={monto} onChange={(e) => setMonto(e.target.value)}
+          className="w-28 text-xs rounded-md border px-2 py-1.5 bg-background" />
+      </div>
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={pagado} onChange={(e) => setPagado(e.target.checked)} /> Ya está pagado
+      </label>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onClose} className="text-xs px-2 py-1 rounded-md hover:bg-muted">Cancelar</button>
+        <button onClick={() => nombre && monto && crear.mutate({ anioMes, nombre, categoria, monto: parseFloat(monto), pagado })}
+          disabled={crear.isPending || !nombre || !monto}
+          className="text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50">
+          {crear.isPending ? "Guardando..." : "Registrar"}
+        </button>
+      </div>
+    </div>
+  );
+}

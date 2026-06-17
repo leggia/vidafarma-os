@@ -329,6 +329,8 @@ async function startServer() {
         try {
           const { crearTablasVentas } = await import("../tablas-ventas");
           await crearTablasVentas();
+          const { crearTablasGastos } = await import("../tablas-gastos");
+          await crearTablasGastos();
         } catch (e) {
           console.warn("[Startup] Error creando tablas de ventas:", e);
         }
