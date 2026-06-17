@@ -214,9 +214,11 @@ async function startServer() {
         } catch (enumErr) {
           console.warn("[DB] No se pudo alterar enum role (puede ya estar correcto):", enumErr);
         }
-        const { execSync } = await import("child_process");
-        execSync("npx drizzle-kit push --force", { stdio: "inherit" });
-        console.log("[DB] Migraciones completadas");
+        // NOTA: se eliminó "drizzle-kit push --force" del arranque.
+        // Era DESTRUCTIVO: borraba las tablas que no están en el schema (ventas,
+        // ventas_detalle, clientes, sync_estado), perdiendo datos en cada deploy.
+        // Las tablas ya existen y se crean/verifican con SQL directo (idempotente).
+        console.log("[DB] Migraciones completadas (sin push destructivo)");
       } catch (e) {
         console.warn("[DB] Error en migraciones:", e);
       }

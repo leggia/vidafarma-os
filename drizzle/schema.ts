@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 export const users = mysqlTable("users", {
@@ -363,3 +363,67 @@ export const pagosSueldo = mysqlTable("pagos_sueldo", {
 
 export type PagoSueldo = typeof pagosSueldo.$inferSelect;
 export type InsertPagoSueldo = typeof pagosSueldo.$inferInsert;
+
+// ─── Tablas de VENTAS (creadas por SQL directo en tablas-ventas.ts) ───────────
+// Se declaran aquí para que drizzle-kit push --force las RECONOZCA y NO las borre.
+// La estructura debe coincidir exactamente con el CREATE TABLE de tablas-ventas.ts.
+export const ventas = mysqlTable("ventas", {
+  id: int("id").primaryKey(),
+  numComprobante: varchar("numComprobante", { length: 50 }),
+  tipoComprobante: varchar("tipoComprobante", { length: 30 }),
+  fechaHora: timestamp("fechaHora").notNull(),
+  fecha: varchar("fecha", { length: 10 }).notNull(),
+  diaSemana: int("diaSemana").notNull().default(0),
+  total: decimal("total", { precision: 14, scale: 2 }).notNull().default("0"),
+  descuentoTotal: decimal("descuentoTotal", { precision: 14, scale: 2 }).notNull().default("0"),
+  vendedor: varchar("vendedor", { length: 100 }),
+  nombreSucursal: varchar("nombreSucursal", { length: 150 }),
+  idCliente: int("idCliente"),
+  razonSocialCliente: varchar("razonSocialCliente", { length: 255 }),
+  estado: varchar("estado", { length: 20 }),
+  capturadoEn: timestamp("capturadoEn").notNull().defaultNow(),
+}, (t) => ({
+  idxFecha: index("idx_ventas_fecha").on(t.fecha),
+  idxVendedor: index("idx_ventas_vendedor").on(t.vendedor),
+  idxSucursal: index("idx_ventas_sucursal").on(t.nombreSucursal),
+  idxDiaSemana: index("idx_ventas_diasemana").on(t.diaSemana),
+}));
+
+export const ventasDetalle = mysqlTable("ventas_detalle", {
+  id: int("id").autoincrement().primaryKey(),
+  ventaId: int("ventaId").notNull(),
+  articuloNombre: varchar("articuloNombre", { length: 500 }).notNull(),
+  cantidad: decimal("cantidad", { precision: 14, scale: 2 }).notNull().default("0"),
+  precio: decimal("precio", { precision: 14, scale: 4 }).notNull().default("0"),
+  descuento: decimal("descuento", { precision: 14, scale: 2 }).notNull().default("0"),
+  subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
+  fecha: varchar("fecha", { length: 10 }).notNull(),
+  nombreSucursal: varchar("nombreSucursal", { length: 150 }),
+}, (t) => ({
+  idxVenta: index("idx_detalle_venta").on(t.ventaId),
+  idxArticulo: index("idx_detalle_articulo").on(t.articuloNombre),
+  idxFecha: index("idx_detalle_fecha").on(t.fecha),
+}));
+
+export const clientes = mysqlTable("clientes", {
+  id: int("id").primaryKey(),
+  nombre: varchar("nombre", { length: 255 }),
+  tipoDocumento: varchar("tipoDocumento", { length: 10 }),
+  numDocumento: varchar("numDocumento", { length: 50 }),
+  complementoId: varchar("complementoId", { length: 20 }),
+  telefono: varchar("telefono", { length: 50 }),
+  email: varchar("email", { length: 150 }),
+  direccion: varchar("direccion", { length: 500 }),
+  creadoEnSistema: varchar("creadoEnSistema", { length: 25 }),
+  capturadoEn: timestamp("capturadoEn").notNull().defaultNow(),
+}, (t) => ({
+  idxNombre: index("idx_clientes_nombre").on(t.nombre),
+  idxDocumento: index("idx_clientes_documento").on(t.numDocumento),
+}));
+
+export const syncEstado = mysqlTable("sync_estado", {
+  clave: varchar("clave", { length: 50 }).primaryKey(),
+  ultimoId: int("ultimoId").notNull().default(0),
+  ultimaSync: timestamp("ultimaSync").notNull().defaultNow(),
+  notas: varchar("notas", { length: 255 }),
+});
