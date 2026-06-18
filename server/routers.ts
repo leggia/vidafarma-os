@@ -1496,13 +1496,16 @@ const ventasRouter = router({
       const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
       const rango = `fecha >= ${esc(input.desde)} AND fecha <= ${esc(input.hasta)}`;
       const filtroSuc = input.sucursal ? ` AND nombreSucursal = ${esc(input.sucursal)}` : "";
+      // Excluir "ventas menores del día" de los reportes de productos: no es un
+      // medicamento real, solo un registro para ventas mínimas olvidadas.
+      const excluirMenores = ` AND articuloNombre NOT LIKE '%ventas menores%' AND articuloNombre NOT LIKE '%venta menor%'`;
 
       try {
         const [masVendidos, vendedores, sucursales, diasSemana, totales] = await Promise.all([
           // Productos más vendidos
           db.execute(sql.raw(
             `SELECT articuloNombre, SUM(cantidad) as unidades, SUM(subtotal) as monto, COUNT(*) as veces
-             FROM ventas_detalle WHERE ${rango}${filtroSuc}
+             FROM ventas_detalle WHERE ${rango}${filtroSuc}${excluirMenores}
              GROUP BY articuloNombre ORDER BY unidades DESC LIMIT 15`
           )),
           // Mejores vendedores
@@ -1567,6 +1570,8 @@ const ventasRouter = router({
       const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
       const rango = `d.fecha >= ${esc(input.desde)} AND d.fecha <= ${esc(input.hasta)}`;
       const filtroSuc = input.sucursal ? ` AND d.nombreSucursal = ${esc(input.sucursal)}` : "";
+      // Excluir "ventas menores del día" (no es un producto real)
+      const excluirMenores = ` AND d.articuloNombre NOT LIKE '%ventas menores%' AND d.articuloNombre NOT LIKE '%venta menor%'`;
 
       try {
         // Productos que MÁS GANANCIA generaron (suma de ganancia por línea)
@@ -1578,7 +1583,7 @@ const ventasRouter = router({
                   SUM(d.subtotal - (d.cantidad * c.precioCostoUnid)) as ganancia
            FROM ventas_detalle d
            JOIN productos_cache c ON c.nombre = d.articuloNombre
-           WHERE ${rango}${filtroSuc} AND c.precioCostoUnid > 0
+           WHERE ${rango}${filtroSuc}${excluirMenores} AND c.precioCostoUnid > 0
            GROUP BY d.articuloNombre
            HAVING ganancia IS NOT NULL
            ORDER BY ganancia DESC LIMIT 15`
@@ -1592,7 +1597,7 @@ const ventasRouter = router({
                   SUM(d.subtotal - (d.cantidad * c.precioCostoUnid)) as ganancia
            FROM ventas_detalle d
            JOIN productos_cache c ON c.nombre = d.articuloNombre
-           WHERE ${rango}${filtroSuc} AND c.precioCostoUnid > 0 AND d.precio > 0
+           WHERE ${rango}${filtroSuc}${excluirMenores} AND c.precioCostoUnid > 0 AND d.precio > 0
            GROUP BY d.articuloNombre
            HAVING margenPct IS NOT NULL
            ORDER BY margenPct DESC LIMIT 15`
