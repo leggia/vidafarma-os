@@ -290,6 +290,7 @@ export const trabajadores = mysqlTable("trabajadores", {
   // Tipo de cálculo: fijo_mensual, por_dia, fijo_horas, fijo_turnos
   tipoTrabajador: varchar("tipoTrabajador", { length: 20 }).notNull().default("fijo_mensual"),
   horasMesFijas: int("horasMesFijas").notNull().default(192), // horas base del mes (para valor hora)
+  diasPorTurno: int("diasPorTurno").notNull().default(3), // para fijo_turnos: días que equivale 1 turno 24h
   montoPorDia: decimal("montoPorDia", { precision: 10, scale: 2 }).notNull().default("0"), // pago por día (tipo por_dia)
   montoTurnoExtra: decimal("montoTurnoExtra", { precision: 10, scale: 2 }).notNull().default("0"), // pago por turno extra cubierto
   toleranciaSalidaMin: int("toleranciaSalidaMin").notNull().default(10), // min antes de salida sin descuento

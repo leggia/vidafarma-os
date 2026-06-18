@@ -1238,7 +1238,7 @@ const asistenciaRouter = router({
         tipoDescuento: trab.tipoDescuento as "proporcional" | "fijo",
         montoDescuentoFijo: parseFloat(String(trab.montoDescuentoFijo)) || 0,
         toleranciaMin: trab.toleranciaMin ?? 5,
-        toleranciaSalidaMin: trab.toleranciaSalidaMin ?? 10,
+        toleranciaSalidaMin: trab.toleranciaSalidaMin ?? 10,        diasPorTurno: (trab as any).diasPorTurno ?? 3,
       }, input.anioMes, ajustes);
 
       return {
@@ -1367,7 +1367,7 @@ const asistenciaRouter = router({
               tipoDescuento: trab.tipoDescuento as any,
               montoDescuentoFijo: parseFloat(String(trab.montoDescuentoFijo)) || 0,
               toleranciaMin: trab.toleranciaMin ?? 5,
-              toleranciaSalidaMin: trab.toleranciaSalidaMin ?? 10,
+              toleranciaSalidaMin: trab.toleranciaSalidaMin ?? 10,              diasPorTurno: (trab as any).diasPorTurno ?? 3,
             }, input.anioMes, ajustes);
             sueldoFinal = r.sueldoFinal;
             pagoTurnosExtra = r.pagoTurnosExtra;
@@ -1827,7 +1827,7 @@ const gastosRouter = router({
                 horasMesFijas: trab.horasMesFijas,
                 montoPorDia: parseFloat(String(trab.montoPorDia)) || 0,
                 montoTurnoExtra: parseFloat(String(trab.montoTurnoExtra)) || 0,
-                toleranciaSalidaMin: trab.toleranciaSalidaMin,
+                toleranciaSalidaMin: trab.toleranciaSalidaMin,                diasPorTurno: (trab as any).diasPorTurno ?? 3,
                 sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
               }, input.anioMes);
               sueldoFinal = r.sueldoFinal;

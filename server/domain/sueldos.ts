@@ -34,6 +34,7 @@ export interface ConfigTrabajador {
   montoDescuentoFijo: number;
   toleranciaMin: number;     // tolerancia para retraso de entrada
   toleranciaSalidaMin: number; // minutos antes de la salida esperada que se permiten sin descuento
+  diasPorTurno?: number;     // para fijo_turnos: cuántos días equivale 1 turno de 24h (ej. 3)
 }
 
 /**
@@ -66,9 +67,10 @@ export function contarDiasDelMes(anioMes: string, diasSemana: number[]): number 
 }
 
 export interface Apertura {
-  fecha: string;             // "YYYY-MM-DD"
+  fecha: string;             // "YYYY-MM-DD" (fecha de apertura)
   horaApertura: string;      // "HH:MM:SS"
   horaCierre?: string;       // "HH:MM:SS"
+  fechaCierre?: string;      // "YYYY-MM-DD" (fecha de cierre; permite turnos multi-día exactos)
 }
 
 export interface DiaCalculado {
@@ -115,14 +117,37 @@ export function calcularRetraso(horaApertura: string, cfg: ConfigTrabajador): nu
   return Math.max(0, real - esperado - cfg.toleranciaMin);
 }
 
-/** Calcula horas trabajadas entre apertura y cierre, manejando cruce de medianoche y turnos largos. */
-export function calcularHoras(horaApertura: string, horaCierre?: string, esTurno24 = false): number {
+/** Calcula horas trabajadas entre apertura y cierre.
+ * Si se conocen las fechas reales (apertura y cierre), calcula la diferencia EXACTA
+ * (incluye turnos que cruzan uno o varios días, ej. 8:00 día 17 a 8:05 día 18 = 24.08h).
+ * Si no hay fecha de cierre, cae al método aproximado por horas. */
+export function calcularHoras(
+  horaApertura: string,
+  horaCierre?: string,
+  esTurno24 = false,
+  fechaApertura?: string,
+  fechaCierre?: string,
+): number {
   if (!horaCierre) return 0;
+
+  // Método EXACTO: si tenemos ambas fechas, usar timestamps reales
+  if (fechaApertura && fechaCierre) {
+    const ini = new Date(`${fechaApertura}T${horaApertura.length === 5 ? horaApertura + ":00" : horaApertura}`);
+    const fin = new Date(`${fechaCierre}T${horaCierre.length === 5 ? horaCierre + ":00" : horaCierre}`);
+    const horas = (fin.getTime() - ini.getTime()) / (1000 * 60 * 60);
+    if (!isNaN(horas) && horas > 0 && horas < 100) {
+      // Acotar turnos de 24h a un máximo razonable (por si hubo error de cierre)
+      if (esTurno24 && horas > 26) return 24;
+      return redondear(horas);
+    }
+    // si el cálculo por fechas falla, continuar con el método por horas
+  }
+
+  // Método APROXIMADO (sin fecha de cierre): solo horas
   let diff = aMinutos(horaCierre) - aMinutos(horaApertura);
   if (diff < 0) diff += 24 * 60;     // cerró pasada la medianoche
-  // En turnos de 24h, si la diferencia es pequeña, el cierre real fue ~24h después
-  if (esTurno24 && diff < 60) diff += 24 * 60;
-  if (!esTurno24 && diff > 16 * 60) return 0; // dato inconsistente (no turno)
+  if (esTurno24 && diff < 60) diff += 24 * 60; // turno largo: el cierre real fue ~24h después
+  if (!esTurno24 && diff > 16 * 60) return 0;  // dato inconsistente (no turno)
   if (esTurno24 && diff > 26 * 60) return 24;  // acotar turno a 24h
   return redondear(diff / 60);
 }
@@ -158,7 +183,7 @@ export function calcularResumenMensual(
     const sinPenalizar = justificado || esTurnoExtra;
     const minutosRetraso = sinPenalizar ? 0 : calcularRetraso(horaEntrada, cfg);
     const minutosCierreTemprano = sinPenalizar ? 0 : calcularCierreTemprano(a.horaCierre, cfg.horaSalida, cfg.toleranciaSalidaMin);
-    const horasTrabajadas = calcularHoras(horaEntrada, a.horaCierre, esTurno24);
+    const horasTrabajadas = calcularHoras(horaEntrada, a.horaCierre, esTurno24, a.fecha, a.fechaCierre);
 
     return { fecha: a.fecha,
       fechaLarga: formatearFechaLarga(a.fecha),
@@ -170,7 +195,10 @@ export function calcularResumenMensual(
 
   // Días normales (no extra): cuentan para el sueldo del mes
   const diasNormales = detalle.filter((d) => !d.esTurnoExtra);
-  const diasTrabajados = diasNormales.length;
+  // En turnos de 24h, cada turno equivale a varios días (ej. 3). Configurable.
+  const factorDias = cfg.tipoTrabajador === "fijo_turnos" ? (cfg.diasPorTurno || 3) : 1;
+  const turnosNormales = diasNormales.length;        // cantidad de turnos/aperturas
+  const diasTrabajados = turnosNormales * factorDias; // días equivalentes
   const horasTotales = redondear(detalle.reduce((s, d) => s + d.horasTrabajadas, 0));
   const retrasos = detalle.filter((d) => d.minutosRetraso > 0);
   const minutosRetrasoTotal = detalle.reduce((s, d) => s + d.minutosRetraso, 0);

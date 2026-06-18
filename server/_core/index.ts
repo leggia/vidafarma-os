@@ -214,6 +214,16 @@ async function startServer() {
         } catch (enumErr) {
           console.warn("[DB] No se pudo alterar enum role (puede ya estar correcto):", enumErr);
         }
+        // Agregar columna diasPorTurno a trabajadores (si no existe). Idempotente.
+        try {
+          const { getDb } = await import("../db");
+          const { sql } = await import("drizzle-orm");
+          const dbConn = await getDb();
+          if (dbConn) {
+            await dbConn.execute(sql.raw("ALTER TABLE trabajadores ADD COLUMN diasPorTurno INT NOT NULL DEFAULT 3"));
+            console.log("[DB] Columna diasPorTurno agregada");
+          }
+        } catch { /* ya existe */ }
         // NOTA: se eliminó "drizzle-kit push --force" del arranque.
         // Era DESTRUCTIVO: borraba las tablas que no están en el schema (ventas,
         // ventas_detalle, clientes, sync_estado), perdiendo datos en cada deploy.
