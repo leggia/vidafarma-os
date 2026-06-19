@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   Sparkles,
   Check,
+  AlertTriangle,
   CheckCircle2,
   Calendar,
   Camera,
@@ -163,6 +164,7 @@ export default function NuevaCompra() {
   const [cropUrl, setCropUrl] = useState<string | null>(null); // imagen pendiente de recortar
   const [branchId, setBranchId] = useState<string>("");
   const [receiptNumber, setReceiptNumber] = useState("");
+  const [facturaYaAlertada, setFacturaYaAlertada] = useState<string>(""); // evita repetir la alerta
   const [supplier, setSupplier] = useState("");
   const [supplierOriginal, setSupplierOriginal] = useState(""); // nombre extraído por el LLM (clave de aprendizaje)
   const [descuentoGlobal, setDescuentoGlobal] = useState(0);
@@ -174,6 +176,9 @@ export default function NuevaCompra() {
   const [extracted, setExtracted] = useState(false);
   const [compraGuardada, setCompraGuardada] = useState(false); // ya se registró o guardó como borrador
   const [borradorGuardadoId, setBorradorGuardadoId] = useState<number | null>(null);
+  // Ventanas de resultado al sincronizar
+  const [modalExito, setModalExito] = useState<{ mensaje: string; ingresoId?: string } | null>(null);
+  const [modalError, setModalError] = useState<{ mensaje: string } | null>(null);
   const [showExpiry, setShowExpiry] = useState(false);
   const [receiptType, setReceiptType] = useState<"BOLETA" | "FACTURA">("FACTURA");
   const [almacenNombre, setAlmacenNombre] = useState("ALMACEN PRINCIPAL");
@@ -256,6 +261,25 @@ export default function NuevaCompra() {
       }
     })();
   }, [borradorCargado, utils]);
+
+  // Alertar (una sola vez) si el número de factura ya fue registrado antes
+  useEffect(() => {
+    const num = receiptNumber.trim();
+    if (!num || num.length < 3) return;
+    if (facturaYaAlertada === num) return; // ya se alertó por este número
+    const t = setTimeout(async () => {
+      try {
+        const res: any = await utils.client.purchases.verificarFacturaDuplicada.query({
+          receiptNumber: num, supplier: supplier || undefined,
+        });
+        if (res?.duplicada) {
+          setFacturaYaAlertada(num);
+          toast.warning(`⚠️ La factura N° ${num} ya fue registrada antes. Verifica que no sea un duplicado.`, { duration: 8000 });
+        }
+      } catch { /* silencioso */ }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [receiptNumber, supplier, facturaYaAlertada, utils]);
 
   // Auto-buscar cuando aparecen productos no encontrados
   const buscarProducto = async (idx: number, term: string, proveedorNombre: string, idProveedor?: number) => {
@@ -524,6 +548,7 @@ export default function NuevaCompra() {
           totalAmount,
           items: items.map(i => ({
             productName: i.productName,
+            nombreFactura: (i as any).nombreFacturaOriginal || productosEmparejados[i.productName] || i.productName,
             quantity: i.quantity,
             unitCost: i.unitCost,
             subtotal: i.subtotal,
@@ -569,12 +594,14 @@ export default function NuevaCompra() {
               setIsSubmitting(false);
               return;
             }
-            // Todo OK — redirigir inmediatamente
+            // Todo OK — mostrar ventana de éxito que el usuario debe aceptar
             setIsSubmitting(false);
-            // Invalidar cache en background sin bloquear
             utils.purchases.list.invalidate().catch(() => {});
             utils.dashboard.stats.invalidate().catch(() => {});
-            setTimeout(() => setLocation("/compras"), 100);
+            setModalExito({
+              mensaje: "La compra se registró correctamente en inventarios365.com",
+              ingresoId: r.syncIngresoId ? String(r.syncIngresoId) : undefined,
+            });
             return;
           } else if (r?.productosNoEncontrados?.length > 0) {
             setProductosNoEncontrados(r.productosNoEncontrados);
@@ -584,12 +611,16 @@ export default function NuevaCompra() {
             setIsSubmitting(false);
             return;
           } else if (r?.syncMessage) {
-            toast.warning(
-              `Compra confirmada, pero sin sincronizar: ${r.syncMessage}`,
-              { duration: 8000 }
-            );
+            // Error al sincronizar: mostrar ventana con opciones (editar / guardar borrador)
+            setIsSubmitting(false);
+            setModalError({
+              mensaje: r.syncMessage || "No se pudo registrar la compra en inventarios365.com",
+            });
+            return;
           } else {
-            toast.success("Compra confirmada exitosamente");
+            setIsSubmitting(false);
+            setModalError({ mensaje: "No se pudo completar el registro de la compra." });
+            return;
           }
         } else {
           toast.success("Compra guardada como borrador");
@@ -1598,6 +1629,56 @@ export default function NuevaCompra() {
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* ─── Ventana de ÉXITO (requiere Aceptar) ─── */}
+      {modalExito && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 text-center">
+            <div className="h-14 w-14 rounded-full bg-emerald-100 dark:bg-emerald-950/40 grid place-items-center mx-auto mb-4">
+              <Check className="h-7 w-7 text-emerald-600" />
+            </div>
+            <h3 className="text-lg font-black mb-1">¡Compra registrada!</h3>
+            <p className="text-sm text-muted-foreground mb-1">{modalExito.mensaje}</p>
+            {modalExito.ingresoId && (
+              <p className="text-xs text-muted-foreground mb-4">Ingreso ID: <span className="font-mono font-bold">{modalExito.ingresoId}</span></p>
+            )}
+            <Button
+              className="w-full mt-3"
+              onClick={() => { setModalExito(null); setLocation("/compras"); }}>
+              Aceptar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Ventana de ERROR (editar o guardar borrador) ─── */}
+      {modalError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6">
+            <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-950/40 grid place-items-center mx-auto mb-4">
+              <AlertTriangle className="h-7 w-7 text-red-600" />
+            </div>
+            <h3 className="text-lg font-black mb-1 text-center">No se pudo registrar</h3>
+            <p className="text-sm text-muted-foreground mb-5 text-center">{modalError.mensaje}</p>
+            <div className="space-y-2">
+              <Button
+                variant="default" className="w-full"
+                onClick={() => setModalError(null)}>
+                Editar compra y reintentar
+              </Button>
+              <Button
+                variant="outline" className="w-full"
+                onClick={async () => {
+                  setModalError(null);
+                  await autoguardarBorrador();
+                  toast.success("Guardado como borrador. Puedes retomarlo otro día.");
+                  setTimeout(() => setLocation("/compras"), 300);
+                }}>
+                Guardar borrador y continuar otro día
+              </Button>
+            </div>
           </div>
         </div>
       )}

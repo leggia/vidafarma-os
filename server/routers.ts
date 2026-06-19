@@ -471,6 +471,32 @@ INSTRUCCIONES GENERALES:
     .query(async ({ input }) => {
       return db.getPurchaseById(input.id);
     }),
+
+  // Verifica si ya existe una compra COMPLETADA con el mismo número de factura
+  // (para alertar de posible duplicado). Ignora borradores.
+  verificarFacturaDuplicada: protectedProcedure
+    .input(z.object({ receiptNumber: z.string(), supplier: z.string().optional() }))
+    .query(async ({ input }) => {
+      if (!input.receiptNumber || input.receiptNumber.trim() === "") return { duplicada: false };
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const dbc = await getDb();
+      if (!dbc) return { duplicada: false };
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      try {
+        const filtroSup = input.supplier ? ` AND supplier = ${esc(input.supplier)}` : "";
+        const r: any = await dbc.execute(sql.raw(
+          `SELECT id, supplier, createdAt FROM purchases
+           WHERE receiptNumber = ${esc(input.receiptNumber)} AND status = 'completed'${filtroSup}
+           ORDER BY createdAt DESC LIMIT 1`
+        ));
+        const rows = Array.isArray(r) ? r[0] : r?.rows ?? r;
+        const existe = Array.isArray(rows) && rows.length > 0;
+        return { duplicada: existe, compra: existe ? rows[0] : null };
+      } catch {
+        return { duplicada: false };
+      }
+    }),
 });
 
 // ─── Transfers Router ────────────────────────────────────────────────────────
