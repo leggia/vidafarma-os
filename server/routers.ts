@@ -1643,6 +1643,123 @@ const ventasRouter = router({
     } catch { return []; }
   }),
 
+  // Rentabilidad REAL por sucursal: ingresos − costo productos − sueldos − gastos.
+  // Responde: ¿las ganancias de cada sucursal cubren sus gastos?
+  rentabilidadPorSucursal: publicProcedure
+    .input(z.object({ desde: z.string(), hasta: z.string(), anioMes: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { sucursales: [] };
+      const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      const rango = `fecha >= ${esc(input.desde)} AND fecha <= ${esc(input.hasta)}`;
+      const rangoD = `d.fecha >= ${esc(input.desde)} AND d.fecha <= ${esc(input.hasta)}`;
+      const excl = ` AND d.articuloNombre NOT LIKE '%ventas menores%' AND d.articuloNombre NOT LIKE '%venta menor%'`;
+
+      try {
+        // 1. Ingresos por sucursal (incluye ventas menores: es dinero real)
+        const ingresos = rows(await db.execute(sql.raw(
+          `SELECT nombreSucursal, SUM(total) as ingreso, COUNT(*) as ventas
+           FROM ventas WHERE ${rango} AND nombreSucursal IS NOT NULL
+           GROUP BY nombreSucursal`
+        )));
+
+        // 2. Costo de productos vendidos por sucursal (solo productos con costo conocido)
+        const costos = rows(await db.execute(sql.raw(
+          `SELECT d.nombreSucursal, SUM(d.cantidad * c.precioCostoUnid) as costo
+           FROM ventas_detalle d JOIN productos_cache c ON c.nombre = d.articuloNombre
+           WHERE ${rangoD}${excl} AND c.precioCostoUnid > 0 AND d.nombreSucursal IS NOT NULL
+           GROUP BY d.nombreSucursal`
+        )));
+
+        // 3. Gastos operativos por sucursal (del mes)
+        const gastos = rows(await db.execute(sql.raw(
+          `SELECT sucursal, SUM(monto) as gastos FROM gastos_registro
+           WHERE anioMes=${esc(input.anioMes)} AND sucursal IS NOT NULL
+           GROUP BY sucursal`
+        )));
+        // Gastos generales (sin sucursal asignada) se reparten aparte
+        const gastosGenerales = rows(await db.execute(sql.raw(
+          `SELECT SUM(monto) as total FROM gastos_registro
+           WHERE anioMes=${esc(input.anioMes)} AND (sucursal IS NULL OR sucursal='')`
+        )))[0]?.total || 0;
+
+        // Mapear por nombre de sucursal
+        const mapa: Record<string, any> = {};
+        for (const i of ingresos) {
+          const s = i.nombreSucursal;
+          mapa[s] = { sucursal: s, ingreso: Number(i.ingreso) || 0, ventas: Number(i.ventas) || 0, costo: 0, gastos: 0, sueldos: 0 };
+        }
+        for (const c of costos) {
+          if (mapa[c.nombreSucursal]) mapa[c.nombreSucursal].costo = Number(c.costo) || 0;
+        }
+        for (const g of gastos) {
+          if (mapa[g.sucursal]) mapa[g.sucursal].gastos = Number(g.gastos) || 0;
+          else mapa[g.sucursal] = { sucursal: g.sucursal, ingreso: 0, ventas: 0, costo: 0, gastos: Number(g.gastos) || 0, sueldos: 0 };
+        }
+
+        // 4. Sueldos por sucursal (infiere personal según dónde vendió)
+        const { trabajadores, ajustesDia } = await import("../drizzle/schema");
+        const { eq, like, and } = await import("drizzle-orm");
+        const { inventarios365 } = await import("./inventarios365");
+        const { calcularResumenMensual } = await import("./domain/sueldos");
+        const lista = await db.select().from(trabajadores).where(eq(trabajadores.activo, 1));
+
+        for (const s of Object.keys(mapa)) {
+          const vend = rows(await db.execute(sql.raw(
+            `SELECT DISTINCT vendedor FROM ventas WHERE nombreSucursal=${esc(s)} AND vendedor IS NOT NULL`
+          )));
+          const usuarios = new Set(vend.map((v: any) => String(v.vendedor)));
+          let sueldos = 0;
+          for (const trab of lista) {
+            if (!trab.usuarioSistemaId || !usuarios.has(trab.usuarioSistemaId)) continue;
+            try {
+              const aperturas = await inventarios365.aperturasCajaDelMes(trab.usuarioSistemaId, input.anioMes);
+              const res = calcularResumenMensual(aperturas, {
+                tipoTrabajador: (trab.tipoTrabajador || "fijo_mensual") as any,
+                horaIngreso: trab.horaIngreso,
+                horaSalida: trab.horaSalida && trab.horaSalida !== "00:00" ? trab.horaSalida : undefined,
+                horasDia: parseFloat(String(trab.horasDia)) || 8,
+                diasSemana: trab.diasSemana, diasMes: trab.diasMes,
+                horasMesFijas: trab.horasMesFijas,
+                montoPorDia: parseFloat(String(trab.montoPorDia)) || 0,
+                montoTurnoExtra: parseFloat(String(trab.montoTurnoExtra)) || 0,
+                toleranciaSalidaMin: trab.toleranciaSalidaMin,
+                sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
+                diasPorTurno: (trab as any).diasPorTurno ?? 3,
+              } as any, input.anioMes);
+              sueldos += res.sueldoFinal;
+            } catch {
+              sueldos += parseFloat(String(trab.sueldoMensual)) || 0;
+            }
+          }
+          mapa[s].sueldos = sueldos;
+        }
+
+        // Calcular ganancia neta por sucursal
+        const resultado = Object.values(mapa).map((m: any) => {
+          const gananciaProductos = m.ingreso - m.costo;
+          const netaAntesGenerales = gananciaProductos - m.sueldos - m.gastos;
+          return {
+            ...m,
+            gananciaProductos,
+            netaAntesGenerales,
+            cubreGastos: netaAntesGenerales >= 0,
+          };
+        }).sort((a: any, b: any) => b.netaAntesGenerales - a.netaAntesGenerales);
+
+        return {
+          sucursales: resultado,
+          gastosGenerales: Number(gastosGenerales) || 0,
+          nota: "El costo de productos solo considera productos con costo conocido. Los gastos generales (sin sucursal) se muestran aparte.",
+        };
+      } catch (err: any) {
+        return { sucursales: [], error: err.message };
+      }
+    }),
+
   // Rentabilidad: une ventas con el costo (productos_cache por nombre).
   // Calcula ganancia = (precio - costo) * cantidad, y margen % = (precio-costo)/precio.
   rentabilidad: publicProcedure

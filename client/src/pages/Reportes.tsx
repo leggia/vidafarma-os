@@ -31,6 +31,9 @@ export default function Reportes() {
   const sucursales = trpc.ventas.sucursalesDisponibles.useQuery();
   const reportes = trpc.ventas.reportes.useQuery({ desde, hasta, sucursal: sucursal || undefined });
   const rentabilidad = trpc.ventas.rentabilidad.useQuery({ desde, hasta, sucursal: sucursal || undefined });
+  // Rentabilidad real por sucursal (anioMes derivado del rango)
+  const anioMesRango = desde.slice(0, 7);
+  const rentSucursal = trpc.ventas.rentabilidadPorSucursal.useQuery({ desde, hasta, anioMes: anioMesRango });
 
   function seleccionarPeriodo(p: "actual" | "anterior") {
     setPeriodo(p);
@@ -304,6 +307,56 @@ export default function Reportes() {
                     </div>
                   ))}
                 </div>
+              </Panel>
+            )}
+
+            {/* ─── Rentabilidad REAL por sucursal (¿cubre los gastos?) ─── */}
+            {(rentSucursal.data?.sucursales?.length ?? 0) > 0 && (
+              <Panel titulo="Rentabilidad real por sucursal" icon={<Coins className="h-4 w-4 text-emerald-600" />}>
+                <p className="text-[11px] text-muted-foreground mb-3">Ingresos − costo de productos − sueldos − gastos. Indica si cada sucursal cubre sus gastos.</p>
+                <div className="space-y-3">
+                  {rentSucursal.data!.sucursales.map((s: any, i: number) => {
+                    const maxAbs = Math.max(...rentSucursal.data!.sucursales.map((x: any) => Math.abs(x.ingreso)), 1);
+                    return (
+                      <div key={i} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-bold flex items-center gap-1.5">
+                            <Building2 className="h-3.5 w-3.5" /> {s.sucursal}
+                          </span>
+                          <span className={`text-xs font-black px-2 py-0.5 rounded-full ${s.cubreGastos ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40" : "bg-red-100 text-red-700 dark:bg-red-950/40"}`}>
+                            {s.cubreGastos ? "Rentable" : "En pérdida"}
+                          </span>
+                        </div>
+                        {/* Desglose */}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Ingresos</span><span className="font-semibold tabular-nums">Bs {fmtBs(s.ingreso)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">− Costo prod.</span><span className="tabular-nums">Bs {fmtBs(s.costo)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">− Sueldos</span><span className="tabular-nums">Bs {fmtBs(s.sueldos)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">− Gastos</span><span className="tabular-nums">Bs {fmtBs(s.gastos)}</span></div>
+                        </div>
+                        {/* Ganancia neta */}
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t">
+                          <span className="text-xs font-bold">Ganancia neta</span>
+                          <span className={`text-sm font-black tabular-nums ${s.netaAntesGenerales >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {s.netaAntesGenerales >= 0 ? "+" : ""}{fmtBs(s.netaAntesGenerales)} Bs
+                          </span>
+                        </div>
+                        {/* Barra visual: ganancia vs ingreso */}
+                        <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div className={`h-full rounded-full ${s.netaAntesGenerales >= 0 ? "bg-emerald-500" : "bg-red-500"}`}
+                            style={{ width: `${Math.min(100, Math.abs(s.netaAntesGenerales) / maxAbs * 100)}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {(rentSucursal.data?.gastosGenerales ?? 0) > 0 && (
+                  <div className="mt-3 flex items-center justify-between text-[11px] bg-amber-50 dark:bg-amber-950/20 rounded-lg px-3 py-2">
+                    <span className="text-muted-foreground">Gastos generales (sin sucursal asignada)</span>
+                    <span className="font-bold tabular-nums text-amber-700">Bs {fmtBs(rentSucursal.data!.gastosGenerales)}</span>
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-2">El costo de productos solo considera los que tienen costo conocido. Para mayor precisión, mantén actualizado el cache de productos.</p>
               </Panel>
             )}
           </>
