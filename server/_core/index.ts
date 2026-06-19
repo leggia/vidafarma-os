@@ -265,6 +265,35 @@ async function startServer() {
     }
   }, 8000);
 
+  // ─── Sincronización automática de ventas ───────────────────────────────────
+  // Mantiene los reportes al día sin intervención. Diseño SEGURO:
+  // - Nunca corre al arrancar (espera 2 min para no afectar el arranque)
+  // - Luego cada hora (cubre varios días acumulados gracias al límite de 60 páginas)
+  // - Si detecta hueco (demasiadas ventas), repite hasta cerrarlo
+  // - Todo en background, con try/catch; jamás bloquea el servidor
+  const sincronizarVentasAuto = async () => {
+    try {
+      const { sincronizarVentasIncremental } = await import("../sync-ventas");
+      let intentos = 0;
+      let huboHueco = true;
+      // Repetir mientras haya hueco (hasta 5 veces) para cerrar acumulaciones grandes
+      while (huboHueco && intentos < 5) {
+        const r = await sincronizarVentasIncremental();
+        huboHueco = !!r.huboHueco;
+        intentos++;
+        if (r.nuevas > 0) console.log(`[CronVentas] +${r.nuevas} ventas${huboHueco ? " (hay más, repitiendo)" : ""}`);
+        if (huboHueco) await new Promise((res) => setTimeout(res, 1500));
+      }
+    } catch (e) {
+      console.warn("[CronVentas] Error en sincronización automática:", e);
+    }
+  };
+  // Primera corrida 2 min tras arrancar; luego cada hora
+  setTimeout(() => {
+    sincronizarVentasAuto();
+    setInterval(sincronizarVentasAuto, 60 * 60 * 1000); // cada hora
+  }, 120000);
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // tRPC API

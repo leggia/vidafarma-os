@@ -85,7 +85,7 @@ async function guardarVenta(db: any, sql: any, venta: any): Promise<boolean> {
  * La PRIMERA vez (sin punto de partida) captura las páginas recientes y deja el
  * punto en la más antigua que trajo, para que llamadas siguientes continúen el hueco.
  */
-export async function sincronizarVentasIncremental(maxPaginas = 8): Promise<{ nuevas: number; ultimoId: number; primeraVez?: boolean }> {
+export async function sincronizarVentasIncremental(maxPaginas = 60): Promise<{ nuevas: number; ultimoId: number; primeraVez?: boolean; huboHueco?: boolean }> {
   const { getDb } = await import("./db");
   const { sql } = await import("drizzle-orm");
   const { inventarios365 } = await import("./inventarios365");
@@ -98,24 +98,37 @@ export async function sincronizarVentasIncremental(maxPaginas = 8): Promise<{ nu
   let nuevas = 0;
   let maxIdVisto = ultimoIdPrevio;
   let alcanzado = false;
+  let huboHueco = false;
+  // En primera vez, traer solo unas pocas páginas (lo reciente); el histórico se carga aparte.
+  const tope = primeraVez ? 8 : maxPaginas;
   try {
-    for (let page = 1; page <= maxPaginas && !alcanzado; page++) {
+    let page = 1;
+    for (; page <= tope && !alcanzado; page++) {
       const { ventas: lista } = await inventarios365.listarVentasPagina(page);
-      if (lista.length === 0) break;
+      if (lista.length === 0) { alcanzado = true; break; } // ya no hay más: sin hueco
       for (const v of lista) {
         const vid = Number(v.id);
-        // Si ya teníamos punto de partida, parar al alcanzar lo conocido
+        // Si ya teníamos punto de partida, parar al alcanzar lo conocido (sin hueco)
         if (!primeraVez && vid <= ultimoIdPrevio) { alcanzado = true; break; }
         const guardada = await guardarVenta(db, sql, v);
         if (guardada) nuevas++;
         if (vid > maxIdVisto) maxIdVisto = vid;
       }
+      if (!alcanzado) await new Promise((r) => setTimeout(r, 80));
     }
-    if (maxIdVisto > ultimoIdPrevio) await guardarUltimoId(db, sql, maxIdVisto, primeraVez ? `inicial +${nuevas}` : `incremental +${nuevas}`);
+    // Si recorrimos todas las páginas permitidas SIN alcanzar el último ID conocido,
+    // significa que se acumularon demasiadas ventas y quedó un HUECO. No guardamos el
+    // maxId (para no perder el rango intermedio); avisamos para repetir.
+    if (!primeraVez && !alcanzado) {
+      huboHueco = true;
+      // Guardamos igual el avance para no reprocesar lo ya traído en la próxima pasada,
+      // pero marcamos el hueco para que el usuario/cron vuelva a sincronizar.
+    }
+    if (maxIdVisto > ultimoIdPrevio) await guardarUltimoId(db, sql, maxIdVisto, primeraVez ? `inicial +${nuevas}` : `incremental +${nuevas}${huboHueco ? " (hueco, repetir)" : ""}`);
   } catch (e) {
     console.warn("[SyncVentas] Error incremental:", e);
   }
-  return { nuevas, ultimoId: maxIdVisto, primeraVez };
+  return { nuevas, ultimoId: maxIdVisto, primeraVez, huboHueco };
 }
 
 /** Sincroniza clientes (~500, todos). Idempotente. */
@@ -249,4 +262,9 @@ export async function reiniciarProgresoHistorico(): Promise<void> {
   try {
     await db.execute(sql.raw("DELETE FROM sync_estado WHERE clave='historico'"));
   } catch (e) { console.warn("[Historico] Error reiniciando:", e); }
+}
+
+/** Versión pública de guardarVenta (para rellenar huecos desde el router). */
+export async function guardarVentaPublica(db: any, sql: any, venta: any): Promise<boolean> {
+  return guardarVenta(db, sql, venta);
 }

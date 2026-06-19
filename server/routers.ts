@@ -1469,8 +1469,23 @@ const ventasRouter = router({
         }
       } catch { /* continuar */ }
     }
+    // Sincronizar repetidamente hasta cerrar huecos (varios días acumulados)
     const { sincronizarVentasIncremental } = await import("./sync-ventas");
-    return sincronizarVentasIncremental();
+    let totalNuevas = 0;
+    let ultimoId = 0;
+    let primeraVez = false;
+    let intentos = 0;
+    let huboHueco = true;
+    while (huboHueco && intentos < 8) {
+      const r = await sincronizarVentasIncremental();
+      totalNuevas += r.nuevas;
+      ultimoId = r.ultimoId;
+      primeraVez = !!r.primeraVez;
+      huboHueco = !!r.huboHueco;
+      intentos++;
+      if (huboHueco) await new Promise((res) => setTimeout(res, 800));
+    }
+    return { nuevas: totalNuevas, ultimoId, primeraVez, huboHueco };
   }),
 
   // Botón: sincronizar clientes
@@ -1478,6 +1493,48 @@ const ventasRouter = router({
     const { sincronizarClientes } = await import("./sync-ventas");
     return sincronizarClientes();
   }),
+
+  // Rellenar huecos: recorre las ventas recientes por FECHA y guarda las que falten
+  // (sin depender del ultimoId). Rescata días que quedaron sin sincronizar.
+  rellenarHuecos: publicProcedure
+    .input(z.object({ dias: z.number().optional() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const { inventarios365 } = await import("./inventarios365");
+      const { guardarVentaPublica } = await import("./sync-ventas");
+      const db = await getDb();
+      if (!db) return { rescatadas: 0 };
+
+      const diasAtras = input.dias || 7;
+      const limite = new Date();
+      limite.setDate(limite.getDate() - diasAtras);
+      const fechaLimite = limite.toISOString().slice(0, 10);
+
+      let rescatadas = 0;
+      try {
+        // Recorrer páginas recientes (hasta 80 = ~800 ventas, cubre varios días)
+        for (let page = 1; page <= 80; page++) {
+          const { ventas: lista } = await inventarios365.listarVentasPagina(page);
+          if (lista.length === 0) break;
+          let todasViejas = true;
+          for (const v of lista) {
+            const fecha = String(v.fecha_hora || "").slice(0, 10);
+            if (fecha >= fechaLimite) {
+              todasViejas = false;
+              const g = await guardarVentaPublica(db, sql, v);
+              if (g) rescatadas++;
+            }
+          }
+          // Si toda la página ya es más vieja que el límite, terminamos
+          if (todasViejas) break;
+          await new Promise((r) => setTimeout(r, 80));
+        }
+      } catch (e: any) {
+        return { rescatadas, error: e.message };
+      }
+      return { rescatadas };
+    }),
 
   // Carga histórica del mes anterior, POR LOTES (se llama repetidamente)
   cargarHistoricoLote: publicProcedure

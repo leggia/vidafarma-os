@@ -39,6 +39,15 @@ export default function Reportes() {
     setDesde(r.desde); setHasta(r.hasta);
   }
 
+  const rellenarHuecos = trpc.ventas.rellenarHuecos.useMutation({
+    onSuccess: (d: any) => {
+      if ((d?.rescatadas ?? 0) > 0) toast.success(`${d.rescatadas} ventas recuperadas de días faltantes`);
+      utils.ventas.estado.invalidate();
+      utils.ventas.reportes.invalidate();
+      utils.ventas.rentabilidad.invalidate();
+    },
+  });
+
   const sincronizar = trpc.ventas.sincronizar.useMutation({
     onSuccess: (d: any) => {
       if ((d?.nuevas ?? 0) > 0) toast.success(`${d.nuevas} ventas nuevas`);
@@ -46,6 +55,8 @@ export default function Reportes() {
       utils.ventas.estado.invalidate();
       utils.ventas.reportes.invalidate();
       utils.ventas.rentabilidad.invalidate();
+      // Tras sincronizar, rescatar cualquier día reciente que haya quedado sin traer
+      rellenarHuecos.mutate({ dias: 10 });
     },
     onError: (e) => toast.error(e.message),
   });
