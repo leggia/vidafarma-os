@@ -58,6 +58,8 @@ export async function crearTablasGastos(): Promise<void> {
     "ALTER TABLE gastos_fijos ADD COLUMN sucursal VARCHAR(150)",
     "ALTER TABLE gastos_registro ADD COLUMN sucursal VARCHAR(150)",
     "ALTER TABLE gastos_registro ADD INDEX idx_gastos_sucursal (sucursal)",
+    "ALTER TABLE gastos_fijos ADD COLUMN esVariable INT NOT NULL DEFAULT 0",
+    "ALTER TABLE gastos_registro ADD COLUMN esVariable INT NOT NULL DEFAULT 0",
   ];
   for (const m of migraciones) {
     try { await db.execute(sql.raw(m)); } catch { /* ya existe */ }

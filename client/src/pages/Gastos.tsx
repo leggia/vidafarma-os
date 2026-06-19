@@ -257,13 +257,17 @@ function ModalEditarGasto({ gasto, sucList, onClose, onGuardar, guardando }: any
 function GastoFila({ g, fmtBs, marcarPago, pedirEliminar, cambiarFecha, onEditar }: any) {
   const info = catInfo(g.categoria);
   const Icon = info.icon;
+  const variableSinMonto = g.esVariable && Number(g.monto) === 0;
   return (
-    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 transition ${g.pagado ? "bg-emerald-50 dark:bg-emerald-950/20" : "bg-muted/40"}`}>
+    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 transition ${variableSinMonto ? "bg-amber-50 dark:bg-amber-950/20 ring-1 ring-amber-200 dark:ring-amber-900" : g.pagado ? "bg-emerald-50 dark:bg-emerald-950/20" : "bg-muted/40"}`}>
       <Icon className={`h-4 w-4 shrink-0 ${info.color}`} />
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium truncate">{g.nombre}</p>
+        <p className="text-xs font-medium truncate flex items-center gap-1">
+          {g.nombre}
+          {g.esVariable ? <span className="text-[9px] px-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-950/40 font-semibold">VARIABLE</span> : null}
+        </p>
         <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-          {info.label}
+          {variableSinMonto ? <span className="text-amber-600 font-medium">Falta registrar el monto del mes</span> : info.label}
           {g.sucursal && <span className="inline-flex items-center gap-0.5"><Building2 className="h-2.5 w-2.5" />{g.sucursal}</span>}
         </p>
       </div>
@@ -305,10 +309,13 @@ function NuevoFijoForm({ sucList, sucursalActual, onClose }: { sucList: string[]
   const [categoria, setCategoria] = useState("servicios");
   const [monto, setMonto] = useState("");
   const [suc, setSuc] = useState(sucursalActual);
+  const [esVariable, setEsVariable] = useState(false);
   const crear = trpc.gastos.crearFijo.useMutation({
     onSuccess: () => { utils.gastos.delMes.invalidate(); toast.success("Gasto fijo creado"); onClose(); },
     onError: (e) => toast.error(e.message),
   });
+  // Para variables el monto es opcional (referencia). Para fijos, obligatorio.
+  const puedeCrear = nombre.trim() !== "" && (esVariable || monto !== "");
   return (
     <div className="rounded-lg border bg-muted/30 p-3 mb-3 space-y-2">
       <input placeholder="Nombre (ej. Alquiler local)" value={nombre} onChange={(e) => setNombre(e.target.value)}
@@ -317,14 +324,21 @@ function NuevoFijoForm({ sucList, sucursalActual, onClose }: { sucList: string[]
         <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="flex-1 min-w-[140px] text-xs rounded-md border px-2 py-1.5 bg-background">
           {CATEGORIAS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
-        <input type="number" placeholder="Monto Bs" value={monto} onChange={(e) => setMonto(e.target.value)}
-          className="w-24 text-xs rounded-md border px-2 py-1.5 bg-background" />
+        <input type="number" placeholder={esVariable ? "Estimado (opc.)" : "Monto Bs"} value={monto} onChange={(e) => setMonto(e.target.value)}
+          className="w-28 text-xs rounded-md border px-2 py-1.5 bg-background" />
       </div>
       <SucursalSelect sucList={sucList} value={suc} onChange={setSuc} />
+      <label className="flex items-start gap-2 text-xs cursor-pointer">
+        <input type="checkbox" checked={esVariable} onChange={(e) => setEsVariable(e.target.checked)} className="mt-0.5" />
+        <span>
+          <span className="font-medium">Monto variable cada mes</span>
+          <span className="block text-[10px] text-muted-foreground">Para luz, agua, teléfono. Aparece cada mes y registras el monto real al llegar la factura.</span>
+        </span>
+      </label>
       <div className="flex gap-2 justify-end">
         <button onClick={onClose} className="text-xs px-2 py-1 rounded-md hover:bg-muted">Cancelar</button>
-        <button onClick={() => nombre && monto && crear.mutate({ nombre, categoria, montoEstimado: parseFloat(monto), sucursal: suc || undefined })}
-          disabled={crear.isPending || !nombre || !monto}
+        <button onClick={() => puedeCrear && crear.mutate({ nombre, categoria, montoEstimado: parseFloat(monto) || 0, sucursal: suc || undefined, esVariable })}
+          disabled={crear.isPending || !puedeCrear}
           className="text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50">
           {crear.isPending ? "Guardando..." : "Crear"}
         </button>

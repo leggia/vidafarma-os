@@ -1728,7 +1728,7 @@ const gastosRouter = router({
 
   // Crear un gasto fijo (plantilla)
   crearFijo: publicProcedure
-    .input(z.object({ nombre: z.string(), categoria: z.string(), montoEstimado: z.number(), diaVencimiento: z.number().optional(), sucursal: z.string().optional() }))
+    .input(z.object({ nombre: z.string(), categoria: z.string(), montoEstimado: z.number(), diaVencimiento: z.number().optional(), sucursal: z.string().optional(), esVariable: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const { getDb } = await import("./db");
       const { sql } = await import("drizzle-orm");
@@ -1736,8 +1736,8 @@ const gastosRouter = router({
       if (!db) throw new Error("Sin BD");
       const esc = (v: any) => v == null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`;
       await db.execute(sql.raw(
-        `INSERT INTO gastos_fijos (nombre, categoria, montoEstimado, diaVencimiento, sucursal)
-         VALUES (${esc(input.nombre)}, ${esc(input.categoria)}, ${input.montoEstimado}, ${input.diaVencimiento ?? "NULL"}, ${esc(input.sucursal)})`
+        `INSERT INTO gastos_fijos (nombre, categoria, montoEstimado, diaVencimiento, sucursal, esVariable)
+         VALUES (${esc(input.nombre)}, ${esc(input.categoria)}, ${input.montoEstimado}, ${input.diaVencimiento ?? "NULL"}, ${esc(input.sucursal)}, ${input.esVariable ? 1 : 0})`
       ));
       return { success: true };
     }),
@@ -1772,9 +1772,11 @@ const gastosRouter = router({
         const idsExistentes = new Set(existentes.map((e: any) => e.gastoFijoId));
         for (const f of fijos) {
           if (!idsExistentes.has(f.id)) {
+            // Para gastos variables (luz, agua), el monto inicial es 0 (se ingresa al llegar la factura)
+            const montoInicial = f.esVariable ? 0 : (Number(f.montoEstimado) || 0);
             await db.execute(sql.raw(
-              `INSERT INTO gastos_registro (anioMes, gastoFijoId, nombre, categoria, monto, pagado, esOcasional, sucursal)
-               VALUES (${esc(input.anioMes)}, ${f.id}, ${esc(f.nombre)}, ${esc(f.categoria)}, ${Number(f.montoEstimado) || 0}, 0, 0, ${esc(f.sucursal)})`
+              `INSERT INTO gastos_registro (anioMes, gastoFijoId, nombre, categoria, monto, pagado, esOcasional, sucursal, esVariable)
+               VALUES (${esc(input.anioMes)}, ${f.id}, ${esc(f.nombre)}, ${esc(f.categoria)}, ${montoInicial}, 0, 0, ${esc(f.sucursal)}, ${f.esVariable ? 1 : 0})`
             ));
           }
         }
