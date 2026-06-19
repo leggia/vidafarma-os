@@ -128,7 +128,10 @@ export function calcularHoras(
   fechaApertura?: string,
   fechaCierre?: string,
 ): number {
-  if (!horaCierre) return 0;
+  // Si NO se cerró la caja:
+  // - Turno de 24h: asumir el cierre esperado 24h después (no se penaliza por olvido).
+  // - Otros: 0 horas (no se puede saber).
+  if (!horaCierre) return esTurno24 ? 24 : 0;
 
   // Método EXACTO: si tenemos ambas fechas, usar timestamps reales
   if (fechaApertura && fechaCierre) {

@@ -478,6 +478,7 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
   const [usuarioId, setUsuarioId] = useState(editando?.usuarioSistemaId || "");
   const [tipoTrabajador, setTipoTrabajador] = useState(editando?.tipoTrabajador || "fijo_mensual");
   const [horasMesFijas, setHorasMesFijas] = useState(editando?.horasMesFijas ?? 192);
+  const [diasPorTurno, setDiasPorTurno] = useState(editando?.diasPorTurno ?? 3);
   const [montoPorDia, setMontoPorDia] = useState(editando?.montoPorDia ? parseFloat(editando.montoPorDia) : 0);
   const [horaIngreso, setHoraIngreso] = useState(editando?.horaIngreso || "08:00");
   const [horaSalida, setHoraSalida] = useState(editando?.horaSalida && editando?.horaSalida !== "00:00" ? editando.horaSalida : "");
@@ -510,6 +511,7 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
       diasSemana: Array.from(diasSemana).sort().join(","),
       tipoTrabajador,
       horasMesFijas: Number(horasMesFijas),
+      diasPorTurno: Number(diasPorTurno),
       montoPorDia: Number(montoPorDia),
       horaSalida: horaSalida || "00:00",
       montoTurnoExtra: Number(montoTurnoExtra),
@@ -641,6 +643,15 @@ function FormTrabajador({ editando, usuariosSistema, onCancel, onSave, guardando
                 Base para el valor hora y el descuento por retraso. Ej: 192 (Lun-Sáb), o las que definas.
               </p>
             </div>
+            {tipoTrabajador === "fijo_turnos" && (
+              <div>
+                <Label className="text-xs">Días que equivale cada turno</Label>
+                <Input type="number" value={diasPorTurno} onChange={(e) => setDiasPorTurno(parseInt(e.target.value) || 1)} min="1" />
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Un turno de 24h equivale a varios días de trabajo. Ej: 3 (cubren 24h = 3 jornadas).
+                </p>
+              </div>
+            )}
           </>
         )}
 
