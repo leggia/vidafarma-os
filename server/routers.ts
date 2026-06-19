@@ -1631,6 +1631,35 @@ const ventasRouter = router({
     }),
 
   // Lista de sucursales disponibles (para el filtro)
+  // Diagnóstico temporal: ver qué gastos y sucursales hay (para depurar el reporte)
+  diagRentabilidad: publicProcedure
+    .input(z.object({ anioMes: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { error: "Sin BD" };
+      const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      try {
+        const gastosPorMes = rows(await db.execute(sql.raw(
+          `SELECT anioMes, sucursal, COUNT(*) as n, SUM(monto) as total FROM gastos_registro GROUP BY anioMes, sucursal ORDER BY anioMes DESC LIMIT 30`
+        )));
+        const sucursalesVentas = rows(await db.execute(sql.raw(
+          `SELECT DISTINCT nombreSucursal FROM ventas WHERE nombreSucursal IS NOT NULL`
+        )));
+        const trabajadoresInfo = rows(await db.execute(sql.raw(
+          `SELECT nombre, usuarioSistemaId, tipoTrabajador, activo FROM trabajadores WHERE activo=1`
+        )));
+        const vendedoresVentas = rows(await db.execute(sql.raw(
+          `SELECT DISTINCT vendedor, nombreSucursal FROM ventas WHERE vendedor IS NOT NULL LIMIT 30`
+        )));
+        return { gastosPorMes, sucursalesVentas, trabajadoresInfo, vendedoresVentas, anioMesConsultado: input.anioMes };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    }),
+
   sucursalesDisponibles: publicProcedure.query(async () => {
     const { getDb } = await import("./db");
     const { sql } = await import("drizzle-orm");
@@ -1646,7 +1675,7 @@ const ventasRouter = router({
   // Rentabilidad REAL por sucursal: ingresos − costo productos − sueldos − gastos.
   // Responde: ¿las ganancias de cada sucursal cubren sus gastos?
   rentabilidadPorSucursal: publicProcedure
-    .input(z.object({ desde: z.string(), hasta: z.string(), anioMes: z.string() }))
+    .input(z.object({ anioMes: z.string() }))
     .query(async ({ input }) => {
       const { getDb } = await import("./db");
       const { sql } = await import("drizzle-orm");
@@ -1654,8 +1683,13 @@ const ventasRouter = router({
       if (!db) return { sucursales: [] };
       const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
       const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
-      const rango = `fecha >= ${esc(input.desde)} AND fecha <= ${esc(input.hasta)}`;
-      const rangoD = `d.fecha >= ${esc(input.desde)} AND d.fecha <= ${esc(input.hasta)}`;
+      // El reporte es MENSUAL: calcular el rango del mes completo desde anioMes
+      const [anio, mes] = input.anioMes.split("-").map(Number);
+      const desde = `${input.anioMes}-01`;
+      const ultimoDia = new Date(anio, mes, 0).getDate(); // último día del mes
+      const hasta = `${input.anioMes}-${String(ultimoDia).padStart(2, "0")}`;
+      const rango = `fecha >= ${esc(desde)} AND fecha <= ${esc(hasta)}`;
+      const rangoD = `d.fecha >= ${esc(desde)} AND d.fecha <= ${esc(hasta)}`;
       const excl = ` AND d.articuloNombre NOT LIKE '%ventas menores%' AND d.articuloNombre NOT LIKE '%venta menor%'`;
 
       try {

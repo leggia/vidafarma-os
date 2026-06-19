@@ -31,9 +31,11 @@ export default function Reportes() {
   const sucursales = trpc.ventas.sucursalesDisponibles.useQuery();
   const reportes = trpc.ventas.reportes.useQuery({ desde, hasta, sucursal: sucursal || undefined });
   const rentabilidad = trpc.ventas.rentabilidad.useQuery({ desde, hasta, sucursal: sucursal || undefined });
-  // Rentabilidad real por sucursal (anioMes derivado del rango)
-  const anioMesRango = desde.slice(0, 7);
-  const rentSucursal = trpc.ventas.rentabilidadPorSucursal.useQuery({ desde, hasta, anioMes: anioMesRango });
+  // Rentabilidad real por sucursal: SIEMPRE mensual (sueldos, luz, alquiler son mensuales)
+  const [mesRentabilidad, setMesRentabilidad] = useState(() => {
+    const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const rentSucursal = trpc.ventas.rentabilidadPorSucursal.useQuery({ anioMes: mesRentabilidad });
 
   function seleccionarPeriodo(p: "actual" | "anterior") {
     setPeriodo(p);
@@ -313,7 +315,11 @@ export default function Reportes() {
             {/* ─── Rentabilidad REAL por sucursal (¿cubre los gastos?) ─── */}
             {(rentSucursal.data?.sucursales?.length ?? 0) > 0 && (
               <Panel titulo="Rentabilidad real por sucursal" icon={<Coins className="h-4 w-4 text-emerald-600" />}>
-                <p className="text-[11px] text-muted-foreground mb-3">Ingresos − costo de productos − sueldos − gastos. Indica si cada sucursal cubre sus gastos.</p>
+                <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                  <p className="text-[11px] text-muted-foreground">Ingresos − costo de productos − sueldos − gastos. Reporte <strong>mensual</strong>.</p>
+                  <input type="month" value={mesRentabilidad} onChange={(e) => setMesRentabilidad(e.target.value)}
+                    className="text-xs rounded-lg border bg-card px-2 py-1 shadow-sm font-medium" />
+                </div>
                 <div className="space-y-3">
                   {rentSucursal.data!.sucursales.map((s: any, i: number) => {
                     const maxAbs = Math.max(...rentSucursal.data!.sucursales.map((x: any) => Math.abs(x.ingreso)), 1);
