@@ -1129,20 +1129,26 @@ class Inventarios365Service {
         if (articulo && score >= threshold) {
           const precioCosto =
             item.precio ?? parseFloat(String(articulo.precio_costo_unid)) ?? 0;
+          const unidadXPaq = Number(articulo.unidad_envase ?? 1) || 1;
+          // El precio_paquete debe calcularse desde el NUEVO costo unitario
+          // (costo unitario × unidades por paquete), no tomar el valor viejo del sistema.
+          // Si no, cuando unidad_x_paquete > 1, el sistema no actualiza bien el costo.
+          const precioPaquete = precioCosto * unidadXPaq;
           arrayDetalle.push({
             idarticulo: articulo.id,
             idalmacen,
             codigo: articulo.codigo,
             articulo: articulo.nombre,
             precio: String(precioCosto.toFixed(4)),
-            precio_paquete: String((parseFloat(String(articulo.precio_costo_paq || 0)) || 0).toFixed(4)),
+            precio_paquete: String(precioPaquete.toFixed(4)),
             precio_venta: String((parseFloat(String(articulo.precio_uno || 0)) || 0).toFixed(4)),
-            unidad_x_paquete: articulo.unidad_envase ?? 1,
+            unidad_x_paquete: unidadXPaq,
             fecha_vencimiento: this.convertirFecha(item.fechaVencimiento),
             vencimiento: this.convertirFecha(item.fechaVencimiento),
             cantidad: item.cantidad,
           });
           console.log(`[Inventarios365] ✓ "${item.nombre}" → "${articulo.nombre}" (ID:${articulo.id}, score:${score.toFixed(2)})`);
+          console.log(`[Precio] "${articulo.nombre}": costo unitario=${precioCosto}, unidad_x_paquete=${unidadXPaq}, precio_paquete=${precioPaquete}, cantidad=${item.cantidad}, precio_costo_paq viejo=${articulo.precio_costo_paq}`);
           productosEmparejados.push({ nombreFactura: item.nombre, nombreSistema: articulo.nombre, id: articulo.id });
           // Recolectar para historial de precios
           historialParaGuardar.push({
