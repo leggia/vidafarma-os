@@ -369,13 +369,13 @@ export default function Reportes() {
                   <details className="mt-3 text-[10px]">
                     <summary className="cursor-pointer text-muted-foreground font-medium">🔍 Diagnóstico de sueldos (temporal)</summary>
                     <div className="mt-2 space-y-1 bg-muted/30 rounded-lg p-2 max-h-60 overflow-auto">
-                      {(rentSucursal.data as any).debugSueldos.map((d: any, i: number) => (
-                        <div key={i} className={`flex flex-wrap gap-x-2 ${d.pertenece ? "text-emerald-700" : "text-muted-foreground"}`}>
+                      {(rentSucursal.data as any).debugSueldos.filter((d: any) => d.pertenece).map((d: any, i: number) => (
+                        <div key={i} className="flex flex-wrap gap-x-2 text-emerald-700">
                           <span className="font-medium">{d.trabajador}</span>
-                          <span>→ reporte: "{d.sucursalReporte}"</span>
-                          <span>· sucFija: {d.sucursalFija ? `"${d.sucursalFija}"` : "(ninguna)"}</span>
-                          <span>· usuario: {d.usuarioSistemaId || "(ninguno)"}</span>
-                          <span className="font-bold">{d.pertenece ? "✓ cuenta" : "✗ no cuenta"}</span>
+                          <span>→ "{d.sucursalReporte}"</span>
+                          <span>· sueldoMensual: {d.sueldoMensual ?? "?"}</span>
+                          <span>· calculado: <strong>{d.sueldoCalc ?? "?"}</strong></span>
+                          <span>· {d.metodo || ""}</span>
                         </div>
                       ))}
                     </div>

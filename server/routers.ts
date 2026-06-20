@@ -1768,10 +1768,16 @@ const ventasRouter = router({
               : (trab.usuarioSistemaId && usuarios.has(trab.usuarioSistemaId));
             debugSueldos.push({ sucursalReporte: s, trabajador: trab.nombre, sucursalFija: sucFija, usuarioSistemaId: trab.usuarioSistemaId, pertenece: !!pertenece });
             if (!pertenece) continue;
+            let sueldoCalc = 0;
+            let metodoCalc = "";
             try {
               if (!trab.usuarioSistemaId) {
-                // Sin usuario de sistema: usar el sueldo mensual base directamente
-                sueldos += parseFloat(String(trab.sueldoMensual)) || 0;
+                sueldoCalc = parseFloat(String(trab.sueldoMensual)) || 0;
+                metodoCalc = "base (sin usuario)";
+                sueldos += sueldoCalc;
+                debugSueldos[debugSueldos.length - 1].sueldoCalc = sueldoCalc;
+                debugSueldos[debugSueldos.length - 1].sueldoMensual = trab.sueldoMensual;
+                debugSueldos[debugSueldos.length - 1].metodo = metodoCalc;
                 continue;
               }
               const aperturas = await inventarios365.aperturasCajaDelMes(trab.usuarioSistemaId, input.anioMes);
@@ -1788,10 +1794,17 @@ const ventasRouter = router({
                 sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
                 diasPorTurno: (trab as any).diasPorTurno ?? 3,
               } as any, input.anioMes);
-              sueldos += res.sueldoFinal;
-            } catch {
-              sueldos += parseFloat(String(trab.sueldoMensual)) || 0;
+              sueldoCalc = res.sueldoFinal;
+              metodoCalc = `calculado (${aperturas.length} aperturas)`;
+              sueldos += sueldoCalc;
+            } catch (e: any) {
+              sueldoCalc = parseFloat(String(trab.sueldoMensual)) || 0;
+              metodoCalc = "catch: " + (e?.message || "error");
+              sueldos += sueldoCalc;
             }
+            debugSueldos[debugSueldos.length - 1].sueldoCalc = sueldoCalc;
+            debugSueldos[debugSueldos.length - 1].sueldoMensual = trab.sueldoMensual;
+            debugSueldos[debugSueldos.length - 1].metodo = metodoCalc;
           }
           mapa[s].sueldos = sueldos;
         }
