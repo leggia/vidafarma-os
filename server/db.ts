@@ -155,31 +155,31 @@ export async function createPurchase(data: {
   const purchaseId = purchaseResult.insertId;
 
   if (data.items.length > 0) {
-    const valoresItems = data.items.map((item) => ({
-      purchaseId,
-      productName: item.productName,
-      nombreFactura: item.nombreFactura || item.productName,
-      quantity: item.quantity,
-      unitCost: String(item.unitCost),
-      subtotal: String(item.subtotal),
-      expiryDate: item.expiryDate || null,
-    }));
+    const { sql } = await import("drizzle-orm");
+    // Detectar si la columna nombreFactura existe realmente en la tabla
+    let tieneNombreFactura = true;
     try {
-      await db.insert(purchaseItems).values(valoresItems);
-    } catch (e: any) {
-      // Si falla por la columna nombreFactura (no existe en producción), reintentar
-      // sin ella para no perder la compra.
-      if (String(e?.message || "").toLowerCase().includes("nombrefactura") || String(e?.message || "").toLowerCase().includes("unknown column")) {
-        const { sql } = await import("drizzle-orm");
-        for (const it of valoresItems) {
-          const esc = (v: any) => v == null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`;
-          await db.execute(sql.raw(
-            `INSERT INTO purchase_items (purchaseId, productName, quantity, unitCost, subtotal, expiryDate)
-             VALUES (${it.purchaseId}, ${esc(it.productName)}, ${it.quantity}, ${esc(it.unitCost)}, ${esc(it.subtotal)}, ${esc(it.expiryDate)})`
-          ));
-        }
+      const r: any = await db.execute(sql.raw(
+        "SELECT COUNT(*) as n FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='purchase_items' AND COLUMN_NAME='nombreFactura'"
+      ));
+      const rows = Array.isArray(r) ? r[0] : r?.rows ?? r;
+      const n = Number((Array.isArray(rows) ? rows[0]?.n : rows?.n) ?? 0);
+      tieneNombreFactura = n > 0;
+    } catch { tieneNombreFactura = false; }
+
+    const esc = (v: any) => v == null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`;
+    for (const item of data.items) {
+      const nombreFactura = item.nombreFactura || item.productName;
+      if (tieneNombreFactura) {
+        await db.execute(sql.raw(
+          `INSERT INTO purchase_items (purchaseId, productName, nombreFactura, quantity, unitCost, subtotal, expiryDate)
+           VALUES (${purchaseId}, ${esc(item.productName)}, ${esc(nombreFactura)}, ${item.quantity}, ${esc(String(item.unitCost))}, ${esc(String(item.subtotal))}, ${esc(item.expiryDate || null)})`
+        ));
       } else {
-        throw e;
+        await db.execute(sql.raw(
+          `INSERT INTO purchase_items (purchaseId, productName, quantity, unitCost, subtotal, expiryDate)
+           VALUES (${purchaseId}, ${esc(item.productName)}, ${item.quantity}, ${esc(String(item.unitCost))}, ${esc(String(item.subtotal))}, ${esc(item.expiryDate || null)})`
+        ));
       }
     }
   }
