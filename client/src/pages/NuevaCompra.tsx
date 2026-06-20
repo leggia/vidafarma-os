@@ -307,6 +307,7 @@ export default function NuevaCompra() {
   const createPurchase = trpc.purchases.create.useMutation();
   const confirmarEmparejamiento = trpc.confirmaciones.confirmar.useMutation();
   const crearProductoMut = trpc.confirmaciones.crearProducto.useMutation();
+  const { data: categoriasLista } = trpc.confirmaciones.listarCategorias.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
   const buscarArticuloQuery = trpc.confirmaciones.buscarArticulo.useQuery;
 
   const handleFileSelect = useCallback(
@@ -1329,11 +1330,21 @@ export default function NuevaCompra() {
                               </div>
                             </div>
                             <div>
-                              <label className="text-[11px] text-muted-foreground">Categoría sugerida</label>
-                              <p className="text-xs font-medium bg-white dark:bg-gray-900 rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700">
-                                {nuevoProducto.categoriaNombre}
-                                {nuevoProducto.idcategoria && <span className="text-muted-foreground"> (ID: {nuevoProducto.idcategoria})</span>}
-                              </p>
+                              <label className="text-[11px] text-muted-foreground">Categoría (revisa que sea correcta)</label>
+                              <select
+                                value={nuevoProducto.idcategoria ?? ""}
+                                onChange={(e) => {
+                                  const id = parseInt(e.target.value) || null;
+                                  const cat = (categoriasLista || []).find((c: any) => c.id === id);
+                                  setNuevoProducto(prev => ({ ...prev, idcategoria: id, categoriaNombre: cat?.nombre || "" }));
+                                }}
+                                className="w-full h-8 text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2">
+                                <option value="">{nuevoProducto.categoriaNombre === "Sugiriendo..." ? "Sugiriendo..." : "Selecciona una categoría"}</option>
+                                {(categoriasLista || []).map((c: any) => (
+                                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                                ))}
+                              </select>
+                              {nuevoProducto.idcategoria && <p className="text-[10px] text-muted-foreground mt-0.5">Sugerida: {nuevoProducto.categoriaNombre}. Puedes cambiarla si no es correcta.</p>}
                             </div>
                             {/* Proveedor del producto (preseleccionado el de la factura, editable) */}
                             <div>
@@ -1415,8 +1426,12 @@ export default function NuevaCompra() {
                                       });
                                       // Actualizar el nombre del item al nombre final del producto
                                       updateItem(idx, "productName", nombreFinal);
+                                      // Setear el precio de venta del producto recién creado para que
+                                      // aparezca editable (igual que un producto existente emparejado)
+                                      updateItem(idx, "precioVentaSistema", nuevoProducto.precioVenta);
+                                      updateItem(idx, "nuevoPrecioVenta", nuevoProducto.precioVenta);
                                       setProductosEmparejados(prev => ({ ...prev, [nombreFinal]: nombreFactura }));
-                                      toast.success(`✅ Producto "${nombreFinal}" creado y emparejado.`, { duration: 5000 });
+                                      toast.success(`✅ Producto "${nombreFinal}" creado y emparejado. Puedes ajustar su precio de venta.`, { duration: 5000 });
                                       setFilaCreando(null);
                                       setFilaEmparejando(null);
                                       setProvNuevoProducto("");

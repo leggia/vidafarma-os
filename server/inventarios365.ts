@@ -509,6 +509,34 @@ class Inventarios365Service {
   }
 
   /**
+   * Actualizar el precio de COSTO de un artículo tras una compra.
+   * El endpoint /ingreso/registrar sube stock pero no siempre refresca el costo
+   * en la ficha del producto, así que lo actualizamos explícitamente.
+   */
+  async actualizarPrecioCosto(idarticulo: number, costoUnitario: number, unidadEnvase = 1): Promise<boolean> {
+    const costoPaquete = costoUnitario * (unidadEnvase || 1);
+    const intentos = [
+      { url: "/articulo/actualizarPrecioCosto", body: { id: idarticulo, precio_costo_unid: costoUnitario, precio_costo_paq: costoPaquete } },
+      { url: "/articulo/actualizarCosto", body: { id: idarticulo, precio_costo_unid: costoUnitario, precio_costo_paq: costoPaquete } },
+      { url: "/articulo/actualizar", body: { id: idarticulo, precio_costo_unid: costoUnitario, precio_costo_paq: costoPaquete } },
+    ];
+    for (const intento of intentos) {
+      try {
+        const respData = await this.post<any>(intento.url, intento.body);
+        const txt = JSON.stringify(respData || {}).toLowerCase();
+        if (respData && !txt.includes("error") && !txt.includes("not found") && !txt.includes("404")) {
+          console.log(`[Inventarios365] Costo actualizado vía ${intento.url}: artículo ${idarticulo} → ${costoUnitario} Bs (paq ${costoPaquete})`);
+          return true;
+        }
+      } catch (error: any) {
+        console.warn(`[Inventarios365] ${intento.url} no funcionó:`, error?.message);
+      }
+    }
+    console.warn(`[Inventarios365] No se pudo actualizar el costo del artículo ${idarticulo}`);
+    return false;
+  }
+
+  /**
    * Actualizar el precio de venta de un producto.
    * Endpoint: POST /articulo/actualizarPrecioVenta con { id, precio_uno }
    */
@@ -1113,6 +1141,7 @@ class Inventarios365Service {
       const productosNoEncontrados: { nombre: string; nombreLimpio?: string; cantidad: number; precio?: number; sugerencia?: any }[] = [];
       const productosEmparejados: { nombreFactura: string; nombreSistema: string; id: number }[] = [];
       const preciosActualizar: { id: number; precio: number; nombre: string }[] = [];
+      const costosActualizar: { id: number; costo: number; nombre: string; unidadEnvase: number }[] = [];
       const historialParaGuardar: Array<{ articuloId: number; articuloNombre: string; proveedor?: string; costoUnitario: number; precioVenta?: number; numComprobante?: string }> = [];
 
       for (const item of params.items) {
@@ -1162,6 +1191,12 @@ class Inventarios365Service {
           // Si el usuario definió un nuevo precio de venta distinto, marcarlo para actualizar
           if (item.nuevoPrecioVenta != null && item.nuevoPrecioVenta > 0) {
             preciosActualizar.push({ id: articulo.id, precio: item.nuevoPrecioVenta, nombre: articulo.nombre });
+          }
+          // Si el costo de la factura difiere del costo actual en el sistema, actualizarlo.
+          // (El endpoint de ingreso no siempre refresca el costo en la ficha del producto.)
+          const costoSistema = parseFloat(String(articulo.precio_costo_unid || 0)) || 0;
+          if (item.precio != null && item.precio > 0 && Math.abs(item.precio - costoSistema) > 0.001) {
+            costosActualizar.push({ id: articulo.id, costo: item.precio, nombre: articulo.nombre, unidadEnvase: unidadXPaq });
           }
         } else {
           // Score bajo o no encontrado — agregar a panel de confirmación
@@ -1263,6 +1298,18 @@ class Inventarios365Service {
             await this.actualizarPrecioVenta(p.id, p.precio);
           } catch (e: any) {
             console.warn(`[Inventarios365] No se pudo actualizar precio de "${p.nombre}":`, e?.message);
+          }
+        }
+      }
+
+      // Paso 3b: Actualizar precios de COSTO que cambiaron con la compra
+      if (costosActualizar.length > 0) {
+        console.log(`[Inventarios365] PASO 3b: Actualizando ${costosActualizar.length} precio(s) de costo`);
+        for (const c of costosActualizar) {
+          try {
+            await this.actualizarPrecioCosto(c.id, c.costo, c.unidadEnvase);
+          } catch (e: any) {
+            console.warn(`[Inventarios365] No se pudo actualizar costo de "${c.nombre}":`, e?.message);
           }
         }
       }
