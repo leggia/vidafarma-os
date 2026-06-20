@@ -1170,9 +1170,12 @@ const asistenciaRouter = router({
     .mutation(async ({ input }) => {
       const { getDb } = await import("./db");
       const { trabajadores } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
+      const { eq, sql } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new Error("Sin base de datos");
+      // Garantizar que la columna sucursalFija exista (idempotente). Evita que el
+      // guardado falle o ignore el campo si la migración en background no corrió.
+      try { await db.execute(sql.raw("ALTER TABLE trabajadores ADD COLUMN sucursalFija VARCHAR(150)")); } catch { /* ya existe */ }
       const valores = {
         nombre: input.nombre,
         usuarioSistemaId: input.usuarioSistemaId || null,
@@ -1653,10 +1656,14 @@ const ventasRouter = router({
         const trabajadoresInfo = rows(await db.execute(sql.raw(
           `SELECT nombre, usuarioSistemaId, sucursalFija, tipoTrabajador, sueldoMensual, activo FROM trabajadores WHERE activo=1`
         )));
+        // Verificar qué columnas existen realmente en la tabla trabajadores
+        const columnas = rows(await db.execute(sql.raw(
+          `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='trabajadores'`
+        )));
         const vendedoresVentas = rows(await db.execute(sql.raw(
           `SELECT DISTINCT vendedor, nombreSucursal FROM ventas WHERE vendedor IS NOT NULL LIMIT 30`
         )));
-        return { gastosPorMes, sucursalesVentas, trabajadoresInfo, vendedoresVentas, anioMesConsultado: input.anioMes };
+        return { gastosPorMes, sucursalesVentas, trabajadoresInfo, vendedoresVentas, columnasTrabajadores: columnas, anioMesConsultado: input.anioMes };
       } catch (e: any) {
         return { error: e.message };
       }
