@@ -1770,38 +1770,42 @@ const ventasRouter = router({
             if (!pertenece) continue;
             let sueldoCalc = 0;
             let metodoCalc = "";
+            const sueldoMensualNum = parseFloat(String(trab.sueldoMensual)) || 0;
+            const esTipoFijo = (trab.tipoTrabajador || "fijo_mensual") === "fijo_mensual" || trab.tipoTrabajador === "fijo_turnos" || trab.tipoTrabajador === "fijo_horas";
             try {
               if (!trab.usuarioSistemaId) {
-                sueldoCalc = parseFloat(String(trab.sueldoMensual)) || 0;
+                // Sin usuario de sistema: usar el sueldo mensual base directamente
+                sueldoCalc = sueldoMensualNum;
                 metodoCalc = "base (sin usuario)";
-                sueldos += sueldoCalc;
-                debugSueldos[debugSueldos.length - 1].sueldoCalc = sueldoCalc;
-                debugSueldos[debugSueldos.length - 1].sueldoMensual = trab.sueldoMensual;
-                debugSueldos[debugSueldos.length - 1].metodo = metodoCalc;
-                continue;
+              } else {
+                const aperturas = await inventarios365.aperturasCajaDelMes(trab.usuarioSistemaId, input.anioMes);
+                const res = calcularResumenMensual(aperturas, {
+                  tipoTrabajador: (trab.tipoTrabajador || "fijo_mensual") as any,
+                  horaIngreso: trab.horaIngreso,
+                  horaSalida: trab.horaSalida && trab.horaSalida !== "00:00" ? trab.horaSalida : undefined,
+                  horasDia: parseFloat(String(trab.horasDia)) || 8,
+                  diasSemana: trab.diasSemana, diasMes: trab.diasMes,
+                  horasMesFijas: trab.horasMesFijas,
+                  montoPorDia: parseFloat(String(trab.montoPorDia)) || 0,
+                  montoTurnoExtra: parseFloat(String(trab.montoTurnoExtra)) || 0,
+                  toleranciaSalidaMin: trab.toleranciaSalidaMin,
+                  sueldoMensual: sueldoMensualNum,
+                  diasPorTurno: (trab as any).diasPorTurno ?? 3,
+                } as any, input.anioMes);
+                sueldoCalc = res.sueldoFinal;
+                metodoCalc = `calculado (${aperturas.length} aperturas)`;
+                // Si es tipo fijo y el cálculo dio 0 pero hay sueldo configurado,
+                // usar el sueldo mensual (el sueldo fijo no debe depender de aperturas)
+                if (esTipoFijo && sueldoCalc === 0 && sueldoMensualNum > 0) {
+                  sueldoCalc = sueldoMensualNum;
+                  metodoCalc = `fijo base (calc dio 0, ${aperturas.length} aperturas)`;
+                }
               }
-              const aperturas = await inventarios365.aperturasCajaDelMes(trab.usuarioSistemaId, input.anioMes);
-              const res = calcularResumenMensual(aperturas, {
-                tipoTrabajador: (trab.tipoTrabajador || "fijo_mensual") as any,
-                horaIngreso: trab.horaIngreso,
-                horaSalida: trab.horaSalida && trab.horaSalida !== "00:00" ? trab.horaSalida : undefined,
-                horasDia: parseFloat(String(trab.horasDia)) || 8,
-                diasSemana: trab.diasSemana, diasMes: trab.diasMes,
-                horasMesFijas: trab.horasMesFijas,
-                montoPorDia: parseFloat(String(trab.montoPorDia)) || 0,
-                montoTurnoExtra: parseFloat(String(trab.montoTurnoExtra)) || 0,
-                toleranciaSalidaMin: trab.toleranciaSalidaMin,
-                sueldoMensual: parseFloat(String(trab.sueldoMensual)) || 0,
-                diasPorTurno: (trab as any).diasPorTurno ?? 3,
-              } as any, input.anioMes);
-              sueldoCalc = res.sueldoFinal;
-              metodoCalc = `calculado (${aperturas.length} aperturas)`;
-              sueldos += sueldoCalc;
             } catch (e: any) {
-              sueldoCalc = parseFloat(String(trab.sueldoMensual)) || 0;
+              sueldoCalc = sueldoMensualNum;
               metodoCalc = "catch: " + (e?.message || "error");
-              sueldos += sueldoCalc;
             }
+            sueldos += sueldoCalc;
             debugSueldos[debugSueldos.length - 1].sueldoCalc = sueldoCalc;
             debugSueldos[debugSueldos.length - 1].sueldoMensual = trab.sueldoMensual;
             debugSueldos[debugSueldos.length - 1].metodo = metodoCalc;
