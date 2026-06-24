@@ -39,6 +39,11 @@ export default function Reportes() {
     { anioMes: mesRentabilidad },
     { placeholderData: (prev) => prev }
   );
+  // Compras realizadas del mes (usa el mismo selector de mes que la rentabilidad)
+  const comprasMes = trpc.ventas.comprasDelMes.useQuery(
+    { anioMes: mesRentabilidad },
+    { placeholderData: (prev) => prev }
+  );
 
   function seleccionarPeriodo(p: "actual" | "anterior") {
     setPeriodo(p);
@@ -390,6 +395,48 @@ export default function Reportes() {
                   </div>
                 )}
                 <p className="text-[10px] text-muted-foreground mt-2">El costo de productos solo considera los que tienen costo conocido. Para mayor precisión, mantén actualizado el cache de productos.</p>
+              </Panel>
+            )}
+
+            {/* ─── Compras realizadas del mes ─── */}
+            {(comprasMes.data?.cantidad ?? 0) > 0 && (
+              <Panel titulo="Compras realizadas del mes" icon={<ShoppingCart className="h-4 w-4 text-blue-600" />}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] text-muted-foreground">{comprasMes.data!.cantidad} compra{comprasMes.data!.cantidad !== 1 ? "s" : ""} registrada{comprasMes.data!.cantidad !== 1 ? "s" : ""}</p>
+                  <span className="text-sm font-black tabular-nums text-blue-700">Total: Bs {fmtBs(comprasMes.data!.total)}</span>
+                </div>
+
+                {/* Por proveedor */}
+                {(comprasMes.data?.proveedores?.length ?? 0) > 0 && (
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Por proveedor</p>
+                    <div className="space-y-1">
+                      {comprasMes.data!.proveedores.slice(0, 6).map((pr: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-xs">
+                          <span className="truncate">{pr.nombre}</span>
+                          <span className="font-semibold tabular-nums shrink-0">Bs {fmtBs(pr.monto)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Lista de compras */}
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Detalle</p>
+                <div className="space-y-1 max-h-64 overflow-auto">
+                  {comprasMes.data!.compras.map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 text-xs bg-muted/30 rounded-md px-2.5 py-1.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{c.receiptNumber || `Compra #${c.id}`}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          {c.supplier || "Sin proveedor"}{c.branchName ? ` · ${c.branchName}` : ""} · {new Date(c.createdAt).toLocaleDateString("es-BO")}
+                        </p>
+                      </div>
+                      <span className="font-bold tabular-nums shrink-0">Bs {fmtBs(c.totalAmount)}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-2">Compras registradas y sincronizadas en este mes. El total es lo invertido en inventario.</p>
               </Panel>
             )}
           </>

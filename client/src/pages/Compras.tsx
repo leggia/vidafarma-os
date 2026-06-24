@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, CheckCircle2, Image as ImageIcon, Loader2,
-  RefreshCw, AlertCircle, ExternalLink, Package, Zap, Trash2, Pencil
+  RefreshCw, AlertCircle, ExternalLink, Package, Zap, Trash2, Pencil,
+  Eye, ChevronDown, ChevronUp, Calendar
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -16,6 +17,7 @@ export default function Compras() {
   const { data: purchases, isLoading } = trpc.purchases.list.useQuery();
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
+  const [expandidaId, setExpandidaId] = useState<number | null>(null);
 
   const confirmMutation = trpc.purchases.confirm.useMutation({
     onSuccess: (data, variables) => {
@@ -270,6 +272,18 @@ export default function Compras() {
                       </a>
                     )}
 
+                    {/* Ver detalle de la compra */}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setExpandidaId(expandidaId === p.id ? null : p.id)}
+                      className="gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      title="Ver detalle de productos"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      {expandidaId === p.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </Button>
+
                     {/* Eliminar de la lista */}
                     <Button
                       size="sm"
@@ -283,6 +297,9 @@ export default function Compras() {
                     </Button>
                   </div>
                 </div>
+
+                {/* Detalle expandible de la compra */}
+                {expandidaId === p.id && <DetalleCompra purchaseId={p.id} />}
               </CardContent>
             </Card>
           ))}
@@ -327,5 +344,58 @@ function StatusBadge({ status, syncError }: { status: string; syncError?: string
     <Badge variant="outline" className={`text-xs uppercase tracking-wider font-medium ${c.className}`}>
       {c.label}
     </Badge>
+  );
+}
+
+function DetalleCompra({ purchaseId }: { purchaseId: number }) {
+  const { data, isLoading } = trpc.purchases.getById.useQuery({ id: purchaseId });
+
+  if (isLoading) {
+    return (
+      <div className="mt-3 pt-3 border-t flex items-center justify-center py-3">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!data || !data.items || data.items.length === 0) {
+    return (
+      <div className="mt-3 pt-3 border-t text-xs text-muted-foreground text-center py-2">
+        No hay detalle de productos para esta compra.
+      </div>
+    );
+  }
+
+  const fmt = (n: any) => Number(n || 0).toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalCalc = data.items.reduce((s: number, it: any) => s + Number(it.subtotal || 0), 0);
+
+  return (
+    <div className="mt-3 pt-3 border-t">
+      <p className="text-[11px] font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
+        Detalle ({data.items.length} producto{data.items.length !== 1 ? "s" : ""})
+      </p>
+      <div className="space-y-1.5">
+        {data.items.map((it: any, i: number) => (
+          <div key={i} className="flex items-center gap-2 text-xs bg-muted/30 rounded-md px-2.5 py-1.5">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium truncate">{it.productName}</p>
+              {it.expiryDate && (
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Calendar className="h-2.5 w-2.5" />
+                  Vence: {new Date(it.expiryDate).toLocaleDateString("es-BO")}
+                </p>
+              )}
+            </div>
+            <div className="text-right shrink-0">
+              <p className="tabular-nums">{fmt(it.quantity)} × {fmt(it.unitCost)} Bs</p>
+              <p className="font-bold tabular-nums">{fmt(it.subtotal)} Bs</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between items-center mt-2 pt-2 border-t text-xs">
+        <span className="font-semibold">Total</span>
+        <span className="font-black tabular-nums">{fmt(totalCalc)} Bs</span>
+      </div>
+    </div>
   );
 }

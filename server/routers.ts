@@ -1664,6 +1664,44 @@ const ventasRouter = router({
 
   // Rentabilidad REAL por sucursal: ingresos − costo productos − sueldos − gastos.
   // Responde: ¿las ganancias de cada sucursal cubren sus gastos?
+  // Resumen de compras realizadas en un mes (para el reporte)
+  comprasDelMes: publicProcedure
+    .input(z.object({ anioMes: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { compras: [], total: 0, cantidad: 0 };
+      const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+      const esc = (v: string) => `'${String(v).replace(/'/g, "''")}'`;
+      const [anio, mes] = input.anioMes.split("-").map(Number);
+      const desde = `${input.anioMes}-01 00:00:00`;
+      const ultimoDia = new Date(anio, mes, 0).getDate();
+      const hasta = `${input.anioMes}-${String(ultimoDia).padStart(2, "0")} 23:59:59`;
+      try {
+        // Compras completadas del mes (por fecha de creación), con nombre de sucursal
+        const compras = rows(await db.execute(sql.raw(
+          `SELECT p.id, p.receiptNumber, p.supplier, p.totalAmount, p.createdAt, p.status, b.name as branchName
+           FROM purchases p LEFT JOIN branches b ON b.id = p.branchId
+           WHERE p.status='completed' AND p.createdAt >= ${esc(desde)} AND p.createdAt <= ${esc(hasta)}
+           ORDER BY p.createdAt DESC`
+        )));
+        const total = compras.reduce((s: number, c: any) => s + Number(c.totalAmount || 0), 0);
+        // Total por proveedor
+        const porProveedor: Record<string, number> = {};
+        for (const c of compras) {
+          const prov = c.supplier || "Sin proveedor";
+          porProveedor[prov] = (porProveedor[prov] || 0) + Number(c.totalAmount || 0);
+        }
+        const proveedores = Object.entries(porProveedor)
+          .map(([nombre, monto]) => ({ nombre, monto }))
+          .sort((a, b) => b.monto - a.monto);
+        return { compras, total, cantidad: compras.length, proveedores };
+      } catch (e: any) {
+        return { compras: [], total: 0, cantidad: 0, proveedores: [], error: e.message };
+      }
+    }),
+
   rentabilidadPorSucursal: publicProcedure
     .input(z.object({ anioMes: z.string(), forzar: z.boolean().optional() }))
     .query(async ({ input }) => {
