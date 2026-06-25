@@ -80,7 +80,9 @@ export default function Inventario() {
     return cacheProductos
       .filter(p => !yaAgregados.has(p.id))
       .filter(p => {
-        const texto = `${p.nombre} ${p.codigo || ""}`.toLowerCase();
+        // Buscar en nombre, código Y proveedor (como en el módulo de Compras).
+        // Permite escribir "fluco sanat" para filtrar por producto + proveedor.
+        const texto = `${p.nombre} ${p.codigo || ""} ${p.nombreProveedor || ""}`.toLowerCase();
         // cada palabra escrita debe aparecer en el texto (coincidencia parcial)
         return palabras.every(w => texto.includes(w));
       })
@@ -188,8 +190,12 @@ export default function Inventario() {
   const itemsFiltrados = useMemo(() => {
     let r = items;
     if (busqueda) {
-      const b = busqueda.toLowerCase();
-      r = r.filter(i => i.nombre.toLowerCase().includes(b) || i.codigo.toLowerCase().includes(b));
+      // Permitir varias palabras en cualquier orden (igual que el módulo de Compras)
+      const palabras = busqueda.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      r = r.filter(i => {
+        const texto = `${i.nombre} ${i.codigo || ""} ${(i as any).nombreProveedor || ""}`.toLowerCase();
+        return palabras.every(w => texto.includes(w));
+      });
     }
     if (filtroClase) r = r.filter(i => i.clase === filtroClase);
     if (soloDiferencias) r = r.filter(i => i.fisico !== null && i.fisico !== i.stock);
@@ -619,7 +625,7 @@ export default function Inventario() {
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative flex-1 min-w-[140px]">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar lista..." className="h-8 text-xs pl-7" />
+                <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar por nombre, código o proveedor..." className="h-8 text-xs pl-7" />
               </div>
               {["A", "B", "C"].map(c => (
                 <button key={c} onClick={() => setFiltroClase(filtroClase === c ? null : c)} className={`text-[11px] px-2.5 py-1 rounded font-bold ${claseColor(c)} ${filtroClase === c ? "ring-2 ring-offset-1 ring-current" : ""}`}>
@@ -646,7 +652,7 @@ export default function Inventario() {
                 <Input
                   value={busquedaPuntual}
                   onChange={(e) => setBusquedaPuntual(e.target.value)}
-                  placeholder="Escribe nombre o código (ej: amox delt)..."
+                  placeholder="Nombre, código o proveedor (ej: amox bago)..."
                   className="h-9 pl-8"
                   autoFocus
                 />
