@@ -937,8 +937,8 @@ const confirmacionesRouter = router({
         if (prov) idproveedor = prov.id;
       }
 
-      // Generar código si no se da (timestamp corto)
-      const codigo = input.codigo || `AUTO${Date.now().toString().slice(-8)}`;
+      // Generar código si no se da: letra "A" + número (timestamp corto)
+      const codigo = input.codigo || `A${Date.now().toString().slice(-8)}`;
 
       return inventarios365.crearProducto({
         nombre: input.nombre,
