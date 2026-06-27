@@ -450,8 +450,22 @@ export const asistenteTools = {
   // 13. Rentabilidad por sucursal COMPLETA (ingresos, costo, sueldos por
   // asistencia, gastos, ganancia neta). Mismos números que el reporte.
   async rentabilidadSucursales(periodo: string) {
-    const { desde } = rangoFechas(periodo || "mes");
-    const anioMes = desde.slice(0, 7);
+    // Por defecto: ÚLTIMO MES CONCLUIDO (no el actual, que daría números parciales).
+    // Si el usuario pide un mes específico (YYYY-MM) o "mes anterior", se respeta.
+    let anioMes: string;
+    const p = (periodo || "").toLowerCase();
+    const matchMes = p.match(/(\d{4})-(\d{2})/);
+    if (matchMes) {
+      anioMes = `${matchMes[1]}-${matchMes[2]}`;
+    } else if (p.includes("este mes") || p.includes("mes actual") || p.includes("actual")) {
+      // Si explícitamente pide el mes en curso, se lo damos (parcial)
+      anioMes = new Date().toISOString().slice(0, 7);
+    } else {
+      // Default y "mes pasado/anterior": último mes concluido
+      const hoy = new Date();
+      const ant = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+      anioMes = ant.toISOString().slice(0, 7);
+    }
     const { calcularRentabilidadPorSucursal } = await import("./rentabilidad");
     const r = await calcularRentabilidadPorSucursal(anioMes);
     if (r.error) return { error: r.error };
@@ -470,7 +484,8 @@ export const asistenteTools = {
         cubreGastos: s.cubreGastos,
       })),
       gastosGenerales: `Bs ${fmtBs(r.gastosGenerales)}`,
-      nota: r.nota,
+      gastosNoCancelados: r.gastosNoCancelados,
+      nota: r.nota + " (Mes concluido por defecto.)",
     };
   },
 };

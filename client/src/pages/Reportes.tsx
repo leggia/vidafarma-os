@@ -391,6 +391,19 @@ export default function Reportes() {
                     <span className="font-bold tabular-nums text-amber-700">Bs {fmtBs(rentSucursal.data!.gastosGenerales)}</span>
                   </div>
                 )}
+                {(rentSucursal.data?.gastosNoCancelados?.length ?? 0) > 0 && (
+                  <div className="mt-3 bg-red-50 dark:bg-red-950/20 rounded-lg px-3 py-2">
+                    <p className="text-[11px] font-semibold text-red-700 dark:text-red-400 mb-1">⚠ Gastos NO cancelados este mes</p>
+                    <div className="space-y-1">
+                      {rentSucursal.data!.gastosNoCancelados!.map((g: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-[11px]">
+                          <span className="text-muted-foreground">{g.nombre} <span className="opacity-60">({g.sucursal})</span></span>
+                          <span className="font-bold tabular-nums text-red-700 dark:text-red-400">Bs {fmtBs(g.monto)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-2">El costo de productos solo considera los que tienen costo conocido. Para mayor precisión, mantén actualizado el cache de productos.</p>
               </Panel>
             )}

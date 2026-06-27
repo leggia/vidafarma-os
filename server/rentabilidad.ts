@@ -19,6 +19,7 @@ export type RentabilidadSucursal = {
 export type RentabilidadResultado = {
   sucursales: RentabilidadSucursal[];
   gastosGenerales: number;
+  gastosNoCancelados?: Array<{ nombre: string; categoria: string; monto: number; sucursal: string }>;
   nota: string;
   error?: string;
 };
@@ -58,6 +59,19 @@ export async function calcularRentabilidadPorSucursal(anioMes: string): Promise<
       `SELECT SUM(monto) as total FROM gastos_registro
        WHERE anioMes=${esc(anioMes)} AND (sucursal IS NULL OR sucursal='')`
     )))[0]?.total || 0;
+
+    // Gastos NO cancelados (pagado=0) del mes, con su sucursal (o general)
+    const noCancelados = rows(await db.execute(sql.raw(
+      `SELECT nombre, categoria, monto, sucursal FROM gastos_registro
+       WHERE anioMes=${esc(anioMes)} AND pagado=0
+       ORDER BY sucursal, monto DESC`
+    )));
+    const gastosNoCancelados = noCancelados.map((g: any) => ({
+      nombre: g.nombre,
+      categoria: g.categoria,
+      monto: Number(g.monto) || 0,
+      sucursal: g.sucursal || "general",
+    }));
 
     const mapa: Record<string, any> = {};
     for (const i of ingresos) {
@@ -143,6 +157,7 @@ export async function calcularRentabilidadPorSucursal(anioMes: string): Promise<
     return {
       sucursales: resultado,
       gastosGenerales: Number(gastosGenerales) || 0,
+      gastosNoCancelados,
       nota: "Ganancia neta por sucursal = ingresos - costo de productos - sueldos (por asistencia) - gastos de la sucursal. Los gastos generales sin sucursal se muestran aparte.",
     };
   } catch (err: any) {
