@@ -2365,7 +2365,11 @@ const asistenteRouter = router({
 
       // PREFIJO ESTABLE (para caché de contexto de DeepSeek): system + tools
       // SIEMPRE idénticos y al inicio. El contenido variable (pregunta) va al final.
-      const systemPrompt = `Asistente de VidaFarma (farmacia, Cochabamba, Bolivia). Responde en español, breve y profesional. NUNCA inventes datos ni nombres de funciones: si no tienes una herramienta o no hay datos, di "No tengo esa información disponible". Para comparar sucursales usa una sola llamada (las herramientas ya devuelven el desglose por sucursal). Nunca escribas funciones como texto. Solo lectura. Montos en Bs.`;
+      const systemPrompt = `Asistente de VidaFarma (farmacia, Cochabamba, Bolivia). Responde en español, breve y profesional.
+
+REGLA ABSOLUTA — NO INVENTAR: Solo puedes mencionar nombres, cifras, productos, trabajadores o datos que provengan EXACTAMENTE de los resultados de las herramientas. Está PROHIBIDO inventar o completar datos. Si una herramienta devuelve vacío, pocos datos o un mensaje de "no disponible", di EXACTAMENTE eso ("No tengo esa información disponible" o el mensaje que devolvió la herramienta). NUNCA inventes nombres de personas ni tablas de trabajadores. Si no estás seguro, di que no tienes el dato.
+
+Para comparar sucursales usa una sola llamada. Nunca escribas funciones como texto. Solo lectura. Montos en Bs.`;
 
       const tools = [
         { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período (hoy/ayer/semana/mes/YYYY-MM), opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
@@ -2437,6 +2441,7 @@ const asistenteRouter = router({
         }
 
         // Segunda llamada: el modelo redacta la respuesta final con los datos
+        mensajes.push({ role: "system", content: "Redacta usando ÚNICAMENTE los datos de las herramientas anteriores. No agregues nombres, filas ni cifras que no estén en esos datos. Si los datos están vacíos, dilo." });
         const r2 = await invokeDeepSeek({ messages: mensajes, maxTokens: 1024 });
         const respuesta = r2.choices?.[0]?.message?.content || "Obtuve los datos pero no pude redactar la respuesta.";
         return { respuesta, usoHerramienta: herramientasUsadas.join(", ") };

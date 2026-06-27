@@ -59,7 +59,7 @@ export async function invokeDeepSeek(params: DSParams): Promise<DSResult> {
     model: MODELO,
     messages: params.messages,
     max_tokens: params.maxTokens ?? 1024,
-    temperature: params.temperature ?? 0.3,
+    temperature: params.temperature ?? 0,
     stream: false,
   };
 
