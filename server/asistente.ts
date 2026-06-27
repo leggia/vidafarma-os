@@ -284,4 +284,34 @@ export const asistenteTools = {
     )));
     return { sucursales: r.map((s: any) => s.nombreSucursal) };
   },
+
+  // 10. Stock de un producto consultando inventarios365 EN VIVO (tiempo real)
+  async stockProducto(nombre: string) {
+    try {
+      const { inventarios365 } = await import("./inventarios365");
+      const productos = await inventarios365.consultarProductos(nombre);
+      if (!productos || productos.length === 0) {
+        return { mensaje: `No encontré un producto que coincida con "${nombre}" en inventarios365.` };
+      }
+      // Si hay muchos, pedir afinar
+      if (productos.length > 8) {
+        return {
+          demasiados: true,
+          mensaje: `Encontré ${productos.length} productos con "${nombre}". Sé más específico. Algunos: ${productos.slice(0, 5).map((p: any) => p.nombre).join(", ")}.`,
+        };
+      }
+      return {
+        enVivo: true,
+        productos: productos.map((p: any) => ({
+          nombre: p.nombre,
+          codigo: p.codigo,
+          stock: p.stock,
+          precioVenta: `Bs ${num(p.precioVenta).toLocaleString("es-BO", { minimumFractionDigits: 2 })}`,
+        })),
+        nota: "Stock consultado en tiempo real desde inventarios365.",
+      };
+    } catch (e: any) {
+      return { error: `No pude consultar el stock en vivo: ${e?.message || "error"}` };
+    }
+  },
 };

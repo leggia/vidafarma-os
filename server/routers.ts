@@ -2312,6 +2312,7 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "trabajadoresSucursal": return await asistenteTools.trabajadoresSucursal(args.sucursal);
       case "mejoresVendedores": return await asistenteTools.mejoresVendedores(args.periodo, args.sucursal);
       case "listarSucursales": return await asistenteTools.listarSucursales();
+      case "stockProducto": return await asistenteTools.stockProducto(args.nombre);
       default: return { error: "Herramienta desconocida" };
     }
   } catch (e: any) {
@@ -2365,6 +2366,7 @@ const asistenteRouter = router({
         { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Trabajadores de una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
         { type: "function" as const, function: { name: "mejoresVendedores", description: "Mejores vendedores en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales.", parameters: { type: "object", properties: {} } } },
+        { type: "function" as const, function: { name: "stockProducto", description: "Stock/existencias actuales de un producto en tiempo real (cuántas unidades hay).", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
       ];
 
       const mensajes: any[] = [
