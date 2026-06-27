@@ -2262,7 +2262,7 @@ const gastosRouter = router({
 // ─────────────────────────────────────────────────────────
 // Router del Asistente VidaFarma (Fase 1: solo consultas)
 // ─────────────────────────────────────────────────────────
-const MODELO_ASISTENTE = "openai/gpt-oss-20b"; // reemplazo oficial del Llama 8B (los Llama se descontinúan 17 jul 2026)
+const MODELO_ASISTENTE = "llama-3.3-70b-versatile"; // funciona bien con function calling; vigente hasta 17 jul. Migrar a GPT-OSS requiere ajustar formato harmony.
 
 const asistenteRouter = router({
   preguntar: protectedProcedure
@@ -2353,8 +2353,7 @@ const asistenteRouter = router({
         if (msg.includes("Rate limit") || msg.includes("rate_limit") || msg.includes("429") || msg.includes("TPM")) {
           return { respuesta: "Estoy recibiendo muchas consultas muy rápido y alcancé el límite por minuto del servicio de IA. Espera unos segundos y vuelve a preguntar, por favor.", error: true };
         }
-        // TEMPORAL: mostrar el error real para diagnosticar
-        return { respuesta: `[Diagnóstico] ${msg.substring(0, 300)}`, error: true };
+        return { respuesta: "Lo siento, hubo un problema al procesar tu pregunta. Intenta de nuevo en un momento.", error: true };
       }
     }),
 });
