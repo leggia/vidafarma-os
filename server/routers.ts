@@ -2329,23 +2329,28 @@ const asistenteRouter = router({
       })).optional(),
     }))
     .mutation(async ({ input }) => {
-      const { invokeLLM } = await import("./_core/llm");
-      const { asistenteTools } = await import("./asistente");
+      const { invokeDeepSeek, deepseekDisponible } = await import("./_core/deepseek");
 
-      // Definición de las herramientas (funciones) que el LLM puede usar
+      // Si DeepSeek no está configurado, avisar claramente
+      if (!deepseekDisponible()) {
+        return { respuesta: "El asistente aún no está configurado (falta la clave de DeepSeek). Avisa al administrador para activarlo.", error: true };
+      }
+
+      // PREFIJO ESTABLE (para caché de contexto de DeepSeek): system + tools
+      // SIEMPRE idénticos y al inicio. El contenido variable (pregunta) va al final.
+      const systemPrompt = `Asistente de VidaFarma (farmacia, Cochabamba, Bolivia). Responde en español, breve y profesional. NUNCA inventes datos: si no tienes una herramienta o no hay datos, di "No tengo esa información disponible". Solo lectura. Montos en Bs.`;
+
       const tools = [
         { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período (hoy/ayer/semana/mes/YYYY-MM), opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "comprasProveedor", description: "Compras a un proveedor en un período.", parameters: { type: "object", properties: { proveedor: { type: "string" }, periodo: { type: "string" } }, required: ["proveedor", "periodo"] } } },
         { type: "function" as const, function: { name: "productoMasVendido", description: "Productos más vendidos en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, porValor: { type: "boolean" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "gananciaPeriodo", description: "Ganancia en un período.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
-        { type: "function" as const, function: { name: "infoProducto", description: "Precio/costo de un producto.", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
+        { type: "function" as const, function: { name: "infoProducto", description: "Precio/costo de un producto por su nombre.", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
         { type: "function" as const, function: { name: "ventasCliente", description: "Productos vendidos a un cliente.", parameters: { type: "object", properties: { cliente: { type: "string" }, periodo: { type: "string" } }, required: ["cliente"] } } },
         { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Trabajadores de una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
         { type: "function" as const, function: { name: "mejoresVendedores", description: "Mejores vendedores en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales.", parameters: { type: "object", properties: {} } } },
       ];
-
-      const systemPrompt = `Asistente de VidaFarma (farmacia, Cochabamba, Bolivia). Responde en español, breve. NUNCA inventes datos: si no hay herramienta o no hay datos, di "No tengo esa información". Solo lectura. Montos en Bs.`;
 
       const mensajes: any[] = [
         { role: "system", content: systemPrompt },
@@ -2354,62 +2359,24 @@ const asistenteRouter = router({
       ];
 
       try {
-        // Primera llamada: el LLM decide si usar una herramienta
-        let r1: any;
-        try {
-          r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto", maxTokens: 512 });
-        } catch (errTool: any) {
-          // El modelo 8B a veces genera una función mal formada → Groq devuelve 400.
-          // Respaldo: detectar la intención por palabras clave y ejecutar la herramienta directo.
-          const m = String(errTool?.message || "");
-          if (m.includes("Failed to call a function") || m.includes("failed_generation") || m.includes("tool")) {
-            const fallback = await intentarHerramientaPorIntencion(input.pregunta);
-            if (fallback) {
-              const r3 = await invokeLLM({ model: MODELO_ASISTENTE, maxTokens: 512, messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: input.pregunta },
-                { role: "assistant", content: `Datos obtenidos: ${JSON.stringify(fallback.resultado)}` },
-                { role: "user", content: "Redacta la respuesta final breve en español con esos datos." },
-              ]});
-              const txt = r3.choices?.[0]?.message?.content;
-              return { respuesta: (typeof txt === "string" ? txt : "") || "No pude redactar la respuesta.", usoHerramienta: fallback.nombre };
-            }
-          }
-          throw errTool;
-        }
+        // Primera llamada: el modelo decide si usar una herramienta
+        const r1 = await invokeDeepSeek({ messages: mensajes, tools, toolChoice: "auto", maxTokens: 1024 });
         const msg = r1.choices?.[0]?.message;
         const toolCalls = msg?.tool_calls;
-        // GPT-OSS puede devolver content como array de bloques; normalizar a string
-        const contentToStr = (c: any): string => {
-          if (typeof c === "string") return c;
-          if (Array.isArray(c)) return c.map((b: any) => b?.text || "").join(" ");
-          return "";
-        };
+
+        // Log de caché (para ver el ahorro en los logs de Railway)
+        if (r1.usage) {
+          const hit = r1.usage.prompt_cache_hit_tokens ?? 0;
+          const miss = r1.usage.prompt_cache_miss_tokens ?? 0;
+          console.log(`[Asistente] tokens: cache_hit=${hit}, cache_miss=${miss}, salida=${r1.usage.completion_tokens}`);
+        }
 
         if (!toolCalls || toolCalls.length === 0) {
-          // A veces Llama escribe la llamada como texto: <function(nombre){...}> o similar.
-          // Detectarlo y ejecutar la herramienta manualmente como red de seguridad.
-          const textoRaw = contentToStr(msg?.content);
-          const m = textoRaw.match(/<?function[=(\s]*["']?(\w+)["']?[)\s]*\(?\s*(\{[^}]*\})/i);
-          if (m) {
-            const fnNombre = m[1];
-            let fnArgs: any = {};
-            try { fnArgs = JSON.parse(m[2]); } catch {}
-            const resultado = await ejecutarHerramienta(fnNombre, fnArgs);
-            // Pedir al modelo que redacte con el resultado
-            const r3 = await invokeLLM({ model: MODELO_ASISTENTE, maxTokens: 512, messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: input.pregunta },
-              { role: "assistant", content: `Consulté ${fnNombre} y obtuve: ${JSON.stringify(resultado)}` },
-              { role: "user", content: "Redacta la respuesta final para el usuario con esos datos, breve y en español." },
-            ]});
-            return { respuesta: contentToStr(r3.choices?.[0]?.message?.content) || "No pude redactar la respuesta.", usoHerramienta: fnNombre };
-          }
-          return { respuesta: textoRaw || "No pude generar una respuesta.", usoHerramienta: null };
+          return { respuesta: msg?.content || "No pude generar una respuesta.", usoHerramienta: null };
         }
 
         // Ejecutar las herramientas que pidió
-        mensajes.push({ role: "assistant", content: contentToStr(msg?.content), tool_calls: toolCalls });
+        mensajes.push({ role: "assistant", content: msg?.content || "", tool_calls: toolCalls });
         const herramientasUsadas: string[] = [];
         for (const tc of toolCalls) {
           const nombre = tc.function?.name;
@@ -2420,19 +2387,20 @@ const asistenteRouter = router({
           mensajes.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(resultado) });
         }
 
-        // Segunda llamada: el LLM redacta la respuesta final con los datos
-        const r2 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, maxTokens: 512 });
-        const respuesta = contentToStr(r2.choices?.[0]?.message?.content) || "Obtuve los datos pero no pude redactar la respuesta.";
+        // Segunda llamada: el modelo redacta la respuesta final con los datos
+        const r2 = await invokeDeepSeek({ messages: mensajes, maxTokens: 1024 });
+        const respuesta = r2.choices?.[0]?.message?.content || "Obtuve los datos pero no pude redactar la respuesta.";
         return { respuesta, usoHerramienta: herramientasUsadas.join(", ") };
       } catch (e: any) {
         const msg = String(e?.message || "");
-        console.error("[Asistente] Error completo:", msg);
-        // Solo es rate limit real si el status es 429
-        if (msg.includes("429") || msg.includes("Rate limit reached") || msg.includes("rate_limit_exceeded")) {
-          return { respuesta: "El servicio de IA alcanzó su límite por minuto. Espera unos segundos y vuelve a preguntar.", error: true };
+        console.error("[Asistente] Error:", msg);
+        if (msg.includes("429") || msg.includes("rate")) {
+          return { respuesta: "El servicio está ocupado en este momento. Intenta de nuevo en unos segundos.", error: true };
         }
-        // Otros errores: mostrar pista del error real (temporal para diagnóstico)
-        return { respuesta: `Hubo un problema al procesar tu pregunta. [${msg.substring(0, 200)}]`, error: true };
+        if (msg.includes("401") || msg.includes("Authentication") || msg.includes("api key")) {
+          return { respuesta: "Hay un problema con la configuración del asistente (autenticación). Avisa al administrador.", error: true };
+        }
+        return { respuesta: "Lo siento, hubo un problema al procesar tu pregunta. Intenta de nuevo en un momento.", error: true };
       }
     }),
 });

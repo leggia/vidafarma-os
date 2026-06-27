@@ -29,6 +29,9 @@ export const ENV = {
   // IA — Groq API
   groqApiKey: requireEnv("BUILT_IN_FORGE_API_KEY"),
 
+  // IA — DeepSeek API (para el asistente)
+  deepseekApiKey: requireEnv("DEEPSEEK_API_KEY"),
+
   // Session
   sessionSecret: requireEnv("SESSION_SECRET", "dev-session-secret"),
 };
