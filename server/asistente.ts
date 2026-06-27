@@ -285,29 +285,59 @@ export const asistenteTools = {
     return { sucursales: r.map((s: any) => s.nombreSucursal) };
   },
 
-  // 10. Stock de un producto consultando inventarios365 EN VIVO (tiempo real)
-  async stockProducto(nombre: string) {
+  // 10. Stock de un producto por ALMACÉN, consultando inventarios365 EN VIVO
+  async stockProducto(nombre: string, almacen?: string) {
     try {
       const { inventarios365 } = await import("./inventarios365");
-      const productos = await inventarios365.consultarProductos(nombre);
-      if (!productos || productos.length === 0) {
-        return { mensaje: `No encontré un producto que coincida con "${nombre}" en inventarios365.` };
+      // Almacenes conocidos (id → nombre legible)
+      const ALMACENES: { id: number; nombre: string; alias: string[] }[] = [
+        { id: 1, nombre: "Almacén Principal", alias: ["principal", "matriz", "casa matriz"] },
+        { id: 2, nombre: "Almacén Petrolera", alias: ["petrolera"] },
+        { id: 3, nombre: "Almacén Lanza", alias: ["lanza"] },
+        { id: 4, nombre: "Almacén Cobol", alias: ["cobol", "cob"] },
+      ];
+
+      // Si se pidió un almacén específico, filtrar a ese
+      let almacenesConsultar = ALMACENES;
+      if (almacen) {
+        const a = almacen.toLowerCase();
+        const encontrado = ALMACENES.filter(al =>
+          al.nombre.toLowerCase().includes(a) || al.alias.some(x => a.includes(x) || x.includes(a))
+        );
+        if (encontrado.length > 0) almacenesConsultar = encontrado;
       }
-      // Si hay muchos, pedir afinar
-      if (productos.length > 8) {
-        return {
-          demasiados: true,
-          mensaje: `Encontré ${productos.length} productos con "${nombre}". Sé más específico. Algunos: ${productos.slice(0, 5).map((p: any) => p.nombre).join(", ")}.`,
-        };
+
+      const palabras = nombre.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const resultadoPorAlmacen: any[] = [];
+      let productoNombre = "";
+
+      for (const al of almacenesConsultar) {
+        const lista = await inventarios365.listarParaInventario(al.id, "");
+        // Filtrar productos que coincidan con todas las palabras
+        const matches = lista.filter((p: any) => {
+          const texto = `${p.nombre} ${p.codigo || ""}`.toLowerCase();
+          return palabras.every(w => texto.includes(w));
+        });
+        if (matches.length > 0) {
+          // Si hay varios productos distintos que coinciden, tomar nota
+          for (const m of matches.slice(0, 3)) {
+            productoNombre = m.nombre;
+            resultadoPorAlmacen.push({ almacen: al.nombre, producto: m.nombre, stock: m.stock });
+          }
+        }
       }
+
+      if (resultadoPorAlmacen.length === 0) {
+        return { mensaje: `No encontré stock para "${nombre}"${almacen ? ` en ${almacen}` : ""}. Verifica el nombre del producto.` };
+      }
+
+      // Si es un solo producto, resumir por almacén
+      const total = resultadoPorAlmacen.reduce((s, r) => s + num(r.stock), 0);
       return {
         enVivo: true,
-        productos: productos.map((p: any) => ({
-          nombre: p.nombre,
-          codigo: p.codigo,
-          stock: p.stock,
-          precioVenta: `Bs ${num(p.precioVenta).toLocaleString("es-BO", { minimumFractionDigits: 2 })}`,
-        })),
+        producto: productoNombre,
+        stockPorAlmacen: resultadoPorAlmacen,
+        stockTotal: total,
         nota: "Stock consultado en tiempo real desde inventarios365.",
       };
     } catch (e: any) {
