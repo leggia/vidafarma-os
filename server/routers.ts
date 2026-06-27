@@ -2262,7 +2262,7 @@ const gastosRouter = router({
 // ─────────────────────────────────────────────────────────
 // Router del Asistente VidaFarma (Fase 1: solo consultas)
 // ─────────────────────────────────────────────────────────
-const MODELO_ASISTENTE = "llama-3.3-70b-versatile"; // funciona bien con function calling; vigente hasta 17 jul. Migrar a GPT-OSS requiere ajustar formato harmony.
+const MODELO_ASISTENTE = "llama-3.1-8b-instant"; // mucho más liviano que el 70B; evita saturar el límite gratuito de tokens
 
 // Ejecuta una herramienta del asistente por nombre con sus argumentos
 async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
@@ -2300,22 +2300,18 @@ const asistenteRouter = router({
 
       // Definición de las herramientas (funciones) que el LLM puede usar
       const tools = [
-        { type: "function" as const, function: { name: "ventasPeriodo", description: "Cuánto se vendió en un período (hoy, ayer, semana, mes, o un mes específico YYYY-MM). Opcionalmente filtrado por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string", description: "hoy, ayer, semana, mes, o YYYY-MM" }, sucursal: { type: "string", description: "nombre de sucursal (opcional)" } }, required: ["periodo"] } } },
-        { type: "function" as const, function: { name: "comprasProveedor", description: "Cuánto se le compró a un proveedor en un período.", parameters: { type: "object", properties: { proveedor: { type: "string" }, periodo: { type: "string", description: "mes o YYYY-MM" } }, required: ["proveedor", "periodo"] } } },
-        { type: "function" as const, function: { name: "productoMasVendido", description: "Ranking de productos más vendidos en un período, por cantidad o por valor.", parameters: { type: "object", properties: { periodo: { type: "string" }, porValor: { type: "boolean", description: "true para ordenar por valor en Bs, false por cantidad" } }, required: ["periodo"] } } },
-        { type: "function" as const, function: { name: "gananciaPeriodo", description: "Ganancia bruta (ventas menos costo de productos) en un período.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
-        { type: "function" as const, function: { name: "infoProducto", description: "Precio de venta, costo y proveedor de un producto por su nombre.", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
-        { type: "function" as const, function: { name: "ventasCliente", description: "Productos vendidos a un cliente específico, opcionalmente en un período.", parameters: { type: "object", properties: { cliente: { type: "string" }, periodo: { type: "string" } }, required: ["cliente"] } } },
-        { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Qué trabajadores están asignados a una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
-        { type: "function" as const, function: { name: "mejoresVendedores", description: "Ranking de los mejores vendedores por total vendido en un período, opcionalmente por sucursal. Úsala para 'mejor vendedor', 'quién vende más'.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
-        { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales disponibles.", parameters: { type: "object", properties: {} } } },
+        { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período (hoy/ayer/semana/mes/YYYY-MM), opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "comprasProveedor", description: "Compras a un proveedor en un período.", parameters: { type: "object", properties: { proveedor: { type: "string" }, periodo: { type: "string" } }, required: ["proveedor", "periodo"] } } },
+        { type: "function" as const, function: { name: "productoMasVendido", description: "Productos más vendidos en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, porValor: { type: "boolean" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "gananciaPeriodo", description: "Ganancia en un período.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "infoProducto", description: "Precio/costo de un producto.", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
+        { type: "function" as const, function: { name: "ventasCliente", description: "Productos vendidos a un cliente.", parameters: { type: "object", properties: { cliente: { type: "string" }, periodo: { type: "string" } }, required: ["cliente"] } } },
+        { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Trabajadores de una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
+        { type: "function" as const, function: { name: "mejoresVendedores", description: "Mejores vendedores en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales.", parameters: { type: "object", properties: {} } } },
       ];
 
-      const systemPrompt = `Eres el asistente de VidaFarma, farmacia en Cochabamba, Bolivia. Respondes sobre el negocio en español, breve y profesional.
-
-REGLA CRÍTICA: NUNCA inventes datos. Solo das información que provenga de las herramientas. Si no tienes una herramienta para responder algo, o la herramienta no devuelve datos, di claramente "No tengo esa información disponible" — JAMÁS inventes nombres, cifras, productos ni vendedores. Inventar datos es un error grave.
-
-Usa las herramientas para obtener datos reales. Nunca escribas el nombre de una función como texto. Montos en Bs. Solo puedes LEER datos, no modificar.`;
+      const systemPrompt = `Asistente de VidaFarma (farmacia, Cochabamba, Bolivia). Responde en español, breve. NUNCA inventes datos: si no hay herramienta o no hay datos, di "No tengo esa información". Solo lectura. Montos en Bs.`;
 
       const mensajes: any[] = [
         { role: "system", content: systemPrompt },
@@ -2325,7 +2321,7 @@ Usa las herramientas para obtener datos reales. Nunca escribas el nombre de una 
 
       try {
         // Primera llamada: el LLM decide si usar una herramienta
-        const r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto", maxTokens: 1024 });
+        const r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto", maxTokens: 512 });
         const msg = r1.choices?.[0]?.message;
         const toolCalls = msg?.tool_calls;
         // GPT-OSS puede devolver content como array de bloques; normalizar a string
@@ -2346,7 +2342,7 @@ Usa las herramientas para obtener datos reales. Nunca escribas el nombre de una 
             try { fnArgs = JSON.parse(m[2]); } catch {}
             const resultado = await ejecutarHerramienta(fnNombre, fnArgs);
             // Pedir al modelo que redacte con el resultado
-            const r3 = await invokeLLM({ model: MODELO_ASISTENTE, maxTokens: 1024, messages: [
+            const r3 = await invokeLLM({ model: MODELO_ASISTENTE, maxTokens: 512, messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: input.pregunta },
               { role: "assistant", content: `Consulté ${fnNombre} y obtuve: ${JSON.stringify(resultado)}` },
@@ -2370,7 +2366,7 @@ Usa las herramientas para obtener datos reales. Nunca escribas el nombre de una 
         }
 
         // Segunda llamada: el LLM redacta la respuesta final con los datos
-        const r2 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, maxTokens: 1024 });
+        const r2 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, maxTokens: 512 });
         const respuesta = contentToStr(r2.choices?.[0]?.message?.content) || "Obtuve los datos pero no pude redactar la respuesta.";
         return { respuesta, usoHerramienta: herramientasUsadas.join(", ") };
       } catch (e: any) {
