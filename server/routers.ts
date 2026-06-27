@@ -2276,6 +2276,7 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "infoProducto": return await asistenteTools.infoProducto(args.nombre);
       case "ventasCliente": return await asistenteTools.ventasCliente(args.cliente, args.periodo);
       case "trabajadoresSucursal": return await asistenteTools.trabajadoresSucursal(args.sucursal);
+      case "mejoresVendedores": return await asistenteTools.mejoresVendedores(args.periodo, args.sucursal);
       case "listarSucursales": return await asistenteTools.listarSucursales();
       default: return { error: "Herramienta desconocida" };
     }
@@ -2306,10 +2307,15 @@ const asistenteRouter = router({
         { type: "function" as const, function: { name: "infoProducto", description: "Precio de venta, costo y proveedor de un producto por su nombre.", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
         { type: "function" as const, function: { name: "ventasCliente", description: "Productos vendidos a un cliente específico, opcionalmente en un período.", parameters: { type: "object", properties: { cliente: { type: "string" }, periodo: { type: "string" } }, required: ["cliente"] } } },
         { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Qué trabajadores están asignados a una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
+        { type: "function" as const, function: { name: "mejoresVendedores", description: "Ranking de los mejores vendedores por total vendido en un período, opcionalmente por sucursal. Úsala para 'mejor vendedor', 'quién vende más'.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales disponibles.", parameters: { type: "object", properties: {} } } },
       ];
 
-      const systemPrompt = `Eres el asistente de VidaFarma, farmacia en Cochabamba, Bolivia. Respondes sobre el negocio en español, breve y profesional. Usa las herramientas disponibles para obtener datos reales (nunca inventes cifras ni escribas el nombre de una función como texto). Montos en Bs. Solo puedes LEER datos, no modificar. Si no tienes una herramienta para algo, dilo.`;
+      const systemPrompt = `Eres el asistente de VidaFarma, farmacia en Cochabamba, Bolivia. Respondes sobre el negocio en español, breve y profesional.
+
+REGLA CRÍTICA: NUNCA inventes datos. Solo das información que provenga de las herramientas. Si no tienes una herramienta para responder algo, o la herramienta no devuelve datos, di claramente "No tengo esa información disponible" — JAMÁS inventes nombres, cifras, productos ni vendedores. Inventar datos es un error grave.
+
+Usa las herramientas para obtener datos reales. Nunca escribas el nombre de una función como texto. Montos en Bs. Solo puedes LEER datos, no modificar.`;
 
       const mensajes: any[] = [
         { role: "system", content: systemPrompt },

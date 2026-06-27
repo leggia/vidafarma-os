@@ -223,16 +223,56 @@ export const asistenteTools = {
     };
   },
 
+  // Mejores vendedores en un período (por total vendido)
+  async mejoresVendedores(periodo: string, sucursal?: string) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const { desde, hasta, etiqueta } = rangoFechas(periodo || "mes");
+    const filtroSuc = sucursal ? ` AND nombreSucursal LIKE ${esc("%" + sucursal + "%")}` : "";
+    const r = rows(await db.execute(sql.raw(
+      `SELECT vendedor, COUNT(*) as numVentas, COALESCE(SUM(total),0) as total
+       FROM ventas WHERE fecha >= ${esc(desde)} AND fecha <= ${esc(hasta)}${filtroSuc}
+       AND vendedor IS NOT NULL AND vendedor <> ''
+       GROUP BY vendedor ORDER BY total DESC LIMIT 5`
+    )));
+    if (r.length === 0) return { mensaje: `No hay ventas con vendedor registrado en ${etiqueta}.` };
+    return {
+      periodo: etiqueta,
+      sucursal: sucursal || "todas las sucursales",
+      ranking: r.map((v: any, i: number) => ({
+        puesto: i + 1, vendedor: v.vendedor,
+        ventas: num(v.numVentas), total: `Bs ${fmtBs(v.total)}`,
+      })),
+    };
+  },
+
   // 8. Quién está en una sucursal (trabajadores con sucursalFija)
   async trabajadoresSucursal(sucursal: string) {
     const db = await getDb();
     if (!db) return { error: "Sin BD" };
+    const s = sucursal.toLowerCase();
+    // 1) Buscar por sucursalFija (case-insensitive)
     const r = rows(await db.execute(sql.raw(
       `SELECT nombre, sucursalFija, tipoTrabajador FROM trabajadores
-       WHERE activo=1 AND sucursalFija LIKE ${esc("%" + sucursal + "%")}`
+       WHERE activo=1 AND LOWER(sucursalFija) LIKE ${esc("%" + s + "%")}`
     )));
-    if (r.length === 0) return { mensaje: `No encontré trabajadores asignados a la sucursal "${sucursal}".` };
-    return { sucursal, trabajadores: r.map((t: any) => ({ nombre: t.nombre, tipo: t.tipoTrabajador })) };
+    if (r.length > 0) {
+      return { sucursal, trabajadores: r.map((t: any) => ({ nombre: t.nombre, tipo: t.tipoTrabajador })) };
+    }
+    // 2) Respaldo: inferir por las ventas (qué vendedores vendieron en esa sucursal últimamente)
+    const vend = rows(await db.execute(sql.raw(
+      `SELECT DISTINCT vendedor FROM ventas
+       WHERE LOWER(nombreSucursal) LIKE ${esc("%" + s + "%")} AND vendedor IS NOT NULL AND vendedor <> ''
+       ORDER BY vendedor LIMIT 20`
+    )));
+    if (vend.length > 0) {
+      return {
+        sucursal,
+        nota: "No hay trabajadores con sucursal fija asignada, pero estos vendedores han registrado ventas en esa sucursal:",
+        vendedores: vend.map((v: any) => v.vendedor),
+      };
+    }
+    return { mensaje: `No encontré trabajadores ni vendedores asociados a la sucursal "${sucursal}". Verifica el nombre o que tengan sucursal asignada.` };
   },
 
   // 9. Lista de sucursales disponibles (apoyo)
