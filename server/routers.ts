@@ -2374,13 +2374,14 @@ Usa las herramientas para obtener datos reales. Nunca escribas el nombre de una 
         const respuesta = contentToStr(r2.choices?.[0]?.message?.content) || "Obtuve los datos pero no pude redactar la respuesta.";
         return { respuesta, usoHerramienta: herramientasUsadas.join(", ") };
       } catch (e: any) {
-        console.error("[Asistente] Error:", e?.message);
         const msg = String(e?.message || "");
-        // Mensaje amable si es límite de velocidad de Groq
-        if (msg.includes("Rate limit") || msg.includes("rate_limit") || msg.includes("429") || msg.includes("TPM")) {
-          return { respuesta: "Estoy recibiendo muchas consultas muy rápido y alcancé el límite por minuto del servicio de IA. Espera unos segundos y vuelve a preguntar, por favor.", error: true };
+        console.error("[Asistente] Error completo:", msg);
+        // Solo es rate limit real si el status es 429
+        if (msg.includes("429") || msg.includes("Rate limit reached") || msg.includes("rate_limit_exceeded")) {
+          return { respuesta: "El servicio de IA alcanzó su límite por minuto. Espera unos segundos y vuelve a preguntar.", error: true };
         }
-        return { respuesta: "Lo siento, hubo un problema al procesar tu pregunta. Intenta de nuevo en un momento.", error: true };
+        // Otros errores: mostrar pista del error real (temporal para diagnóstico)
+        return { respuesta: `Hubo un problema al procesar tu pregunta. [${msg.substring(0, 200)}]`, error: true };
       }
     }),
 });
