@@ -2415,7 +2415,7 @@ const asistenteRouter = router({
         if (msg.includes("401") || msg.includes("Authentication") || msg.includes("api key")) {
           return { respuesta: "Hay un problema con la configuración del asistente (autenticación). Avisa al administrador.", error: true };
         }
-        return { respuesta: "Lo siento, hubo un problema al procesar tu pregunta. Intenta de nuevo en un momento.", error: true };
+        return { respuesta: `Hubo un problema al procesar tu pregunta. [DS: ${msg.substring(0, 250)}]`, error: true };
       }
     }),
 });
