@@ -2264,6 +2264,26 @@ const gastosRouter = router({
 // ─────────────────────────────────────────────────────────
 const MODELO_ASISTENTE = "llama-3.3-70b-versatile"; // funciona bien con function calling; vigente hasta 17 jul. Migrar a GPT-OSS requiere ajustar formato harmony.
 
+// Ejecuta una herramienta del asistente por nombre con sus argumentos
+async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
+  const { asistenteTools } = await import("./asistente");
+  try {
+    switch (nombre) {
+      case "ventasPeriodo": return await asistenteTools.ventasPeriodo(args.periodo, args.sucursal);
+      case "comprasProveedor": return await asistenteTools.comprasProveedor(args.proveedor, args.periodo);
+      case "productoMasVendido": return await asistenteTools.productoMasVendido(args.periodo, args.porValor);
+      case "gananciaPeriodo": return await asistenteTools.gananciaPeriodo(args.periodo);
+      case "infoProducto": return await asistenteTools.infoProducto(args.nombre);
+      case "ventasCliente": return await asistenteTools.ventasCliente(args.cliente, args.periodo);
+      case "trabajadoresSucursal": return await asistenteTools.trabajadoresSucursal(args.sucursal);
+      case "listarSucursales": return await asistenteTools.listarSucursales();
+      default: return { error: "Herramienta desconocida" };
+    }
+  } catch (e: any) {
+    return { error: e?.message || "Error ejecutando la consulta" };
+  }
+}
+
 const asistenteRouter = router({
   preguntar: protectedProcedure
     .input(z.object({
@@ -2289,7 +2309,7 @@ const asistenteRouter = router({
         { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales disponibles.", parameters: { type: "object", properties: {} } } },
       ];
 
-      const systemPrompt = `Eres el asistente de VidaFarma, farmacia en Cochabamba, Bolivia. Respondes sobre el negocio en español, breve y profesional. Usa SIEMPRE las herramientas para datos reales (nunca inventes cifras). Montos en Bs. Solo puedes LEER datos, no modificar. Si no tienes una herramienta para algo, dilo.`;
+      const systemPrompt = `Eres el asistente de VidaFarma, farmacia en Cochabamba, Bolivia. Respondes sobre el negocio en español, breve y profesional. Usa las herramientas disponibles para obtener datos reales (nunca inventes cifras ni escribas el nombre de una función como texto). Montos en Bs. Solo puedes LEER datos, no modificar. Si no tienes una herramienta para algo, dilo.`;
 
       const mensajes: any[] = [
         { role: "system", content: systemPrompt },
@@ -2310,8 +2330,25 @@ const asistenteRouter = router({
         };
 
         if (!toolCalls || toolCalls.length === 0) {
-          // Respondió directo sin necesitar datos
-          return { respuesta: contentToStr(msg?.content) || "No pude generar una respuesta.", usoHerramienta: null };
+          // A veces Llama escribe la llamada como texto: <function(nombre){...}> o similar.
+          // Detectarlo y ejecutar la herramienta manualmente como red de seguridad.
+          const textoRaw = contentToStr(msg?.content);
+          const m = textoRaw.match(/<?function[=(\s]*["']?(\w+)["']?[)\s]*\(?\s*(\{[^}]*\})/i);
+          if (m) {
+            const fnNombre = m[1];
+            let fnArgs: any = {};
+            try { fnArgs = JSON.parse(m[2]); } catch {}
+            const resultado = await ejecutarHerramienta(fnNombre, fnArgs);
+            // Pedir al modelo que redacte con el resultado
+            const r3 = await invokeLLM({ model: MODELO_ASISTENTE, maxTokens: 1024, messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: input.pregunta },
+              { role: "assistant", content: `Consulté ${fnNombre} y obtuve: ${JSON.stringify(resultado)}` },
+              { role: "user", content: "Redacta la respuesta final para el usuario con esos datos, breve y en español." },
+            ]});
+            return { respuesta: contentToStr(r3.choices?.[0]?.message?.content) || "No pude redactar la respuesta.", usoHerramienta: fnNombre };
+          }
+          return { respuesta: textoRaw || "No pude generar una respuesta.", usoHerramienta: null };
         }
 
         // Ejecutar las herramientas que pidió
@@ -2322,23 +2359,7 @@ const asistenteRouter = router({
           let args: any = {};
           try { args = JSON.parse(tc.function?.arguments || "{}"); } catch {}
           herramientasUsadas.push(nombre);
-          let resultado: any;
-          try {
-            // Mapear argumentos por nombre explícitamente (no por orden de Object.values)
-            switch (nombre) {
-              case "ventasPeriodo": resultado = await asistenteTools.ventasPeriodo(args.periodo, args.sucursal); break;
-              case "comprasProveedor": resultado = await asistenteTools.comprasProveedor(args.proveedor, args.periodo); break;
-              case "productoMasVendido": resultado = await asistenteTools.productoMasVendido(args.periodo, args.porValor); break;
-              case "gananciaPeriodo": resultado = await asistenteTools.gananciaPeriodo(args.periodo); break;
-              case "infoProducto": resultado = await asistenteTools.infoProducto(args.nombre); break;
-              case "ventasCliente": resultado = await asistenteTools.ventasCliente(args.cliente, args.periodo); break;
-              case "trabajadoresSucursal": resultado = await asistenteTools.trabajadoresSucursal(args.sucursal); break;
-              case "listarSucursales": resultado = await asistenteTools.listarSucursales(); break;
-              default: resultado = { error: "Herramienta desconocida" };
-            }
-          } catch (e: any) {
-            resultado = { error: e?.message || "Error ejecutando la consulta" };
-          }
+          const resultado = await ejecutarHerramienta(nombre, args);
           mensajes.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(resultado) });
         }
 
