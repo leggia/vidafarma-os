@@ -2302,14 +2302,20 @@ const asistenteRouter = router({
         const r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto", maxTokens: 1024 });
         const msg = r1.choices?.[0]?.message;
         const toolCalls = msg?.tool_calls;
+        // GPT-OSS puede devolver content como array de bloques; normalizar a string
+        const contentToStr = (c: any): string => {
+          if (typeof c === "string") return c;
+          if (Array.isArray(c)) return c.map((b: any) => b?.text || "").join(" ");
+          return "";
+        };
 
         if (!toolCalls || toolCalls.length === 0) {
           // Respondió directo sin necesitar datos
-          return { respuesta: msg?.content || "No pude generar una respuesta.", usoHerramienta: null };
+          return { respuesta: contentToStr(msg?.content) || "No pude generar una respuesta.", usoHerramienta: null };
         }
 
         // Ejecutar las herramientas que pidió
-        mensajes.push({ role: "assistant", content: msg.content || "", tool_calls: toolCalls });
+        mensajes.push({ role: "assistant", content: contentToStr(msg?.content), tool_calls: toolCalls });
         const herramientasUsadas: string[] = [];
         for (const tc of toolCalls) {
           const nombre = tc.function?.name;
@@ -2338,7 +2344,7 @@ const asistenteRouter = router({
 
         // Segunda llamada: el LLM redacta la respuesta final con los datos
         const r2 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, maxTokens: 1024 });
-        const respuesta = r2.choices?.[0]?.message?.content || "Obtuve los datos pero no pude redactar la respuesta.";
+        const respuesta = contentToStr(r2.choices?.[0]?.message?.content) || "Obtuve los datos pero no pude redactar la respuesta.";
         return { respuesta, usoHerramienta: herramientasUsadas.join(", ") };
       } catch (e: any) {
         console.error("[Asistente] Error:", e?.message);
@@ -2347,7 +2353,8 @@ const asistenteRouter = router({
         if (msg.includes("Rate limit") || msg.includes("rate_limit") || msg.includes("429") || msg.includes("TPM")) {
           return { respuesta: "Estoy recibiendo muchas consultas muy rápido y alcancé el límite por minuto del servicio de IA. Espera unos segundos y vuelve a preguntar, por favor.", error: true };
         }
-        return { respuesta: "Lo siento, hubo un problema al procesar tu pregunta. Intenta de nuevo en un momento.", error: true };
+        // TEMPORAL: mostrar el error real para diagnosticar
+        return { respuesta: `[Diagnóstico] ${msg.substring(0, 300)}`, error: true };
       }
     }),
 });
