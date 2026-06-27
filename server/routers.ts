@@ -2415,7 +2415,10 @@ const asistenteRouter = router({
         if (msg.includes("401") || msg.includes("Authentication") || msg.includes("api key")) {
           return { respuesta: "Hay un problema con la configuración del asistente (autenticación). Avisa al administrador.", error: true };
         }
-        return { respuesta: `Hubo un problema al procesar tu pregunta. [DS: ${msg.substring(0, 250)}]`, error: true };
+        if (msg.includes("402") || msg.includes("Insufficient Balance")) {
+          return { respuesta: "El asistente no tiene saldo disponible en DeepSeek. Hay que recargar el saldo en platform.deepseek.com para que funcione.", error: true };
+        }
+        return { respuesta: "Lo siento, hubo un problema al procesar tu pregunta. Intenta de nuevo en un momento.", error: true };
       }
     }),
 });
