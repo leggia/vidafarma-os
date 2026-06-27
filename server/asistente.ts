@@ -153,9 +153,14 @@ export const asistenteTools = {
        FROM ventas_detalle d JOIN productos_cache c ON c.nombre = d.articuloNombre
        WHERE d.fecha >= ${esc(desde)} AND d.fecha <= ${esc(hasta)} AND c.precioCostoUnid > 0${filtroSucD}`
     )));
-    // Gastos del mes (NO tienen sucursal; siempre son generales)
+    // Gastos del mes. Si se filtra por sucursal, sumar SOLO los gastos de esa
+    // sucursal (alquiler, sueldos, etc. que se registraron con sucursal). Si no,
+    // sumar todos.
+    const filtroGasto = sucursal
+      ? ` AND sucursal LIKE ${esc("%" + sucursal + "%")}`
+      : "";
     const rGastos = rows(await db.execute(sql.raw(
-      `SELECT COALESCE(SUM(monto),0) as gastos FROM gastos_registro WHERE anioMes = ${esc(anioMes)}`
+      `SELECT COALESCE(SUM(monto),0) as gastos FROM gastos_registro WHERE anioMes = ${esc(anioMes)}${filtroGasto}`
     )));
 
     const ingreso = num(rIngreso[0]?.ingreso);
@@ -173,8 +178,8 @@ export const asistenteTools = {
       gastosDelMes: `Bs ${fmtBs(gastos)}`,
       gananciaNeta: `Bs ${fmtBs(gananciaNeta)}`,
       nota: sucursal
-        ? "Para una sucursal: ingresos y costo son de esa sucursal, pero los gastos del mes son GENERALES (no están separados por sucursal), así que la ganancia neta resta el total de gastos."
-        : "Ganancia neta = ventas - costo de productos - gastos del mes. El costo solo cuenta productos con costo conocido.",
+        ? "Ganancia neta de la sucursal = ingresos - costo - gastos asignados a esta sucursal (alquiler, sueldos, etc.). Los gastos generales sin sucursal no se incluyen aquí."
+        : "Ganancia neta = ventas - costo de productos - todos los gastos del mes. El costo solo cuenta productos con costo conocido.",
     };
     return resultado;
   },
@@ -439,6 +444,33 @@ export const asistenteTools = {
       nota: ultimaEsMasBaja
         ? "Tu última compra fue al precio más bajo registrado."
         : "Tu última compra NO fue la más baja; hubo un precio menor antes.",
+    };
+  },
+
+  // 13. Rentabilidad por sucursal COMPLETA (ingresos, costo, sueldos por
+  // asistencia, gastos, ganancia neta). Mismos números que el reporte.
+  async rentabilidadSucursales(periodo: string) {
+    const { desde } = rangoFechas(periodo || "mes");
+    const anioMes = desde.slice(0, 7);
+    const { calcularRentabilidadPorSucursal } = await import("./rentabilidad");
+    const r = await calcularRentabilidadPorSucursal(anioMes);
+    if (r.error) return { error: r.error };
+    if (!r.sucursales || r.sucursales.length === 0) {
+      return { mensaje: `No hay datos de rentabilidad para ${anioMes}.` };
+    }
+    return {
+      mes: anioMes,
+      sucursales: r.sucursales.map((s) => ({
+        sucursal: s.sucursal,
+        ingresos: `Bs ${fmtBs(s.ingreso)}`,
+        costoProductos: `Bs ${fmtBs(s.costo)}`,
+        sueldos: `Bs ${fmtBs(s.sueldos)}`,
+        gastos: `Bs ${fmtBs(s.gastos)}`,
+        gananciaNeta: `Bs ${fmtBs(s.netaAntesGenerales)}`,
+        cubreGastos: s.cubreGastos,
+      })),
+      gastosGenerales: `Bs ${fmtBs(r.gastosGenerales)}`,
+      nota: r.nota,
     };
   },
 };
