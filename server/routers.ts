@@ -2259,6 +2259,103 @@ const gastosRouter = router({
     }),
 });
 
+// ─────────────────────────────────────────────────────────
+// Router del Asistente VidaFarma (Fase 1: solo consultas)
+// ─────────────────────────────────────────────────────────
+const MODELO_ASISTENTE = "llama-3.3-70b-versatile"; // modelo de texto vigente en Groq
+
+const asistenteRouter = router({
+  preguntar: protectedProcedure
+    .input(z.object({
+      pregunta: z.string(),
+      historial: z.array(z.object({
+        rol: z.enum(["user", "assistant"]),
+        texto: z.string(),
+      })).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { invokeLLM } = await import("./_core/llm");
+      const { asistenteTools } = await import("./asistente");
+
+      // Definición de las herramientas (funciones) que el LLM puede usar
+      const tools = [
+        { type: "function" as const, function: { name: "ventasPeriodo", description: "Cuánto se vendió en un período (hoy, ayer, semana, mes, o un mes específico YYYY-MM). Opcionalmente filtrado por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string", description: "hoy, ayer, semana, mes, o YYYY-MM" }, sucursal: { type: "string", description: "nombre de sucursal (opcional)" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "comprasProveedor", description: "Cuánto se le compró a un proveedor en un período.", parameters: { type: "object", properties: { proveedor: { type: "string" }, periodo: { type: "string", description: "mes o YYYY-MM" } }, required: ["proveedor", "periodo"] } } },
+        { type: "function" as const, function: { name: "productoMasVendido", description: "Ranking de productos más vendidos en un período, por cantidad o por valor.", parameters: { type: "object", properties: { periodo: { type: "string" }, porValor: { type: "boolean", description: "true para ordenar por valor en Bs, false por cantidad" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "gananciaPeriodo", description: "Ganancia bruta (ventas menos costo de productos) en un período.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "infoProducto", description: "Precio de venta, costo y proveedor de un producto por su nombre.", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
+        { type: "function" as const, function: { name: "ventasCliente", description: "Productos vendidos a un cliente específico, opcionalmente en un período.", parameters: { type: "object", properties: { cliente: { type: "string" }, periodo: { type: "string" } }, required: ["cliente"] } } },
+        { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Qué trabajadores están asignados a una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
+        { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales disponibles.", parameters: { type: "object", properties: {} } } },
+      ];
+
+      const systemPrompt = `Eres el asistente de VidaFarma, una farmacia en Cochabamba, Bolivia. Respondes preguntas sobre el negocio (ventas, compras, productos, ganancias, trabajadores) de forma profesional, clara y concisa, en español.
+
+Reglas:
+- Usa SIEMPRE las herramientas para obtener datos reales. Nunca inventes cifras.
+- Si la pregunta necesita un dato que una herramienta provee, llámala.
+- Los montos están en bolivianos (Bs).
+- Si no tienes una herramienta para algo, dilo con honestidad.
+- Responde de forma breve y directa, como un buen asistente de negocios.
+- Si la herramienta devuelve un mensaje de "no disponible", explícalo amablemente.
+- Esta es la fase de consultas: solo puedes LEER datos, no modificar nada todavía.`;
+
+      const mensajes: any[] = [
+        { role: "system", content: systemPrompt },
+        ...(input.historial || []).map(h => ({ role: h.rol, content: h.texto })),
+        { role: "user", content: input.pregunta },
+      ];
+
+      try {
+        // Primera llamada: el LLM decide si usar una herramienta
+        const r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto" });
+        const msg = r1.choices?.[0]?.message;
+        const toolCalls = msg?.tool_calls;
+
+        if (!toolCalls || toolCalls.length === 0) {
+          // Respondió directo sin necesitar datos
+          return { respuesta: msg?.content || "No pude generar una respuesta.", usoHerramienta: null };
+        }
+
+        // Ejecutar las herramientas que pidió
+        mensajes.push({ role: "assistant", content: msg.content || "", tool_calls: toolCalls });
+        const herramientasUsadas: string[] = [];
+        for (const tc of toolCalls) {
+          const nombre = tc.function?.name;
+          let args: any = {};
+          try { args = JSON.parse(tc.function?.arguments || "{}"); } catch {}
+          herramientasUsadas.push(nombre);
+          let resultado: any;
+          try {
+            // Mapear argumentos por nombre explícitamente (no por orden de Object.values)
+            switch (nombre) {
+              case "ventasPeriodo": resultado = await asistenteTools.ventasPeriodo(args.periodo, args.sucursal); break;
+              case "comprasProveedor": resultado = await asistenteTools.comprasProveedor(args.proveedor, args.periodo); break;
+              case "productoMasVendido": resultado = await asistenteTools.productoMasVendido(args.periodo, args.porValor); break;
+              case "gananciaPeriodo": resultado = await asistenteTools.gananciaPeriodo(args.periodo); break;
+              case "infoProducto": resultado = await asistenteTools.infoProducto(args.nombre); break;
+              case "ventasCliente": resultado = await asistenteTools.ventasCliente(args.cliente, args.periodo); break;
+              case "trabajadoresSucursal": resultado = await asistenteTools.trabajadoresSucursal(args.sucursal); break;
+              case "listarSucursales": resultado = await asistenteTools.listarSucursales(); break;
+              default: resultado = { error: "Herramienta desconocida" };
+            }
+          } catch (e: any) {
+            resultado = { error: e?.message || "Error ejecutando la consulta" };
+          }
+          mensajes.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(resultado) });
+        }
+
+        // Segunda llamada: el LLM redacta la respuesta final con los datos
+        const r2 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes });
+        const respuesta = r2.choices?.[0]?.message?.content || "Obtuve los datos pero no pude redactar la respuesta.";
+        return { respuesta, usoHerramienta: herramientasUsadas.join(", ") };
+      } catch (e: any) {
+        console.error("[Asistente] Error:", e?.message);
+        return { respuesta: `Lo siento, hubo un problema al procesar tu pregunta: ${e?.message || "error desconocido"}`, error: true };
+      }
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -2281,6 +2378,7 @@ export const appRouter = router({
   inventario: inventarioRouter,
   asistencia: asistenciaRouter,
   consulta: consultaRouter,
+  asistente: asistenteRouter,
   ventas: ventasRouter,
   gastos: gastosRouter,
 });
