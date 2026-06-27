@@ -2264,6 +2264,40 @@ const gastosRouter = router({
 // ─────────────────────────────────────────────────────────
 const MODELO_ASISTENTE = "llama-3.1-8b-instant"; // mucho más liviano que el 70B; evita saturar el límite gratuito de tokens
 
+// Respaldo: detectar la intención de la pregunta por palabras clave y ejecutar
+// la herramienta correspondiente (cuando el modelo falla al generar la función).
+async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nombre: string; resultado: any } | null> {
+  const q = pregunta.toLowerCase();
+  const periodo = q.includes("hoy") ? "hoy" : q.includes("ayer") ? "ayer" : q.includes("semana") ? "semana"
+    : (q.includes("mes anterior") || q.includes("mes pasado")) ? "mes anterior" : "mes";
+
+  // Precio / cuánto cuesta un producto
+  if (q.includes("precio") || q.includes("cuesta") || q.includes("costo") || q.includes("vale")) {
+    // Extraer el nombre del producto (quitar palabras comunes)
+    const limpio = q.replace(/(cu[aá]nto|cuesta|precio|de|del|la|el|los|las|vale|costo|es|\?|¿)/g, " ").replace(/\s+/g, " ").trim();
+    if (limpio.length >= 2) {
+      const { asistenteTools } = await import("./asistente");
+      return { nombre: "infoProducto", resultado: await asistenteTools.infoProducto(limpio) };
+    }
+  }
+  // Mejor vendedor
+  if (q.includes("mejor vendedor") || q.includes("mejor vendedora") || q.includes("quién vende") || q.includes("quien vende")) {
+    const { asistenteTools } = await import("./asistente");
+    return { nombre: "mejoresVendedores", resultado: await asistenteTools.mejoresVendedores(periodo) };
+  }
+  // Cuánto vendí
+  if (q.includes("vend") || q.includes("venta")) {
+    const { asistenteTools } = await import("./asistente");
+    return { nombre: "ventasPeriodo", resultado: await asistenteTools.ventasPeriodo(periodo) };
+  }
+  // Cuánto gané
+  if (q.includes("gan")) {
+    const { asistenteTools } = await import("./asistente");
+    return { nombre: "gananciaPeriodo", resultado: await asistenteTools.gananciaPeriodo(periodo) };
+  }
+  return null;
+}
+
 // Ejecuta una herramienta del asistente por nombre con sus argumentos
 async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
   const { asistenteTools } = await import("./asistente");
@@ -2321,7 +2355,28 @@ const asistenteRouter = router({
 
       try {
         // Primera llamada: el LLM decide si usar una herramienta
-        const r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto", maxTokens: 512 });
+        let r1: any;
+        try {
+          r1 = await invokeLLM({ model: MODELO_ASISTENTE, messages: mensajes, tools, toolChoice: "auto", maxTokens: 512 });
+        } catch (errTool: any) {
+          // El modelo 8B a veces genera una función mal formada → Groq devuelve 400.
+          // Respaldo: detectar la intención por palabras clave y ejecutar la herramienta directo.
+          const m = String(errTool?.message || "");
+          if (m.includes("Failed to call a function") || m.includes("failed_generation") || m.includes("tool")) {
+            const fallback = await intentarHerramientaPorIntencion(input.pregunta);
+            if (fallback) {
+              const r3 = await invokeLLM({ model: MODELO_ASISTENTE, maxTokens: 512, messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: input.pregunta },
+                { role: "assistant", content: `Datos obtenidos: ${JSON.stringify(fallback.resultado)}` },
+                { role: "user", content: "Redacta la respuesta final breve en español con esos datos." },
+              ]});
+              const txt = r3.choices?.[0]?.message?.content;
+              return { respuesta: (typeof txt === "string" ? txt : "") || "No pude redactar la respuesta.", usoHerramienta: fallback.nombre };
+            }
+          }
+          throw errTool;
+        }
         const msg = r1.choices?.[0]?.message;
         const toolCalls = msg?.tool_calls;
         // GPT-OSS puede devolver content como array de bloques; normalizar a string
