@@ -632,4 +632,100 @@ export const asistenteTools = {
       nota: sucursal ? "Rotación y stock son de la sucursal/almacén indicado." : "Rotación y stock totales (todas las sucursales).",
     };
   },
+
+  // 16. PEDIDO de una sucursal según proveedor: usa índice de cobertura.
+  // Rotación = promedio de últimos 3 meses concluidos. Entra al pedido si el stock
+  // no cubre 1 mes de venta. Cantidad sugerida = rotación mensual - stock actual.
+  async pedidoSucursal(sucursal?: string, proveedor?: string) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+
+    // Rango: últimos 3 meses CONCLUIDOS (no el mes actual)
+    const hoy = new Date();
+    const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0); // último día del mes pasado
+    const ini3Meses = new Date(hoy.getFullYear(), hoy.getMonth() - 3, 1);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const desde = iso(ini3Meses), hasta = iso(finMesAnterior);
+
+    const filtroSuc = sucursal ? ` AND nombreSucursal LIKE ${esc("%" + sucursal + "%")}` : "";
+    // Venta total en 3 meses → promedio mensual = total / 3
+    const ventas = rows(await db.execute(sql.raw(
+      `SELECT articuloNombre, SUM(cantidad) as total3m
+       FROM ventas_detalle WHERE fecha >= ${esc(desde)} AND fecha <= ${esc(hasta)}${filtroSuc}
+       AND articuloNombre NOT LIKE '%venta menor%' AND articuloNombre NOT LIKE '%ventas menores%'
+       GROUP BY articuloNombre HAVING total3m > 0`
+    )));
+    if (ventas.length === 0) {
+      return { mensaje: `No hay ventas en los últimos 3 meses${sucursal ? " en " + sucursal : ""} para calcular el pedido.` };
+    }
+    const rotMensual: Record<string, number> = {};
+    const norm = (s: string) => String(s || "").trim().toLowerCase();
+    for (const v of ventas) rotMensual[norm(v.articuloNombre)] = num(v.total3m) / 3;
+
+    // Stock por almacén de la sucursal (o total si no hay sucursal), filtrado por proveedor
+    let articulos: any[] = [];
+    try {
+      const { inventarios365 } = await import("./inventarios365");
+      let idProv = "";
+      if (proveedor) {
+        const pr = rows(await db.execute(sql.raw(
+          `SELECT DISTINCT idProveedor FROM productos_cache
+           WHERE nombreProveedor LIKE ${esc("%" + proveedor + "%")} AND idProveedor IS NOT NULL LIMIT 1`
+        )));
+        if (pr[0]?.idProveedor) idProv = String(pr[0].idProveedor);
+      }
+      const ALMACENES: Record<string, number> = { petrolera: 2, lanza: 3, cobol: 4, matriz: 1, principal: 1 };
+      let idAlmacen: number | null = null;
+      if (sucursal) {
+        const s = sucursal.toLowerCase();
+        for (const k of Object.keys(ALMACENES)) { if (s.includes(k)) { idAlmacen = ALMACENES[k]; break; } }
+      }
+      if (idAlmacen) {
+        const inv = await inventarios365.listarParaInventario(idAlmacen, idProv);
+        articulos = inv.map((a: any) => ({ nombre: a.nombre, stock: a.stock, proveedor: a.proveedor }));
+      } else {
+        const lista = await inventarios365.listarArticulos("", idProv);
+        articulos = lista.map((a: any) => ({ nombre: a.nombre, stock: Number(a.stock) || 0, proveedor: a.nombre_proveedor }));
+      }
+    } catch (e: any) {
+      return { error: `No pude consultar stock en 365: ${e?.message || "error"}` };
+    }
+
+    // Construir el pedido: índice de cobertura = stock / rotación mensual.
+    // Entra si cobertura < 1 mes (stock < rotación mensual).
+    const COBERTURA_OBJETIVO = 1; // meses
+    const pedido: any[] = [];
+    for (const a of articulos) {
+      const rot = rotMensual[norm(a.nombre)];
+      if (!rot || rot <= 0) continue; // solo productos que rotan
+      const stock = num(a.stock);
+      const objetivo = rot * COBERTURA_OBJETIVO;
+      if (stock < objetivo) {
+        const aPedir = Math.ceil(objetivo - stock);
+        const cobertura = rot > 0 ? stock / rot : 0;
+        pedido.push({
+          producto: a.nombre,
+          ventaMensualProm: Math.round(rot * 10) / 10,
+          stockActual: stock,
+          coberturaMeses: Math.round(cobertura * 100) / 100,
+          cantidadSugerida: aPedir,
+          proveedor: a.proveedor || undefined,
+        });
+      }
+    }
+    // Ordenar por menor cobertura (más crítico primero)
+    pedido.sort((a, b) => a.coberturaMeses - b.coberturaMeses);
+
+    if (pedido.length === 0) {
+      return { mensaje: `No hay productos que requieran pedido${proveedor ? " del proveedor " + proveedor : ""}${sucursal ? " en " + sucursal : ""}. El stock cubre la rotación del mes.` };
+    }
+    return {
+      sucursal: sucursal || "todas",
+      proveedor: proveedor || "todos",
+      criterio: "Pedido = productos cuyo stock no cubre 1 mes de venta (rotación promedio de los últimos 3 meses). Cantidad = lo justo para 1 mes.",
+      totalProductos: pedido.length,
+      pedido: pedido.slice(0, 40),
+      nota: "Índice de cobertura = stock ÷ venta mensual promedio. Funciona igual para productos de alta y baja rotación.",
+    };
+  },
 };

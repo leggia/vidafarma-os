@@ -2136,6 +2136,15 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 
   const { asistenteTools } = await import("./asistente");
 
+  // Pedido / requerimiento de una sucursal según proveedor
+  if (q.includes("pedido") || q.includes("requerimiento") || q.includes("que pedir a") || q.includes("qué pedir a")) {
+    let prov: string | undefined;
+    const mp = q.match(/(?:de|a|proveedor)\s+([a-záéíóúñ]+)(?:\s|$)/);
+    // Buscar nombre de proveedor conocido en la pregunta (heurística simple)
+    const posibles = q.match(/\b(inti|bago|bag[oó]|delta|vita|ifa|cofar|sigma|lafar|farmacorp)\b/);
+    if (posibles) prov = posibles[1];
+    return { nombre: "pedidoSucursal", resultado: await asistenteTools.pedidoSucursal(sucursal, prov) };
+  }
   // Productos urgentes de reponer
   if (q.includes("reponer") || q.includes("urgente") || q.includes("qué pedir") || q.includes("que pedir") || q.includes("debo pedir") || (q.includes("poco stock") && q.includes("vend"))) {
     let prov: string | undefined;
@@ -2203,6 +2212,7 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "rentabilidadSucursales": return await asistenteTools.rentabilidadSucursales(args.periodo);
       case "estadoPagosGastos": return await asistenteTools.estadoPagosGastos(args.periodo, args.sucursal);
       case "productosUrgentes": return await asistenteTools.productosUrgentes(args.proveedor, args.sucursal);
+      case "pedidoSucursal": return await asistenteTools.pedidoSucursal(args.sucursal, args.proveedor);
       default: return { error: "Herramienta desconocida" };
     }
   } catch (e: any) {
@@ -2266,6 +2276,7 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
         { type: "function" as const, function: { name: "rentabilidadSucursales", description: "Rentabilidad/ganancia neta por sucursal: ingresos, costo, sueldos (por asistencia) y gastos de cada sucursal. Úsala para 'ganancia por sucursal', 'cuánto gana cada sucursal', 'qué sucursal es más rentable'.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "estadoPagosGastos", description: "Qué gastos ya se pagaron y cuáles faltan pagar (alquiler, luz, internet, etc.), por sucursal. Úsala para 'qué falta pagar', 'a quién ya pagué', 'qué servicios debo'.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } } } } },
         { type: "function" as const, function: { name: "productosUrgentes", description: "Productos urgentes de reponer: los más vendidos el mes pasado que tienen poco stock. Opcional por proveedor y por sucursal. Úsala para 'qué reponer', 'qué pedir', 'productos urgentes de X proveedor'.", parameters: { type: "object", properties: { proveedor: { type: "string" }, sucursal: { type: "string" } } } } },
+        { type: "function" as const, function: { name: "pedidoSucursal", description: "Genera el PEDIDO/requerimiento de una sucursal según proveedor: qué productos pedir y cuánto, usando un índice de cobertura (rotación de 3 meses vs stock actual). Funciona para productos de alta y baja rotación. Úsala para 'cuál es el pedido de la petrolera de inti', 'requerimiento de X sucursal', 'qué pedir a X proveedor para Y sucursal'.", parameters: { type: "object", properties: { sucursal: { type: "string" }, proveedor: { type: "string" } } } } },
       ];
 
       const mensajes: any[] = [
