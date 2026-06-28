@@ -530,4 +530,92 @@ export const asistenteTools = {
       nota: "Los sueldos calculados por asistencia no están aquí; esto cubre los gastos del módulo de gastos (alquiler, luz, internet, etc.).",
     };
   },
+
+  // 15. Productos urgentes de reponer: alta rotación (último mes concluido) + poco stock.
+  // Opcional por proveedor y por sucursal.
+  async productosUrgentes(proveedor?: string, sucursal?: string) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    // Rotación del último mes CONCLUIDO
+    const hoy = new Date();
+    const ini = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const fin = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const desde = iso(ini), hasta = iso(fin);
+    const etiquetaMes = `${ini.getFullYear()}-${String(ini.getMonth() + 1).padStart(2, "0")}`;
+
+    const filtroSuc = sucursal ? ` AND nombreSucursal LIKE ${esc("%" + sucursal + "%")}` : "";
+    // Top productos por cantidad vendida en el mes
+    const ventas = rows(await db.execute(sql.raw(
+      `SELECT articuloNombre, SUM(cantidad) as vendido
+       FROM ventas_detalle WHERE fecha >= ${esc(desde)} AND fecha <= ${esc(hasta)}${filtroSuc}
+       AND articuloNombre NOT LIKE '%venta menor%' AND articuloNombre NOT LIKE '%ventas menores%'
+       GROUP BY articuloNombre HAVING vendido > 0 ORDER BY vendido DESC LIMIT 40`
+    )));
+    if (ventas.length === 0) {
+      return { mensaje: `No hay ventas en el mes ${etiquetaMes}${sucursal ? " en " + sucursal : ""}.` };
+    }
+
+    // Stock en vivo desde 365 (filtrado por proveedor si se indicó)
+    let articulos: any[] = [];
+    try {
+      const { inventarios365 } = await import("./inventarios365");
+      let idProv = "";
+      if (proveedor) {
+        // Buscar idProveedor por nombre en el cache
+        const pr = rows(await db.execute(sql.raw(
+          `SELECT DISTINCT idProveedor, nombreProveedor FROM productos_cache
+           WHERE nombreProveedor LIKE ${esc("%" + proveedor + "%")} AND idProveedor IS NOT NULL LIMIT 1`
+        )));
+        if (pr[0]?.idProveedor) idProv = String(pr[0].idProveedor);
+      }
+      articulos = await inventarios365.listarArticulos("", idProv);
+    } catch (e: any) {
+      return { error: `No pude consultar stock en 365: ${e?.message || "error"}` };
+    }
+
+    // Mapa de stock por nombre normalizado
+    const norm = (s: string) => String(s || "").trim().toLowerCase();
+    const stockPorNombre: Record<string, number> = {};
+    const provPorNombre: Record<string, string> = {};
+    for (const a of articulos) {
+      stockPorNombre[norm(a.nombre)] = Number(a.stock) || 0;
+      provPorNombre[norm(a.nombre)] = a.nombre_proveedor || "";
+    }
+
+    // Cruzar: urgente = alta rotación + poco stock. Si se filtró proveedor,
+    // solo incluir productos de ese proveedor (los que están en la lista de 365).
+    const UMBRAL_STOCK_BAJO = 10;
+    const urgentes: any[] = [];
+    for (const v of ventas) {
+      const nombreN = norm(v.articuloNombre);
+      const stock = stockPorNombre[nombreN];
+      // Si filtramos por proveedor, omitir los que no están en la lista de ese proveedor
+      if (proveedor && stock === undefined) continue;
+      const stockNum = stock ?? null;
+      const vendido = num(v.vendido);
+      // Urgente si stock conocido y bajo respecto a lo que se vendió
+      if (stockNum !== null && stockNum <= UMBRAL_STOCK_BAJO && vendido >= 3) {
+        urgentes.push({
+          producto: v.articuloNombre,
+          vendidoEnElMes: vendido,
+          stockActual: stockNum,
+          proveedor: provPorNombre[nombreN] || undefined,
+        });
+      }
+    }
+    urgentes.sort((a, b) => (b.vendidoEnElMes / (a.stockActual + 1)) - (a.vendidoEnElMes / (b.stockActual + 1)));
+
+    if (urgentes.length === 0) {
+      return { mensaje: `No encontré productos urgentes de reponer (${etiquetaMes})${proveedor ? " del proveedor " + proveedor : ""}${sucursal ? " en " + sucursal : ""}. O bien hay stock suficiente, o no coinciden los nombres con 365.` };
+    }
+    return {
+      mesRotacion: etiquetaMes,
+      proveedor: proveedor || "todos",
+      sucursal: sucursal || "todas (rotación global)",
+      criterio: "Alta venta el mes pasado y stock actual bajo (≤10).",
+      urgentes: urgentes.slice(0, 20),
+      nota: sucursal ? "La rotación es de la sucursal indicada, pero el stock de 365 es el total (no por almacén)." : undefined,
+    };
+  },
 };

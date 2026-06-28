@@ -2136,6 +2136,13 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 
   const { asistenteTools } = await import("./asistente");
 
+  // Productos urgentes de reponer
+  if (q.includes("reponer") || q.includes("urgente") || q.includes("qué pedir") || q.includes("que pedir") || q.includes("debo pedir") || (q.includes("poco stock") && q.includes("vend"))) {
+    let prov: string | undefined;
+    const mProv = q.match(/proveedor\s+(\w+)/);
+    if (mProv) prov = mProv[1];
+    return { nombre: "productosUrgentes", resultado: await asistenteTools.productosUrgentes(prov, sucursal) };
+  }
   // Estado de pagos: "qué falta pagar", "a quién pagué", "qué servicios debo"
   if (q.includes("falta pagar") || q.includes("pagar") || q.includes("pagu") || q.includes("debo") || q.includes("pendiente")) {
     return { nombre: "estadoPagosGastos", resultado: await asistenteTools.estadoPagosGastos(undefined, sucursal) };
@@ -2195,6 +2202,7 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "historialCompraProducto": return await asistenteTools.historialCompraProducto(args.nombre);
       case "rentabilidadSucursales": return await asistenteTools.rentabilidadSucursales(args.periodo);
       case "estadoPagosGastos": return await asistenteTools.estadoPagosGastos(args.periodo, args.sucursal);
+      case "productosUrgentes": return await asistenteTools.productosUrgentes(args.proveedor, args.sucursal);
       default: return { error: "Herramienta desconocida" };
     }
   } catch (e: any) {
@@ -2257,6 +2265,7 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
         { type: "function" as const, function: { name: "historialCompraProducto", description: "A cuánto se compró un producto: precio más bajo registrado y la última compra (avisa si la última fue la más baja).", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
         { type: "function" as const, function: { name: "rentabilidadSucursales", description: "Rentabilidad/ganancia neta por sucursal: ingresos, costo, sueldos (por asistencia) y gastos de cada sucursal. Úsala para 'ganancia por sucursal', 'cuánto gana cada sucursal', 'qué sucursal es más rentable'.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "estadoPagosGastos", description: "Qué gastos ya se pagaron y cuáles faltan pagar (alquiler, luz, internet, etc.), por sucursal. Úsala para 'qué falta pagar', 'a quién ya pagué', 'qué servicios debo'.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } } } } },
+        { type: "function" as const, function: { name: "productosUrgentes", description: "Productos urgentes de reponer: los más vendidos el mes pasado que tienen poco stock. Opcional por proveedor y por sucursal. Úsala para 'qué reponer', 'qué pedir', 'productos urgentes de X proveedor'.", parameters: { type: "object", properties: { proveedor: { type: "string" }, sucursal: { type: "string" } } } } },
       ];
 
       const mensajes: any[] = [
