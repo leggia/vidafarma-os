@@ -719,13 +719,15 @@ export const asistenteTools = {
     if (pedido.length === 0) {
       return { mensaje: `No hay productos que requieran pedido${proveedor ? " del proveedor " + proveedor : ""}${sucursal ? " en " + sucursal : ""}. El stock cubre la rotación del mes.` };
     }
+    const MOSTRAR = 15;
     return {
       sucursal: sucursal || "todas",
       proveedor: proveedor || "todos",
-      criterio: "Pedido = productos cuyo stock no cubre 1 mes de venta (rotación promedio de los últimos 3 meses). Cantidad = lo justo para 1 mes.",
-      totalProductos: pedido.length,
-      pedido: pedido.slice(0, 40),
-      nota: "Índice de cobertura = stock ÷ venta mensual promedio. Funciona igual para productos de alta y baja rotación.",
+      totalProductosEnPedido: pedido.length,
+      mostrando: Math.min(MOSTRAR, pedido.length),
+      pedido: pedido.slice(0, MOSTRAR),
+      instruccionEstricta: `Muestra EXACTAMENTE estos ${Math.min(MOSTRAR, pedido.length)} productos de la lista 'pedido'. NO agregues ningún producto que no esté en esta lista. NO inventes una segunda tabla. Si hay más de ${MOSTRAR}, solo menciona que hay ${pedido.length} en total y que se puede ver el resto en el módulo de pedidos.`,
+      nota: "Índice de cobertura = stock ÷ venta mensual promedio (3 meses).",
     };
   },
 };
