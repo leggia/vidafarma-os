@@ -1372,14 +1372,23 @@ class Inventarios365Service {
       }
 
       // Paso 3: Actualizar precios de venta que el usuario modificó
+      const preciosVentaFallidos: string[] = [];
       if (preciosActualizar.length > 0) {
         console.log(`[Inventarios365] PASO 3: Actualizando ${preciosActualizar.length} precio(s) de venta`);
         for (const p of preciosActualizar) {
           try {
-            await this.actualizarPrecioVenta(p.id, p.precio);
+            const ok = await this.actualizarPrecioVenta(p.id, p.precio);
+            if (!ok) {
+              preciosVentaFallidos.push(p.nombre);
+              console.warn(`[Inventarios365] actualizarPrecioVenta devolvió false para "${p.nombre}"`);
+            }
           } catch (e: any) {
+            preciosVentaFallidos.push(p.nombre);
             console.warn(`[Inventarios365] No se pudo actualizar precio de "${p.nombre}":`, e?.message);
           }
+        }
+        if (preciosVentaFallidos.length > 0) {
+          console.warn(`[Inventarios365] PRECIOS DE VENTA NO ACTUALIZADOS: ${preciosVentaFallidos.join(", ")}`);
         }
       }
 
@@ -1418,6 +1427,7 @@ class Inventarios365Service {
         ingresoId: respData?.id,
         productosNoEncontrados,
         productosEmparejados,
+        preciosVentaFallidos,
       };
     } catch (error: any) {
       console.error(

@@ -495,6 +495,7 @@ export default function NuevaCompra() {
           subtotal: i.subtotal, expiryDate: i.expiryDate || null,
           nombreFactura: (i as any).nombreFacturaOriginal || productosEmparejados[i.productName] || i.productName,
           nuevoPrecioVenta: (i.nuevoPrecioVenta != null && i.nuevoPrecioVenta !== i.precioVentaSistema) ? i.nuevoPrecioVenta : null,
+          precioVenta: i.nuevoPrecioVenta ?? i.precioVentaSistema ?? null,
         })),
         imageUrl: uploadAndExtract.data?.imageUrl || null,
         imageKey: uploadAndExtract.data?.imageKey || null,
@@ -560,6 +561,7 @@ export default function NuevaCompra() {
             subtotal: Number(i.subtotal) || (Number(i.quantity) || 0) * (Number(i.unitCost) || 0),
             expiryDate: i.expiryDate || null,
             nuevoPrecioVenta: (i.nuevoPrecioVenta != null && i.nuevoPrecioVenta !== i.precioVentaSistema) ? i.nuevoPrecioVenta : null,
+          precioVenta: i.nuevoPrecioVenta ?? i.precioVentaSistema ?? null,
           })),
           imageUrl: uploadAndExtract.data?.imageUrl || null,
           imageKey: uploadAndExtract.data?.imageKey || null,
@@ -604,8 +606,14 @@ export default function NuevaCompra() {
             setIsSubmitting(false);
             utils.purchases.list.invalidate().catch(() => {});
             utils.dashboard.stats.invalidate().catch(() => {});
+            // Avisar si algún precio de venta NO se actualizó (para revisar manual)
+            if (r.preciosVentaFallidos?.length > 0) {
+              toast.warning(`⚠️ Estos precios de venta NO se actualizaron, revísalos manualmente: ${r.preciosVentaFallidos.join(", ")}`, { duration: 12000 });
+            }
             setModalExito({
-              mensaje: "La compra se registró correctamente en inventarios365.com",
+              mensaje: r.preciosVentaFallidos?.length > 0
+                ? `La compra se registró, pero ${r.preciosVentaFallidos.length} precio(s) de venta no se actualizaron. Revísalos manualmente: ${r.preciosVentaFallidos.join(", ")}`
+                : "La compra se registró correctamente en inventarios365.com",
               ingresoId: r.syncIngresoId ? String(r.syncIngresoId) : undefined,
             });
             return;

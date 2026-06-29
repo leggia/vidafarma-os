@@ -125,7 +125,7 @@ export async function createPurchase(data: {
   imageKey?: string | null;
   extractedData?: any;
   status?: string;
-  items: Array<{ productName: string; quantity: number; unitCost: number; subtotal: number; expiryDate?: string | null; nombreFactura?: string | null }>;
+  items: Array<{ productName: string; quantity: number; unitCost: number; subtotal: number; expiryDate?: string | null; nombreFactura?: string | null; precioVenta?: number | null }>;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -135,6 +135,10 @@ export async function createPurchase(data: {
   try {
     const { sql } = await import("drizzle-orm");
     await db.execute(sql.raw("ALTER TABLE purchase_items ADD COLUMN nombreFactura VARCHAR(500)"));
+  } catch { /* ya existe */ }
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql.raw("ALTER TABLE purchase_items ADD COLUMN precioVenta DECIMAL(12,4)"));
   } catch { /* ya existe */ }
 
   const finalStatus = data.status || "draft";
@@ -174,15 +178,17 @@ export async function createPurchase(data: {
       const cant = num(item.quantity);
       const costo = num(item.unitCost);
       const subt = num(item.subtotal);
+      const pv = item.precioVenta != null && Number(item.precioVenta) > 0 ? num(item.precioVenta) : null;
+      const pvSql = pv == null ? "NULL" : esc(String(pv));
       if (tieneNombreFactura) {
         await db.execute(sql.raw(
-          `INSERT INTO purchase_items (purchaseId, productName, nombreFactura, quantity, unitCost, subtotal, expiryDate)
-           VALUES (${purchaseId}, ${esc(item.productName)}, ${esc(nombreFactura)}, ${cant}, ${esc(String(costo))}, ${esc(String(subt))}, ${esc(item.expiryDate || null)})`
+          `INSERT INTO purchase_items (purchaseId, productName, nombreFactura, quantity, unitCost, subtotal, expiryDate, precioVenta)
+           VALUES (${purchaseId}, ${esc(item.productName)}, ${esc(nombreFactura)}, ${cant}, ${esc(String(costo))}, ${esc(String(subt))}, ${esc(item.expiryDate || null)}, ${pvSql})`
         ));
       } else {
         await db.execute(sql.raw(
-          `INSERT INTO purchase_items (purchaseId, productName, quantity, unitCost, subtotal, expiryDate)
-           VALUES (${purchaseId}, ${esc(item.productName)}, ${cant}, ${esc(String(costo))}, ${esc(String(subt))}, ${esc(item.expiryDate || null)})`
+          `INSERT INTO purchase_items (purchaseId, productName, quantity, unitCost, subtotal, expiryDate, precioVenta)
+           VALUES (${purchaseId}, ${esc(item.productName)}, ${cant}, ${esc(String(costo))}, ${esc(String(subt))}, ${esc(item.expiryDate || null)}, ${pvSql})`
         ));
       }
     }

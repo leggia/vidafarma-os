@@ -312,6 +312,7 @@ INSTRUCCIONES GENERALES:
             subtotal: z.number().nullable().optional(),
             expiryDate: z.string().nullable().optional(),
             nuevoPrecioVenta: z.number().nullable().optional(),
+            precioVenta: z.number().nullable().optional(),
           })
         ),
         imageUrl: z.string().nullable().optional(),
@@ -332,6 +333,7 @@ INSTRUCCIONES GENERALES:
         subtotal: Number(it.subtotal) || (Number(it.quantity) || 0) * (Number(it.unitCost) || 0),
         expiryDate: it.expiryDate ?? null,
         nuevoPrecioVenta: it.nuevoPrecioVenta ?? null,
+        precioVenta: it.precioVenta ?? it.nuevoPrecioVenta ?? null,
       }));
       let result: any;
       try {
@@ -416,6 +418,7 @@ INSTRUCCIONES GENERALES:
         syncIngresoId,
         productosNoEncontrados: syncResultData?.productosNoEncontrados || [],
         productosEmparejados: syncResultData?.productosEmparejados || [],
+        preciosVentaFallidos: syncResultData?.preciosVentaFallidos || [],
       };
     }),
 

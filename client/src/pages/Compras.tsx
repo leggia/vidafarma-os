@@ -388,6 +388,9 @@ function DetalleCompra({ purchaseId }: { purchaseId: number }) {
             <div className="text-right shrink-0">
               <p className="tabular-nums">{fmt(it.quantity)} × {fmt(it.unitCost)} Bs</p>
               <p className="font-bold tabular-nums">{fmt(it.subtotal)} Bs</p>
+              {it.precioVenta != null && Number(it.precioVenta) > 0 && (
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums">Venta: {fmt(it.precioVenta)} Bs</p>
+              )}
             </div>
           </div>
         ))}
