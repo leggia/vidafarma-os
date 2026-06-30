@@ -517,31 +517,31 @@ class Inventarios365Service {
    */
   async actualizarPrecioCosto(idarticulo: number, costoUnitario: number, unidadEnvase = 1): Promise<boolean> {
     const costoPaquete = costoUnitario * (unidadEnvase || 1);
-    try {
-      // Traer los precios de venta actuales para no perderlos al actualizar
-      const articulo: any = await this.obtenerArticuloPorId(idarticulo);
-      const precioUno = articulo?.precio_uno ?? "0";
-      const precioDos = articulo?.precio_dos ?? "0";
-      const precioTres = articulo?.precio_tres ?? 0;
-      const precioCuatro = articulo?.precio_cuatro ?? 0;
-
-      const payload = {
-        id: idarticulo,
-        precio_costo_paquete: costoPaquete,
-        precio_costo_unidad: costoUnitario,
-        precio_uno: precioUno,
-        precio_dos: precioDos,
-        precio_tres: precioTres,
-        precio_cuatro: precioCuatro,
-      };
-
-      const respData = await this.post<any>("/articulo/actualizarPrecios", payload);
-      console.log(`[Inventarios365] Costo actualizado: artículo ${idarticulo} → ${costoUnitario} Bs`);
-      return true;
-    } catch (error: any) {
-      console.error(`[Inventarios365] Error actualizando costo del artículo ${idarticulo}:`, error?.message);
-      return false;
+    // Traer los precios de venta actuales para no perderlos al actualizar
+    let articulo: any = null;
+    try { articulo = await this.obtenerArticuloPorId(idarticulo); } catch { /* seguimos con defaults */ }
+    const payload = {
+      id: idarticulo,
+      precio_costo_paquete: costoPaquete,
+      precio_costo_unidad: costoUnitario,
+      precio_uno: articulo?.precio_uno ?? "0",
+      precio_dos: articulo?.precio_dos ?? "0",
+      precio_tres: articulo?.precio_tres ?? 0,
+      precio_cuatro: articulo?.precio_cuatro ?? 0,
+    };
+    const MAX_INTENTOS = 3;
+    for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+      try {
+        await this.post<any>("/articulo/actualizarPrecios", payload);
+        console.log(`[Inventarios365] Costo actualizado: artículo ${idarticulo} → ${costoUnitario} Bs (intento ${intento})`);
+        return true;
+      } catch (error: any) {
+        console.warn(`[Inventarios365] Costo intento ${intento}/${MAX_INTENTOS} falló (art ${idarticulo}):`, error?.message);
+        if (intento < MAX_INTENTOS) await new Promise(r => setTimeout(r, 500 * intento));
+      }
     }
+    console.error(`[Inventarios365] Costo del artículo ${idarticulo} FALLÓ tras ${MAX_INTENTOS} intentos`);
+    return false;
   }
 
   /** Obtener un artículo por su id (busca en el listado). */
@@ -564,17 +564,25 @@ class Inventarios365Service {
    * Endpoint: POST /articulo/actualizarPrecioVenta con { id, precio_uno }
    */
   async actualizarPrecioVenta(idarticulo: number, precioUno: number): Promise<boolean> {
-    try {
-      const respData = await this.post<any>("/articulo/actualizarPrecioVenta", {
-        id: idarticulo,
-        precio_uno: precioUno,
-      });
-      console.log(`[Inventarios365] Precio actualizado: artículo ${idarticulo} → ${precioUno} Bs`, JSON.stringify(respData).substring(0, 100));
-      return true;
-    } catch (error: any) {
-      console.error(`[Inventarios365] Error actualizando precio del artículo ${idarticulo}:`, error?.message);
-      return false;
+    const MAX_INTENTOS = 3;
+    for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+      try {
+        const respData = await this.post<any>("/articulo/actualizarPrecioVenta", {
+          id: idarticulo,
+          precio_uno: precioUno,
+        });
+        console.log(`[Inventarios365] Precio actualizado: artículo ${idarticulo} → ${precioUno} Bs (intento ${intento})`, JSON.stringify(respData).substring(0, 80));
+        return true;
+      } catch (error: any) {
+        console.warn(`[Inventarios365] Intento ${intento}/${MAX_INTENTOS} falló para artículo ${idarticulo}:`, error?.message);
+        if (intento < MAX_INTENTOS) {
+          // Espera incremental antes de reintentar (500ms, 1000ms)
+          await new Promise(r => setTimeout(r, 500 * intento));
+        }
+      }
     }
+    console.error(`[Inventarios365] Precio del artículo ${idarticulo} FALLÓ tras ${MAX_INTENTOS} intentos`);
+    return false;
   }
 
   /**
@@ -1386,6 +1394,8 @@ class Inventarios365Service {
             preciosVentaFallidos.push(p.nombre);
             console.warn(`[Inventarios365] No se pudo actualizar precio de "${p.nombre}":`, e?.message);
           }
+          // Pequeña pausa entre peticiones para no saturar 365 (evita rechazos en compras grandes)
+          await new Promise(r => setTimeout(r, 150));
         }
         if (preciosVentaFallidos.length > 0) {
           console.warn(`[Inventarios365] PRECIOS DE VENTA NO ACTUALIZADOS: ${preciosVentaFallidos.join(", ")}`);
