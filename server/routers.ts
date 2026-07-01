@@ -287,6 +287,7 @@ INSTRUCCIONES GENERALES:
         receiptNumber: extracted.receiptNumber || "",
         totalFactura: totalFactura,
         descuentoGlobal: descuentoGlobal,
+        descuentoGlobalPct: extracted.descuentoGlobalPct || (sumaSubtotales > 0 && descuentoGlobal > 0 ? Math.round((descuentoGlobal / sumaSubtotales) * 1000) / 10 : 0),
         avisoTotal: descuadre
           ? `La suma de productos (${sumaSubtotales.toFixed(2)})${descuentoGlobal > 0 ? ` menos descuento (${descuentoGlobal.toFixed(2)})` : ""} no coincide con el total de la factura (${totalFactura}). Revisa los precios.`
           : null,
@@ -333,7 +334,7 @@ INSTRUCCIONES GENERALES:
         subtotal: Number(it.subtotal) || (Number(it.quantity) || 0) * (Number(it.unitCost) || 0),
         expiryDate: it.expiryDate ?? null,
         nuevoPrecioVenta: it.nuevoPrecioVenta ?? null,
-        precioVenta: it.precioVenta ?? it.nuevoPrecioVenta ?? null,
+        precioVenta: (() => { const v = Number(it.precioVenta ?? it.nuevoPrecioVenta); return isNaN(v) || v <= 0 ? null : v; })(),
       }));
       let result: any;
       try {

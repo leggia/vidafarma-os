@@ -418,6 +418,10 @@ export default function NuevaCompra() {
             setTotalFacturaReal(result.totalFactura || 0);
             setExtracted(true);
             toast.success(`Se extrajeron ${result.items.length} productos de la imagen`);
+            // Si el backend detectó que la suma no cuadra con la factura, avisar
+            if (result.avisoTotal) {
+              toast.warning(`⚠️ ${result.avisoTotal}`, { duration: 10000 });
+            }
             // Pre-buscar SOLO confirmaciones guardadas (match seguro, no por similitud)
             const provNombre = result.supplier || "";
             for (let i = 0; i < result.items.length; i++) {
