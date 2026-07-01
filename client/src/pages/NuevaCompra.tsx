@@ -163,6 +163,14 @@ export default function NuevaCompra() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [cropUrl, setCropUrl] = useState<string | null>(null); // imagen pendiente de recortar
   const [branchId, setBranchId] = useState<string>("");
+
+  // Preseleccionar la sucursal principal (Casa Matriz) al cargar, si no hay una elegida
+  useEffect(() => {
+    if (!branchId && branchesData && branchesData.length > 0) {
+      const principal = branchesData.find((b: any) => /matriz|principal/i.test(b.name || ""));
+      setBranchId(String((principal || branchesData[0]).id));
+    }
+  }, [branchesData]);
   const [receiptNumber, setReceiptNumber] = useState("");
   const [facturaYaAlertada, setFacturaYaAlertada] = useState<string>(""); // evita repetir la alerta
   const [supplier, setSupplier] = useState("");

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Compras() {
   const [, setLocation] = useLocation();
@@ -18,6 +18,11 @@ export default function Compras() {
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
   const [expandidaId, setExpandidaId] = useState<number | null>(null);
+
+  // Al abrir la lista de compras, subir al inicio (evita quedar abajo tras registrar)
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
 
   const confirmMutation = trpc.purchases.confirm.useMutation({
     onSuccess: (data, variables) => {
@@ -182,10 +187,10 @@ export default function Compras() {
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">
-                        {p.receiptNumber || `Compra #${p.id}`}
+                        {p.supplier || "Sin proveedor"}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
-                        {p.supplier || "Sin proveedor"} — {p.branchName || "Central"}
+                        {p.receiptNumber || `Compra #${p.id}`} — {p.branchName || "Central"}
                         {p.itemCount ? ` — ${p.itemCount} productos` : ""}
                       </p>
                       {/* Error de sincronización */}
