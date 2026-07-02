@@ -281,10 +281,18 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   // Modelo de visión por defecto. llama-4-scout se apaga el 17/07/2026;
   // qwen3.6-27b es el multimodal en PRODUCCIÓN de Groq (visión + JSON mode).
+  const resolvedModel = model || process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b";
   const payload: Record<string, unknown> = {
-    model: model || process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b",
+    model: resolvedModel,
     messages: messages.map(normalizeMessage),
   };
+
+  // Los modelos qwen razonan ("thinking") por defecto: gastan el presupuesto de
+  // tokens pensando y el content llega vacío/roto (la extracción de facturas
+  // fallaba por esto). Para extracción no hace falta razonar: desactivarlo.
+  if (resolvedModel.startsWith("qwen")) {
+    payload.reasoning_effort = "none";
+  }
 
   if (tools && tools.length > 0) {
     payload.tools = tools;
