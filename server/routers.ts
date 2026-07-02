@@ -222,6 +222,11 @@ INSTRUCCIONES GENERALES:
           const rawContent = resultToUse.choices[0]?.message?.content;
           const finishReason = resultToUse.choices[0]?.finish_reason;
           console.log(`[LLM] Respuesta raw (intento ${intento + 1}, finish=${finishReason}):`, String(rawContent || "").substring(0, 200));
+          // Respuesta cortada por límite de tokens: el JSON llega incompleto,
+          // la factura es muy grande y reintentar no ayuda. Revisar ANTES de parsear.
+          if (finishReason === "length") {
+            throw new Error("FACTURA_MUY_GRANDE");
+          }
           if (typeof rawContent === "string" && rawContent.trim()) {
             const clean = rawContent.replace(/```json|```/g, "").trim();
             extracted = JSON.parse(clean);
@@ -230,7 +235,15 @@ INSTRUCCIONES GENERALES:
           }
           ultimoError = `respuesta vacía del modelo (finish_reason=${finishReason})`;
         } catch (e: any) {
-          ultimoError = String(e?.message || e).substring(0, 400);
+          const msg = String(e?.message || e);
+          if (msg === "FACTURA_MUY_GRANDE") {
+            throw new Error("La factura tiene demasiados productos para procesarla de una vez. Divídela en dos fotos (mitad superior y mitad inferior) y súbelas como dos compras, o recorta la foto.");
+          }
+          // Límite por minuto de Groq: reintentar en segundos no sirve.
+          if (msg.includes("tokens per minute") || msg.includes("413")) {
+            throw new Error("Se alcanzó el límite por minuto del plan gratuito de Groq. Espera 1 minuto y vuelve a intentar.");
+          }
+          ultimoError = msg.substring(0, 400);
           console.error(`[LLM] Error intento ${intento + 1}:`, ultimoError);
         }
       }
