@@ -1668,8 +1668,11 @@ const ventasRouter = router({
       // medicamento real, solo un registro para ventas mínimas olvidadas.
       const excluirMenores = sql`AND articuloNombre NOT LIKE '%ventas menores%' AND articuloNombre NOT LIKE '%venta menor%'`;
 
+      // Clientes identificados (excluye consumidor final / sin cliente registrado)
+      const excluirGenerico = sql`AND idCliente IS NOT NULL AND razonSocialCliente NOT LIKE '%consumidor final%'`;
+
       try {
-        const [masVendidos, masVendidosValor, vendedores, sucursales, diasSemana, totales] = await Promise.all([
+        const [masVendidos, masVendidosValor, vendedores, mejoresClientes, sucursales, diasSemana, totales] = await Promise.all([
           // Productos más vendidos POR CANTIDAD
           db.execute(sql`
             SELECT articuloNombre, SUM(cantidad) as unidades, SUM(subtotal) as monto, COUNT(*) as veces
@@ -1687,6 +1690,12 @@ const ventasRouter = router({
             SELECT vendedor, SUM(total) as monto, COUNT(*) as ventas
              FROM ventas WHERE ${rango} ${filtroSuc}
              GROUP BY vendedor ORDER BY monto DESC LIMIT 10
+          `),
+          // Mejores clientes (más Bs pagados en el periodo)
+          db.execute(sql`
+            SELECT idCliente, razonSocialCliente, SUM(total) as monto, COUNT(*) as ventas
+             FROM ventas WHERE ${rango} ${filtroSuc} ${excluirGenerico}
+             GROUP BY idCliente, razonSocialCliente ORDER BY monto DESC LIMIT 15
           `),
           // Ventas por sucursal
           db.execute(sql`
@@ -1710,12 +1719,36 @@ const ventasRouter = router({
           masVendidos: rows(masVendidos),
           masVendidosValor: rows(masVendidosValor),
           vendedores: rows(vendedores),
+          mejoresClientes: rows(mejoresClientes),
           sucursales: rows(sucursales),
           diasSemana: rows(diasSemana),
           totales: rows(totales)[0] || { ventas: 0, monto: 0, promedio: 0 },
         };
       } catch (err: any) {
-        return { error: err.message, masVendidos: [], vendedores: [], sucursales: [], diasSemana: [], totales: null };
+        return { error: err.message, masVendidos: [], vendedores: [], mejoresClientes: [], sucursales: [], diasSemana: [], totales: null };
+      }
+    }),
+
+  // Productos comprados por un cliente específico en un periodo (detalle al hacer click en "Mejores clientes")
+  productosCliente: protectedProcedure
+    .input(z.object({ idCliente: z.number(), desde: z.string(), hasta: z.string() }))
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { productos: [] };
+      const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+      try {
+        const r = rows(await db.execute(sql`
+          SELECT d.articuloNombre, SUM(d.cantidad) as unidades, SUM(d.subtotal) as monto
+           FROM ventas_detalle d JOIN ventas v ON v.id = d.ventaId
+           WHERE v.idCliente = ${input.idCliente} AND d.fecha >= ${input.desde} AND d.fecha <= ${input.hasta}
+             AND d.articuloNombre NOT LIKE '%venta menor%' AND d.articuloNombre NOT LIKE '%ventas menores%'
+           GROUP BY d.articuloNombre ORDER BY monto DESC LIMIT 30
+        `));
+        return { productos: r };
+      } catch (err: any) {
+        return { productos: [], error: err.message };
       }
     }),
 

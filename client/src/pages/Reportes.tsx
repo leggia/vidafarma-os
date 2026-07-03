@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   TrendingUp, RefreshCw, Loader2, Package, Building2, Calendar,
-  ShoppingCart, Award, Coins, Percent, ChevronDown, ChevronUp, ArrowUpRight,
+  ShoppingCart, Award, Coins, Percent, ChevronDown, ChevronUp, ArrowUpRight, Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, ResponsiveContainer, Cell } from "recharts";
@@ -95,6 +95,11 @@ export default function Reportes() {
   // Máximo para escalar barras del top de productos
   const maxUnidades = useMemo(() => Math.max(1, ...(d?.masVendidos ?? []).map((p: any) => Number(p.unidades))), [d]);
   const [vistaProductos, setVistaProductos] = useState<"cantidad" | "valor">("cantidad");
+  const [clienteAbierto, setClienteAbierto] = useState<number | null>(null);
+  const productosCliente = trpc.ventas.productosCliente.useQuery(
+    { idCliente: clienteAbierto ?? 0, desde, hasta },
+    { enabled: clienteAbierto !== null }
+  );
   const listaProductos = vistaProductos === "cantidad" ? (d?.masVendidos ?? []) : ((d as any)?.masVendidosValor ?? []);
   const maxProducto = useMemo(() => {
     const campo = vistaProductos === "cantidad" ? "unidades" : "monto";
@@ -334,6 +339,59 @@ export default function Reportes() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </Panel>
+            )}
+
+            {/* ─── Mejores clientes (más Bs pagados en el periodo) ─── */}
+            {(d.mejoresClientes?.length ?? 0) > 0 && (
+              <Panel titulo="Mejores clientes" icon={<Users className="h-4 w-4" />}>
+                <div className="space-y-1.5">
+                  {d.mejoresClientes.map((c: any, i: number) => {
+                    const idCliente = Number(c.idCliente);
+                    const abierto = clienteAbierto === idCliente;
+                    return (
+                      <div key={idCliente} className="rounded-lg border overflow-hidden">
+                        <button
+                          onClick={() => setClienteAbierto(abierto ? null : idCliente)}
+                          className="w-full flex items-center justify-between gap-2 text-xs px-2.5 py-2 hover:bg-muted/40 transition"
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className={`w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold shrink-0 ${i === 0 ? "bg-amber-400 text-amber-950" : i === 1 ? "bg-slate-300 text-slate-700" : i === 2 ? "bg-orange-300 text-orange-900" : "bg-muted text-muted-foreground"}`}>{i + 1}</span>
+                            <span className="font-medium truncate">{c.razonSocialCliente || "—"}</span>
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-muted-foreground">{fmtNum(c.ventas)} compras</span>
+                            <span className="font-bold tabular-nums">Bs {fmtBs(c.monto)}</span>
+                            {abierto ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </span>
+                        </button>
+                        {abierto && (
+                          <div className="border-t bg-muted/20 px-2.5 py-2">
+                            {productosCliente.isLoading ? (
+                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
+                                <Loader2 className="h-3 w-3 animate-spin" /> Cargando productos...
+                              </div>
+                            ) : (productosCliente.data?.productos?.length ?? 0) === 0 ? (
+                              <p className="text-[11px] text-muted-foreground py-1">Sin productos en este periodo.</p>
+                            ) : (
+                              <div className="space-y-1">
+                                {productosCliente.data!.productos.map((p: any, j: number) => (
+                                  <div key={j} className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="truncate">{p.articuloNombre}</span>
+                                    <span className="flex items-center gap-2 shrink-0 text-muted-foreground">
+                                      <span>{fmtNum(p.unidades)} un.</span>
+                                      <span className="font-semibold text-foreground tabular-nums">Bs {fmtBs(p.monto)}</span>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </Panel>
             )}
