@@ -30,9 +30,11 @@ async function asegurarTablas() {
       valorAnterior VARCHAR(300),
       valorNuevo VARCHAR(300),
       resultado VARCHAR(300),
+      ejecutadoPor VARCHAR(200),
       creadoEn DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_aud_fecha (creadoEn)
     )`,
+    `ALTER TABLE asistente_auditoria ADD COLUMN ejecutadoPor VARCHAR(200)`,
   ];
   for (const st of sentencias) {
     try { await db.execute(sql.raw(st)); } catch { /* ya existe */ }
@@ -40,13 +42,13 @@ async function asegurarTablas() {
   tablasListas = true;
 }
 
-async function auditar(accion: string, detalle: string, valorAnterior: string, valorNuevo: string, resultado: string) {
+async function auditar(accion: string, detalle: string, valorAnterior: string, valorNuevo: string, resultado: string, ejecutadoPor?: string) {
   try {
     const db = await getDb();
     if (!db) return;
     await db.execute(sql`
-      INSERT INTO asistente_auditoria (accion, detalle, valorAnterior, valorNuevo, resultado)
-      VALUES (${accion}, ${detalle.slice(0, 800)}, ${valorAnterior.slice(0, 300)}, ${valorNuevo.slice(0, 300)}, ${resultado.slice(0, 300)})
+      INSERT INTO asistente_auditoria (accion, detalle, valorAnterior, valorNuevo, resultado, ejecutadoPor)
+      VALUES (${accion}, ${detalle.slice(0, 800)}, ${valorAnterior.slice(0, 300)}, ${valorNuevo.slice(0, 300)}, ${resultado.slice(0, 300)}, ${(ejecutadoPor || "desconocido").slice(0, 200)})
     `);
   } catch (e: any) {
     console.warn("[Acciones] No se pudo auditar:", e?.message);
@@ -181,7 +183,7 @@ export const accionesTools = {
   },
 
   // Confirmar la propuesta pendiente → EJECUTA de verdad
-  async confirmarAccion() {
+  async confirmarAccion(usuario?: { id?: string; name?: string; email?: string }) {
     await asegurarTablas();
     const db = await getDb();
     if (!db) return { error: "Sin BD" };
@@ -196,25 +198,28 @@ export const accionesTools = {
       await db.execute(sql`UPDATE asistente_acciones_pendientes SET estado='expirada' WHERE id = ${a.id}`);
       return { error: `La propuesta caducó (${EXPIRA_MIN} min). Vuelve a pedir la acción.` };
     }
-    const params = typeof a.params === "string" ? JSON.parse(a.params) : a.params;
+    let params: any = {};
+    try { params = typeof a.params === "string" ? JSON.parse(a.params) : (a.params || {}); }
+    catch { return { error: "La propuesta guardada está corrupta. Vuelve a pedir la acción." }; }
+    const quien = usuario?.name || usuario?.email || usuario?.id || "desconocido";
     try {
       let resultado = "";
       if (a.tipo === "cambiarPrecio") {
         resultado = await ejecutarCambioPrecio(params);
-        await auditar("cambiarPrecio", a.resumen, `Bs ${params.precioAnterior}`, `Bs ${params.nuevoPrecio}`, "OK");
+        await auditar("cambiarPrecio", a.resumen, `Bs ${params.precioAnterior}`, `Bs ${params.nuevoPrecio}`, "OK", quien);
       } else if (a.tipo === "marcarPagado") {
         resultado = await ejecutarMarcarPagado(params);
-        await auditar("marcarPagado", a.resumen, "pendiente", "pagado", "OK");
+        await auditar("marcarPagado", a.resumen, "pendiente", "pagado", "OK", quien);
       } else if (a.tipo === "registrarGasto") {
         resultado = await ejecutarRegistrarGasto(params);
-        await auditar("registrarGasto", a.resumen, "-", `Bs ${params.monto}`, "OK");
+        await auditar("registrarGasto", a.resumen, "-", `Bs ${params.monto}`, "OK", quien);
       } else {
         throw new Error(`Tipo de acción desconocido: ${a.tipo}`);
       }
       await db.execute(sql`UPDATE asistente_acciones_pendientes SET estado='ejecutada' WHERE id = ${a.id}`);
       return { ejecutada: true, resultado, nota: "Acción registrada en la auditoría." };
     } catch (e: any) {
-      await auditar(a.tipo, a.resumen, "-", "-", `ERROR: ${e?.message || "desconocido"}`);
+      await auditar(a.tipo, a.resumen, "-", "-", `ERROR: ${e?.message || "desconocido"}`, quien);
       await db.execute(sql`UPDATE asistente_acciones_pendientes SET estado='error' WHERE id = ${a.id}`);
       return { error: `La acción falló: ${e?.message || "error desconocido"}. No se aplicó ningún cambio parcial.` };
     }
@@ -236,7 +241,7 @@ export const accionesTools = {
     if (!db) return { error: "Sin BD" };
     const n = Math.min(30, Math.max(1, num(limite) || 10));
     const regs = rows(await db.execute(sql.raw(
-      `SELECT accion, detalle, valorAnterior, valorNuevo, resultado, creadoEn
+      `SELECT accion, detalle, valorAnterior, valorNuevo, resultado, ejecutadoPor, creadoEn
        FROM asistente_auditoria ORDER BY id DESC LIMIT ${n}`
     )));
     if (regs.length === 0) return { mensaje: "Aún no hay acciones registradas en la auditoría." };
@@ -244,7 +249,7 @@ export const accionesTools = {
       ultimasAcciones: regs.map((r: any) => ({
         accion: r.accion, detalle: r.detalle,
         cambio: `${r.valorAnterior} → ${r.valorNuevo}`,
-        resultado: r.resultado, fecha: String(r.creadoEn),
+        resultado: r.resultado, ejecutadoPor: r.ejecutadoPor || "desconocido", fecha: String(r.creadoEn),
       })),
       instruccionEstricta: "Muestra SOLO estos registros. NO inventes.",
     };

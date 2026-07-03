@@ -2226,7 +2226,12 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 }
 
 // Ejecuta una herramienta del asistente por nombre con sus argumentos
-async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
+async function ejecutarHerramienta(nombre: string, args: any, usuario?: { id?: string; name?: string; email?: string; role?: string }): Promise<any> {
+  // SEGURIDAD: las ACCIONES (modifican datos) son solo para administradores.
+  const esAccion = ["cambiarPrecioVenta", "marcarGastoPagado", "registrarGasto", "confirmarAccion", "cancelarAccion"].includes(nombre);
+  if (esAccion && usuario?.role !== "admin") {
+    return { error: "Solo el administrador puede ejecutar acciones. Tu usuario es de consulta." };
+  }
   const { asistenteTools } = await import("./asistente");
   try {
     switch (nombre) {
@@ -2254,7 +2259,7 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "cambiarPrecioVenta": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.cambiarPrecioVenta(args.nombreProducto, args.nuevoPrecio); }
       case "marcarGastoPagado": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.marcarGastoPagado(args.nombreGasto, args.sucursal); }
       case "registrarGasto": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.registrarGasto(args.nombre, args.monto, args.sucursal, args.categoria, args.yaPagado); }
-      case "confirmarAccion": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.confirmarAccion(); }
+      case "confirmarAccion": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.confirmarAccion(usuario); }
       case "cancelarAccion": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.cancelarAccion(); }
       case "verAuditoria": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.verAuditoria(args.limite); }
       default: return { error: "Herramienta desconocida" };
@@ -2288,7 +2293,8 @@ const asistenteRouter = router({
         texto: z.string(),
       })).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const usuarioActual = (ctx as any)?.user;
       const { invokeDeepSeek, deepseekDisponible } = await import("./_core/deepseek");
 
       // Si DeepSeek no está configurado, avisar claramente
@@ -2385,7 +2391,7 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
           let args: any = {};
           try { args = JSON.parse(tc.function?.arguments || "{}"); } catch {}
           herramientasUsadas.push(nombre);
-          const resultado = await ejecutarHerramienta(nombre, args);
+          const resultado = await ejecutarHerramienta(nombre, args, usuarioActual);
           mensajes.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(resultado) });
         }
 
