@@ -2148,6 +2148,10 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 
   const { asistenteTools } = await import("./asistente");
 
+  // Resumen ejecutivo / cómo está el negocio
+  if (q.includes("resumen") || q.includes("cómo está") || q.includes("como esta") || q.includes("cómo vamos") || q.includes("como vamos") || q.includes("parte del d") || q.includes("panorama")) {
+    return { nombre: "resumenEjecutivo", resultado: await asistenteTools.resumenEjecutivo() };
+  }
   // Comparar períodos / crecimiento
   if (q.includes("crecimiento") || (q.includes("compar") && (q.includes("mes") || q.includes("venta"))) || q.includes("vs") || q.includes("más que el mes")) {
     return { nombre: "compararPeriodos", resultado: await asistenteTools.compararPeriodos() };
@@ -2246,6 +2250,7 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "productosSinRotacion": return await asistenteTools.productosSinRotacion(args.mesesSinVenta, args.proveedor);
       case "vencimientosProximos": return await asistenteTools.vencimientosProximos(args.meses);
       case "margenProductos": return await asistenteTools.margenProductos(args.orden, args.sucursal);
+      case "resumenEjecutivo": return await asistenteTools.resumenEjecutivo();
       default: return { error: "Herramienta desconocida" };
     }
   } catch (e: any) {
@@ -2314,11 +2319,12 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
         { type: "function" as const, function: { name: "productosSinRotacion", description: "Capital muerto: productos con stock que NO se venden hace N meses (default 3), con valor inmovilizado. Úsala para 'qué no rota', 'plata parada', 'productos estancados', 'qué no se vende'.", parameters: { type: "object", properties: { mesesSinVenta: { type: "number" }, proveedor: { type: "string" } } } } },
         { type: "function" as const, function: { name: "vencimientosProximos", description: "Productos comprados que vencen en los próximos N meses (default 4), según fechas registradas en compras. Úsala para 'qué vence pronto', 'vencimientos', 'productos por vencer'.", parameters: { type: "object", properties: { meses: { type: "number" } } } } },
         { type: "function" as const, function: { name: "margenProductos", description: "Margen de ganancia por producto (vendidos el mes pasado): con orden 'bajo' muestra los que casi no dejan ganancia (revisar precios), con 'alto' los más rentables. Úsala para 'qué productos me dejan poco margen', 'dónde gano más', 'productos poco rentables'.", parameters: { type: "object", properties: { orden: { type: "string", description: "'bajo' o 'alto'" }, sucursal: { type: "string" } } } } },
+        { type: "function" as const, function: { name: "resumenEjecutivo", description: "Parte ejecutivo del negocio en una sola consulta: ventas de HOY por sucursal, ritmo del mes (acumulado vs mes anterior al mismo día), pagos pendientes, vencimientos a 30 días y cajas abiertas. Úsala para 'cómo está el negocio', 'resumen del día', 'cómo vamos', 'dame el parte'.", parameters: { type: "object", properties: {} } } },
       ];
 
       const mensajes: any[] = [
         { role: "system", content: systemPrompt },
-        ...(input.historial || []).map(h => ({ role: h.rol, content: h.texto })),
+        ...(input.historial || []).slice(-10).map(h => ({ role: h.rol, content: h.texto })),
         { role: "user", content: `[Fecha actual: ${new Date().toLocaleDateString("es-BO", { day: "numeric", month: "long", year: "numeric" })}] ${input.pregunta}` },
       ];
 

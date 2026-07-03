@@ -967,4 +967,71 @@ export const asistenteTools = {
       nota: "Margen = (precio venta − costo) ÷ precio venta. Solo productos con precio y costo conocidos. Los de margen negativo se venden POR DEBAJO del costo: revisar precio urgente.",
     };
   },
+
+  // 21. RESUMEN EJECUTIVO: el panorama del negocio en una sola consulta.
+  // Ventas de hoy, ritmo del mes vs mes anterior al mismo día, pagos pendientes,
+  // vencimientos cercanos y cajas abiertas.
+  async resumenEjecutivo() {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const hoy = ahoraBolivia();
+    const hoyStr = hoy.toISOString().slice(0, 10);
+    const diaDelMes = hoy.getUTCDate();
+    const mesActual = hoyStr.slice(0, 7);
+    const iniMes = `${mesActual}-01`;
+    const mesAnt = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - 1, 1));
+    const mesAntStr = mesAnt.toISOString().slice(0, 7);
+    const iniMesAnt = `${mesAntStr}-01`;
+    // Mismo día del mes anterior (con tope al último día de ese mes)
+    const ultimoDiaMesAnt = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 0)).getUTCDate();
+    const corteMesAnt = `${mesAntStr}-${String(Math.min(diaDelMes, ultimoDiaMesAnt)).padStart(2, "0")}`;
+    const limVenc = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 1, hoy.getUTCDate())).toISOString().slice(0, 10);
+
+    // Consultas de BD en paralelo (rápidas)
+    const [ventasHoy, ventasHoySuc, acumMes, acumMesAnt, pagosPend, vencCercanos] = await Promise.all([
+      db.execute(sql`SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n FROM ventas WHERE fecha = ${hoyStr}`),
+      db.execute(sql`SELECT nombreSucursal, COALESCE(SUM(total),0) as total FROM ventas WHERE fecha = ${hoyStr} AND nombreSucursal IS NOT NULL GROUP BY nombreSucursal ORDER BY total DESC`),
+      db.execute(sql`SELECT COALESCE(SUM(total),0) as total FROM ventas WHERE fecha >= ${iniMes} AND fecha <= ${hoyStr}`),
+      db.execute(sql`SELECT COALESCE(SUM(total),0) as total FROM ventas WHERE fecha >= ${iniMesAnt} AND fecha <= ${corteMesAnt}`),
+      db.execute(sql`SELECT COUNT(*) as n, COALESCE(SUM(monto),0) as total FROM gastos_registro WHERE anioMes = ${mesActual} AND pagado = 0`),
+      db.execute(sql`SELECT COUNT(*) as n FROM purchase_items WHERE expiryDate IS NOT NULL AND expiryDate != '' AND expiryDate >= ${hoyStr} AND expiryDate <= ${limVenc}`),
+    ]);
+    const vHoy = rows(ventasHoy)[0] || {};
+    const acum = num(rows(acumMes)[0]?.total);
+    const acumAnt = num(rows(acumMesAnt)[0]?.total);
+    const ritmo = acumAnt > 0 ? (((acum - acumAnt) / acumAnt) * 100) : null;
+    const pp = rows(pagosPend)[0] || {};
+    const nVenc = num(rows(vencCercanos)[0]?.n);
+
+    // Cajas abiertas desde 365 (puede fallar sin tumbar el resumen)
+    let cajas: any = "no disponible ahora";
+    try {
+      const { inventarios365 } = await import("./inventarios365");
+      const abiertas = await inventarios365.cajasAbiertas();
+      if (Array.isArray(abiertas)) {
+        cajas = abiertas.length === 0 ? "ninguna caja abierta" : abiertas.map((c: any) =>
+          `${c.nombreUsuario ?? c.nombre_usuario ?? c.usuario ?? c.nombre ?? "?"} (${c.nombreSucursal ?? c.nombre_sucursal ?? c.sucursal ?? "?"})`
+        ).join(", ");
+      }
+    } catch { /* mantener "no disponible" */ }
+
+    return {
+      fecha: hoyStr,
+      ventasDeHoy: {
+        total: `Bs ${fmtBs(vHoy.total)}`,
+        numeroVentas: num(vHoy.n),
+        porSucursal: rows(ventasHoySuc).map((s: any) => ({ sucursal: s.nombreSucursal, total: `Bs ${fmtBs(s.total)}` })),
+      },
+      ritmoDelMes: {
+        acumulado: `Bs ${fmtBs(acum)} (del 1 al ${diaDelMes} de ${mesActual})`,
+        mismoPuntoMesAnterior: `Bs ${fmtBs(acumAnt)} (del 1 al ${corteMesAnt.slice(-2)} de ${mesAntStr})`,
+        ritmo: ritmo == null ? "sin base de comparación" : `${ritmo >= 0 ? "+" : ""}${ritmo.toFixed(1)}% vs el mes pasado a esta altura`,
+      },
+      pagosPendientesDelMes: { cantidad: num(pp.n), total: `Bs ${fmtBs(pp.total)}` },
+      vencimientosProximos30Dias: nVenc,
+      cajasAbiertasAhora: cajas,
+      instruccionEstricta: "Presenta esto como un parte ejecutivo breve y ordenado. NO inventes datos que no estén aquí. Destaca el ritmo del mes (es la métrica clave).",
+      nota: "Ritmo del mes = ventas acumuladas del mes en curso vs las del mes anterior hasta el mismo día.",
+    };
+  },
 };
