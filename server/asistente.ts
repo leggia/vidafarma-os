@@ -213,6 +213,7 @@ export const asistenteTools = {
       advertenciaConfiabilidad: cobertura < 90
         ? `ATENCIÓN: solo el ${cobertura}% de lo vendido tiene costo conocido. El costo real es mayor y la ganancia real es MENOR a la mostrada. Actualiza los costos de los productos faltantes para cifras confiables.`
         : null,
+      instruccionEstricta: `Al final de tu respuesta incluye SIEMPRE una línea de confiabilidad: "Confiabilidad: ${cobertura}% de lo vendido tiene costo conocido${cobertura < 90 ? " — la ganancia real es menor a la mostrada" : ""}."`,
       nota: sucursal
         ? "Ganancia neta de la sucursal = ingresos - costo - gastos asignados a esta sucursal (alquiler, sueldos, etc.). Los gastos generales sin sucursal no se incluyen aquí."
         : "Ganancia neta = ventas - costo de productos - todos los gastos del mes. El costo solo cuenta productos con costo conocido.",
