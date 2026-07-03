@@ -2,9 +2,14 @@ import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User, Loader2, Sparkles } from "lucide-react";
+import { Send, Bot, User, Loader2, Sparkles, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 
 type Mensaje = { rol: "user" | "assistant"; texto: string; herramienta?: string };
+
+// Quita marcado y símbolos que la voz no debe leer literalmente.
+function limpiarParaVoz(texto: string): string {
+  return texto.replace(/\*\*/g, "").replace(/[_#`]/g, "").replace(/\n+/g, ". ").trim();
+}
 
 const SUGERENCIAS = [
   "¿Cuánto vendí hoy?",
@@ -19,6 +24,25 @@ export default function Asistente() {
   const [pregunta, setPregunta] = useState("");
   const preguntar = trpc.asistente.preguntar.useMutation();
   const finRef = useRef<HTMLDivElement>(null);
+
+  // ─── Voz: escuchar (Speech-to-Text) y hablar (Text-to-Speech), nativas del navegador ───
+  const soportaVoz = typeof window !== "undefined" && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const [escuchando, setEscuchando] = useState(false);
+  const [vozActiva, setVozActiva] = useState(() => typeof window !== "undefined" && localStorage.getItem("asistente_voz") !== "0");
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    localStorage.setItem("asistente_voz", vozActiva ? "1" : "0");
+    if (!vozActiva) window.speechSynthesis?.cancel();
+  }, [vozActiva]);
+
+  const hablar = (texto: string) => {
+    if (!vozActiva || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(limpiarParaVoz(texto));
+    utter.lang = "es-ES";
+    window.speechSynthesis.speak(utter);
+  };
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -36,9 +60,35 @@ export default function Asistente() {
         historial: mensajes.slice(-8).map(m => ({ rol: m.rol, texto: m.texto })),
       });
       setMensajes(prev => [...prev, { rol: "assistant", texto: res.respuesta, herramienta: res.usoHerramienta || undefined }]);
+      hablar(res.respuesta);
     } catch (e: any) {
       setMensajes(prev => [...prev, { rol: "assistant", texto: "Hubo un problema al procesar tu pregunta. Intenta de nuevo." }]);
     }
+  };
+
+  const iniciarEscucha = () => {
+    if (!soportaVoz || escuchando || preguntar.isPending) return;
+    window.speechSynthesis?.cancel();
+    const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new Ctor();
+    recognition.lang = "es-BO";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (e: any) => {
+      const texto = e.results?.[0]?.[0]?.transcript;
+      if (texto) enviar(texto);
+    };
+    recognition.onerror = () => setEscuchando(false);
+    recognition.onend = () => setEscuchando(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setEscuchando(true);
+  };
+
+  const detenerEscucha = () => {
+    recognitionRef.current?.stop();
+    setEscuchando(false);
   };
 
   return (
@@ -106,22 +156,52 @@ export default function Asistente() {
         <div ref={finRef} />
       </div>
 
+      {/* Indicador de escucha */}
+      {escuchando && (
+        <div className="flex items-center justify-center gap-2 text-xs text-red-600 mt-2 mb-1">
+          <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" /> Escuchando... habla ahora
+        </div>
+      )}
+
       {/* Caja de texto */}
       <div className="flex gap-2 mt-3">
         <Input
           value={pregunta}
           onChange={(e) => setPregunta(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") enviar(); }}
-          placeholder="Escribe tu pregunta..."
+          placeholder={escuchando ? "Escuchando..." : "Escribe tu pregunta..."}
           className="flex-1"
-          disabled={preguntar.isPending}
+          disabled={preguntar.isPending || escuchando}
         />
+        {soportaVoz && (
+          <Button
+            type="button"
+            onClick={escuchando ? detenerEscucha : iniciarEscucha}
+            disabled={preguntar.isPending}
+            size="icon"
+            variant={escuchando ? "destructive" : "outline"}
+            className="shrink-0"
+            title={escuchando ? "Detener grabación" : "Hablar"}
+          >
+            {escuchando ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
+        )}
+        <Button
+          type="button"
+          onClick={() => setVozActiva(v => !v)}
+          size="icon"
+          variant="outline"
+          className="shrink-0"
+          title={vozActiva ? "Silenciar respuestas" : "Activar voz en respuestas"}
+        >
+          {vozActiva ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+        </Button>
         <Button onClick={() => enviar()} disabled={preguntar.isPending || !pregunta.trim()} size="icon" className="shrink-0">
           <Send className="h-4 w-4" />
         </Button>
       </div>
       <p className="text-[10px] text-muted-foreground text-center mt-2">
-        Las acciones (precios, gastos) siempre piden tu confirmación y quedan auditadas. Verifica cifras importantes en sus reportes.
+        {soportaVoz ? "Toca el micrófono para hablar. " : ""}Las acciones (precios, gastos) siempre piden tu confirmación y quedan auditadas. Verifica cifras importantes en sus reportes.
       </p>
     </div>
   );
