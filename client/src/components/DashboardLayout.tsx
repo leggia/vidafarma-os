@@ -35,6 +35,7 @@ import {
   Users,
   Plus,
   Sparkles,
+  HeartHandshake,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -49,6 +50,7 @@ const menuItems = [
   { icon: ClipboardCheck, label: "Inventario", path: "/inventario" },
   { icon: Users, label: "Asistencia", path: "/asistencia" },
   { icon: TrendingUp, label: "Reportes", path: "/reportes" },
+  { icon: HeartHandshake, label: "Fidelización", path: "/fidelizacion" },
   { icon: Wallet, label: "Gastos", path: "/gastos" },
   { icon: ListTodo, label: "Tareas Pendientes", path: "/tareas" },
   { icon: History, label: "Historial", path: "/historial" },

@@ -24,6 +24,13 @@ App web (Node.js/TypeScript, React, tRPC, Drizzle/MySQL) de gestión para una fa
 - Compras del mes, con detección de duplicados.
 - Gastos no cancelados (pagado=0) por sucursal, mostrados en rojo.
 
+### Fidelización de clientes crónicos (v1.75.0) — diferenciador comercial
+- `server/fidelizacion.ts`: detecta clientes que compran el MISMO medicamento en intervalos regulares (tratamientos crónicos: hipertensión, diabetes, tiroides) cruzando ventas + ventas_detalle + clientes. Predice cuándo se le acaba (última compra + intervalo promedio entre compras).
+- Genera la lista diaria de "clientes por recordar": por acabar (recompra próxima, dentro de N días) o atrasados (ya debieron volver, riesgo de perderlos ante la competencia).
+- Solo clientes con teléfono registrado (los contactables); descarta consumidor final. Botón de WhatsApp con mensaje ya redactado (wa.me, celular boliviano normalizado a 591XXXXXXXX).
+- Página `client/src/pages/Fidelizacion.tsx`, ruta `/fidelizacion`, router `fidelizacion.porRecordar`. Configurable: umbral de compras, anticipación, tolerancia de atraso, sucursal, filtro por estado.
+- LIMITACIÓN honesta: solo sirve si los clientes de crónicos están registrados con teléfono en 365. La UI muestra la cobertura (cuántos clientes con teléfono hay) para no dar falsa sensación.
+
 ### Asistente conversacional (DeepSeek) — el trabajo más grande
 - Chat en `/asistente`. Solo lectura (Fase 1). Arquitectura segura: el modelo NO toca la BD; usa "herramientas" (funciones con SQL fijo). El modelo solo elige cuál llamar.
 - Modelo: DeepSeek `deepseek-v4-flash` (vía `server/_core/deepseek.ts`). Variable Railway `DEEPSEEK_API_KEY`. Caché de contexto (system prompt + tools fijos al inicio → 98% más barato). Temperatura 0 (anti-alucinación).

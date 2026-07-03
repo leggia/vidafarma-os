@@ -2417,6 +2417,23 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
     }),
 });
 
+// ─── Fidelización de clientes crónicos ───────────────────────────────────────
+const fidelizacionRouter = router({
+  // Lista diaria de clientes a recordar (recompra próxima o atrasada).
+  porRecordar: protectedProcedure
+    .input(z.object({
+      minCompras: z.number().optional(),
+      anticipacionDias: z.number().optional(),
+      toleranciaAtraso: z.number().optional(),
+      sucursal: z.string().optional(),
+      incluir: z.enum(["ambos", "por_acabar", "atrasado"]).optional(),
+    }).optional())
+    .query(async ({ input }) => {
+      const { clientesPorRecordar } = await import("./fidelizacion");
+      return clientesPorRecordar(input ?? {});
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -2442,6 +2459,7 @@ export const appRouter = router({
   asistente: asistenteRouter,
   ventas: ventasRouter,
   gastos: gastosRouter,
+  fidelizacion: fidelizacionRouter,
 });
 
 export type AppRouter = typeof appRouter;
