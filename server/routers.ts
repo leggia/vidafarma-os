@@ -2148,6 +2148,23 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 
   const { asistenteTools } = await import("./asistente");
 
+  // Comparar períodos / crecimiento
+  if (q.includes("crecimiento") || (q.includes("compar") && (q.includes("mes") || q.includes("venta"))) || q.includes("vs") || q.includes("más que el mes")) {
+    return { nombre: "compararPeriodos", resultado: await asistenteTools.compararPeriodos() };
+  }
+  // Capital muerto / sin rotación
+  if (q.includes("no rota") || q.includes("sin rotac") || q.includes("estancad") || q.includes("plata parada") || q.includes("no se vende")) {
+    return { nombre: "productosSinRotacion", resultado: await asistenteTools.productosSinRotacion() };
+  }
+  // Vencimientos
+  if (q.includes("vence") || q.includes("vencimiento") || q.includes("por vencer") || q.includes("caduc")) {
+    return { nombre: "vencimientosProximos", resultado: await asistenteTools.vencimientosProximos() };
+  }
+  // Margen por producto
+  if (q.includes("margen") || q.includes("poco rentable") || q.includes("gano más") || q.includes("gano mas")) {
+    const orden = (q.includes("alto") || q.includes("más rentable") || q.includes("gano")) && !q.includes("poco") ? "alto" : "bajo";
+    return { nombre: "margenProductos", resultado: await asistenteTools.margenProductos(orden, sucursal) };
+  }
   // Pedido / requerimiento de una sucursal según proveedor
   if (q.includes("pedido") || q.includes("requerimiento") || q.includes("que pedir a") || q.includes("qué pedir a")) {
     let prov: string | undefined;
@@ -2225,6 +2242,10 @@ async function ejecutarHerramienta(nombre: string, args: any): Promise<any> {
       case "estadoPagosGastos": return await asistenteTools.estadoPagosGastos(args.periodo, args.sucursal);
       case "productosUrgentes": return await asistenteTools.productosUrgentes(args.proveedor, args.sucursal);
       case "pedidoSucursal": return await asistenteTools.pedidoSucursal(args.sucursal, args.proveedor);
+      case "compararPeriodos": return await asistenteTools.compararPeriodos(args.mesA, args.mesB);
+      case "productosSinRotacion": return await asistenteTools.productosSinRotacion(args.mesesSinVenta, args.proveedor);
+      case "vencimientosProximos": return await asistenteTools.vencimientosProximos(args.meses);
+      case "margenProductos": return await asistenteTools.margenProductos(args.orden, args.sucursal);
       default: return { error: "Herramienta desconocida" };
     }
   } catch (e: any) {
@@ -2289,6 +2310,10 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
         { type: "function" as const, function: { name: "estadoPagosGastos", description: "Qué gastos ya se pagaron y cuáles faltan pagar (alquiler, luz, internet, etc.), por sucursal. Úsala para 'qué falta pagar', 'a quién ya pagué', 'qué servicios debo'.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } } } } },
         { type: "function" as const, function: { name: "productosUrgentes", description: "Productos urgentes de reponer: los más vendidos el mes pasado que tienen poco stock. Opcional por proveedor y por sucursal. Úsala para 'qué reponer', 'qué pedir', 'productos urgentes de X proveedor'.", parameters: { type: "object", properties: { proveedor: { type: "string" }, sucursal: { type: "string" } } } } },
         { type: "function" as const, function: { name: "pedidoSucursal", description: "Genera el PEDIDO/requerimiento de una sucursal según proveedor: qué productos pedir y cuánto, usando un índice de cobertura (rotación de 3 meses vs stock actual). Funciona para productos de alta y baja rotación. Úsala para 'cuál es el pedido de la petrolera de inti', 'requerimiento de X sucursal', 'qué pedir a X proveedor para Y sucursal'.", parameters: { type: "object", properties: { sucursal: { type: "string" }, proveedor: { type: "string" } } } } },
+        { type: "function" as const, function: { name: "compararPeriodos", description: "Compara ventas entre dos meses con % de crecimiento total y por sucursal. Por defecto: los dos últimos meses concluidos. Úsala para 'vendí más este mes?', 'cómo va junio vs mayo', 'crecimiento de ventas'.", parameters: { type: "object", properties: { mesA: { type: "string", description: "YYYY-MM más reciente" }, mesB: { type: "string", description: "YYYY-MM anterior" } } } } },
+        { type: "function" as const, function: { name: "productosSinRotacion", description: "Capital muerto: productos con stock que NO se venden hace N meses (default 3), con valor inmovilizado. Úsala para 'qué no rota', 'plata parada', 'productos estancados', 'qué no se vende'.", parameters: { type: "object", properties: { mesesSinVenta: { type: "number" }, proveedor: { type: "string" } } } } },
+        { type: "function" as const, function: { name: "vencimientosProximos", description: "Productos comprados que vencen en los próximos N meses (default 4), según fechas registradas en compras. Úsala para 'qué vence pronto', 'vencimientos', 'productos por vencer'.", parameters: { type: "object", properties: { meses: { type: "number" } } } } },
+        { type: "function" as const, function: { name: "margenProductos", description: "Margen de ganancia por producto (vendidos el mes pasado): con orden 'bajo' muestra los que casi no dejan ganancia (revisar precios), con 'alto' los más rentables. Úsala para 'qué productos me dejan poco margen', 'dónde gano más', 'productos poco rentables'.", parameters: { type: "object", properties: { orden: { type: "string", description: "'bajo' o 'alto'" }, sucursal: { type: "string" } } } } },
       ];
 
       const mensajes: any[] = [

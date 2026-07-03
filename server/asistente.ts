@@ -773,4 +773,198 @@ export const asistenteTools = {
       nota: "Índice de cobertura = stock ÷ venta mensual promedio (3 meses).",
     };
   },
+
+  // 17. COMPARAR PERÍODOS: crecimiento de ventas entre dos meses (por defecto,
+  // los dos últimos meses concluidos). La pregunta gerencial básica.
+  async compararPeriodos(mesA?: string, mesB?: string) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const hoy = ahoraBolivia();
+    const mes = (offset: number) => {
+      const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - offset, 1));
+      return d.toISOString().slice(0, 7);
+    };
+    // Defaults: mes anterior (concluido) vs el previo. Acepta YYYY-MM explícitos.
+    const a = /^\d{4}-\d{2}$/.test(mesA || "") ? mesA! : mes(1);
+    const b = /^\d{4}-\d{2}$/.test(mesB || "") ? mesB! : mes(2);
+    const datosMes = async (m: string) => {
+      const r = rows(await db.execute(sql`
+        SELECT COALESCE(SUM(total),0) as total, COUNT(*) as ventas FROM ventas
+        WHERE DATE_FORMAT(fecha, '%Y-%m') = ${m}
+      `));
+      const porSuc = rows(await db.execute(sql`
+        SELECT nombreSucursal, COALESCE(SUM(total),0) as total FROM ventas
+        WHERE DATE_FORMAT(fecha, '%Y-%m') = ${m} AND nombreSucursal IS NOT NULL
+        GROUP BY nombreSucursal
+      `));
+      return { total: num(r[0]?.total), ventas: num(r[0]?.ventas), porSuc };
+    };
+    const [dA, dB] = await Promise.all([datosMes(a), datosMes(b)]);
+    if (dA.total === 0 && dB.total === 0) return { mensaje: `No hay ventas en ${a} ni en ${b}.` };
+    const pct = (nuevo: number, viejo: number) =>
+      viejo > 0 ? `${nuevo >= viejo ? "+" : ""}${(((nuevo - viejo) / viejo) * 100).toFixed(1)}%` : "sin base";
+    const sucB: Record<string, number> = {};
+    for (const s of dB.porSuc) sucB[s.nombreSucursal] = num(s.total);
+    return {
+      mesReciente: a,
+      mesAnterior: b,
+      ventas: { [a]: `Bs ${fmtBs(dA.total)} (${dA.ventas} ventas)`, [b]: `Bs ${fmtBs(dB.total)} (${dB.ventas} ventas)` },
+      crecimiento: pct(dA.total, dB.total),
+      porSucursal: dA.porSuc.map((s: any) => ({
+        sucursal: s.nombreSucursal,
+        [a]: `Bs ${fmtBs(s.total)}`,
+        [b]: `Bs ${fmtBs(sucB[s.nombreSucursal] || 0)}`,
+        crecimiento: pct(num(s.total), sucB[s.nombreSucursal] || 0),
+      })),
+      nota: "Comparación de meses calendario completos. Crecimiento = variación % del mes reciente vs el anterior.",
+    };
+  },
+
+  // 18. PRODUCTOS SIN ROTACIÓN (capital muerto): con stock pero sin ventas en N meses.
+  // Dinero inmovilizado que además corre riesgo de vencer.
+  async productosSinRotacion(mesesSinVenta?: number, proveedor?: string) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const meses = Math.min(12, Math.max(1, num(mesesSinVenta) || 3));
+    const hoy = ahoraBolivia();
+    const corte = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - meses, hoy.getUTCDate()))
+      .toISOString().slice(0, 10);
+    // Última venta por producto
+    const ultimas = rows(await db.execute(sql`
+      SELECT articuloNombre, MAX(fecha) as ultimaVenta FROM ventas_detalle
+      GROUP BY articuloNombre
+    `));
+    const ultimaPorNombre: Record<string, string> = {};
+    const norm = (s: string) => String(s || "").trim().toLowerCase();
+    for (const u of ultimas) ultimaPorNombre[norm(u.articuloNombre)] = String(u.ultimaVenta).slice(0, 10);
+    // Stock y costo en vivo desde 365
+    let articulos: any[] = [];
+    try {
+      const { inventarios365 } = await import("./inventarios365");
+      let idProv = "";
+      if (proveedor) {
+        const pr = rows(await db.execute(sql`
+          SELECT DISTINCT idProveedor FROM productos_cache
+          WHERE nombreProveedor LIKE ${"%" + proveedor + "%"} AND idProveedor IS NOT NULL LIMIT 1
+        `));
+        if (pr[0]?.idProveedor) idProv = String(pr[0].idProveedor);
+      }
+      articulos = await inventarios365.listarArticulos("", idProv);
+    } catch (e: any) {
+      return { error: `No pude consultar stock en 365: ${e?.message || "error"}` };
+    }
+    const muertos: any[] = [];
+    for (const art of articulos) {
+      const stock = num(art.stock);
+      if (stock <= 0) continue;
+      const ultima = ultimaPorNombre[norm(art.nombre)];
+      // Sin ventas NUNCA, o última venta antes del corte
+      if (!ultima || ultima < corte) {
+        const costo = num(art.precio_costo_unid);
+        muertos.push({
+          producto: art.nombre,
+          stock,
+          ultimaVenta: ultima || "nunca (sin registro)",
+          valorInmovilizado: costo > 0 ? Math.round(stock * costo * 100) / 100 : null,
+        });
+      }
+    }
+    muertos.sort((x, y) => (y.valorInmovilizado || 0) - (x.valorInmovilizado || 0));
+    const totalInmovilizado = muertos.reduce((t, m) => t + (m.valorInmovilizado || 0), 0);
+    if (muertos.length === 0) {
+      return { mensaje: `No hay productos con stock sin ventas en los últimos ${meses} meses${proveedor ? " de " + proveedor : ""}.` };
+    }
+    const MOSTRAR = 15;
+    return {
+      criterio: `Productos con stock que no se venden hace ${meses}+ meses`,
+      totalProductos: muertos.length,
+      capitalInmovilizadoTotal: `Bs ${fmtBs(totalInmovilizado)}`,
+      productos: muertos.slice(0, MOSTRAR).map(m => ({
+        ...m,
+        valorInmovilizado: m.valorInmovilizado != null ? `Bs ${fmtBs(m.valorInmovilizado)}` : "sin costo cargado",
+      })),
+      instruccionEstricta: `Muestra SOLO estos productos de la lista. NO inventes productos. Si hay más de ${MOSTRAR}, menciona que son ${muertos.length} en total.`,
+      nota: "Ordenados por valor inmovilizado (stock × costo). Considera promociones o devolución al proveedor.",
+    };
+  },
+
+  // 19. VENCIMIENTOS PRÓXIMOS: productos comprados cuyo vencimiento cae en los
+  // próximos N meses (según las fechas registradas en compras).
+  async vencimientosProximos(meses?: number) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const n = Math.min(12, Math.max(1, num(meses) || 4));
+    const hoyStr = ahoraBolivia().toISOString().slice(0, 10);
+    const hoy = ahoraBolivia();
+    const limite = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + n, hoy.getUTCDate()))
+      .toISOString().slice(0, 10);
+    const items = rows(await db.execute(sql`
+      SELECT pi.productName, pi.expiryDate, pi.quantity, p.supplier
+      FROM purchase_items pi JOIN purchases p ON p.id = pi.purchaseId
+      WHERE pi.expiryDate IS NOT NULL AND pi.expiryDate != ''
+        AND pi.expiryDate >= ${hoyStr} AND pi.expiryDate <= ${limite}
+      ORDER BY pi.expiryDate ASC
+    `));
+    if (items.length === 0) {
+      return { mensaje: `No hay productos comprados con vencimiento en los próximos ${n} meses (según fechas registradas en compras).` };
+    }
+    const MOSTRAR = 20;
+    return {
+      criterio: `Vencimientos entre hoy y ${limite} (según compras registradas)`,
+      totalItems: items.length,
+      proximosAVencer: items.slice(0, MOSTRAR).map((it: any) => ({
+        producto: it.productName,
+        vence: String(it.expiryDate).slice(0, 10),
+        cantidadComprada: num(it.quantity),
+        proveedor: it.supplier || undefined,
+      })),
+      instruccionEstricta: `Muestra SOLO estos items. NO inventes. Si hay más de ${MOSTRAR}, menciona el total (${items.length}).`,
+      nota: "Fechas de vencimiento registradas al COMPRAR. La cantidad es la comprada en ese lote, no el stock actual: verifica el stock antes de actuar.",
+    };
+  },
+
+  // 20. MARGEN POR PRODUCTO: dónde ganas bien y dónde casi regalas, entre los
+  // productos VENDIDOS el último mes concluido (relevancia real).
+  async margenProductos(orden?: string, sucursal?: string) {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const buscarBajo = !orden || /bajo|menor|poco|peor/i.test(orden);
+    const hoy = ahoraBolivia();
+    const ini = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+    const fin = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 0)).toISOString().slice(0, 10);
+    const filtroSuc = filtroLike("d.nombreSucursal", sucursal);
+    const vendidos = rows(await db.execute(sql`
+      SELECT d.articuloNombre, SUM(d.cantidad) as vendido, SUM(d.subtotal) as ingreso,
+             c.precioUno, c.precioCostoUnid
+      FROM ventas_detalle d JOIN productos_cache c ON c.nombre = d.articuloNombre
+      WHERE d.fecha >= ${ini} AND d.fecha <= ${fin} ${filtroSuc}
+        AND c.precioUno > 0 AND c.precioCostoUnid > 0
+        AND d.articuloNombre NOT LIKE '%venta menor%' AND d.articuloNombre NOT LIKE '%ventas menores%'
+      GROUP BY d.articuloNombre, c.precioUno, c.precioCostoUnid
+      HAVING vendido > 0
+    `));
+    if (vendidos.length === 0) return { mensaje: "No hay productos vendidos con precio y costo conocidos el mes pasado." };
+    const conMargen = vendidos.map((v: any) => {
+      const precio = num(v.precioUno), costo = num(v.precioCostoUnid);
+      const margenPct = precio > 0 ? ((precio - costo) / precio) * 100 : 0;
+      return {
+        producto: v.articuloNombre,
+        precioVenta: `Bs ${fmtBs(precio)}`,
+        costo: `Bs ${fmtBs(costo)}`,
+        margen: `${margenPct.toFixed(1)}%`,
+        _m: margenPct,
+        vendidoMesPasado: num(v.vendido),
+        gananciaDelMes: `Bs ${fmtBs((precio - costo) * num(v.vendido))}`,
+      };
+    });
+    conMargen.sort((a, b) => buscarBajo ? a._m - b._m : b._m - a._m);
+    const MOSTRAR = 15;
+    return {
+      criterio: buscarBajo ? "Productos vendidos el mes pasado con MENOR margen" : "Productos vendidos el mes pasado con MAYOR margen",
+      mes: ini.slice(0, 7),
+      productos: conMargen.slice(0, MOSTRAR).map(({ _m, ...resto }) => resto),
+      instruccionEstricta: `Muestra SOLO estos productos. NO inventes datos.`,
+      nota: "Margen = (precio venta − costo) ÷ precio venta. Solo productos con precio y costo conocidos. Los de margen negativo se venden POR DEBAJO del costo: revisar precio urgente.",
+    };
+  },
 };
