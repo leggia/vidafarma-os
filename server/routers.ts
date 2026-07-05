@@ -2259,11 +2259,24 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 }
 
 // Ejecuta una herramienta del asistente por nombre con sus argumentos
+const HERRAMIENTAS_SOLO_ADMIN = new Set([
+  "gananciaPeriodo", "rentabilidadSucursales", "margenProductos", "compararPeriodos",
+  "estadoPagosGastos", "resumenEjecutivo", "verAuditoria", "ventasPeriodo",
+  "mejoresVendedores", "ventasCliente", "trabajadoresSucursal",
+  "comprasProveedor", "historialCompraProducto", "productosSinRotacion",
+]);
+
 async function ejecutarHerramienta(nombre: string, args: any, usuario?: { id?: string; name?: string; email?: string; role?: string }): Promise<any> {
   // SEGURIDAD: las ACCIONES (modifican datos) son solo para administradores.
   const esAccion = ["cambiarPrecioVenta", "marcarGastoPagado", "registrarGasto", "confirmarAccion", "cancelarAccion"].includes(nombre);
   if (esAccion && usuario?.role !== "admin") {
     return { error: "Solo el administrador puede ejecutar acciones. Tu usuario es de consulta." };
+  }
+  // SEGURIDAD: herramientas con información financiera o de personal, solo para admin.
+  // Los vendedores (viewer) conservan las operativas: stock, precios, info de producto,
+  // vencimientos, pedidos, cajas, sucursales.
+  if (HERRAMIENTAS_SOLO_ADMIN.has(nombre) && usuario?.role !== "admin") {
+    return { error: "Esa información es solo para el administrador. Puedes consultar: stock, precios, información de productos, vencimientos y pedidos." };
   }
   const { asistenteTools } = await import("./asistente");
   try {
@@ -2446,7 +2459,10 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
           // la herramienta correcta directamente.
           const pareceFuncionTexto = /DSML|tool_calls|invoke\s+name=|<function|<\uff5c/i.test(textoRaw);
           if (pareceFuncionTexto) {
-            const fallback = await intentarHerramientaPorIntencion(input.pregunta);
+            let fallback = await intentarHerramientaPorIntencion(input.pregunta);
+            if (fallback && HERRAMIENTAS_SOLO_ADMIN.has(fallback.nombre) && usuarioActual?.role !== "admin") {
+              fallback = { nombre: fallback.nombre, resultado: { error: "Esa información es solo para el administrador." } };
+            }
             if (fallback) {
               const r3 = await invokeDeepSeek({ maxTokens: 1024, messages: [
                 { role: "system", content: systemPrompt },
