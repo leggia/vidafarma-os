@@ -68,6 +68,10 @@ export async function asegurarTablaCorreos() {
       creadoEn DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`));
   } catch { /* ya existe */ }
+  // Ampliar el enum de roles de users para incluir 'regente' (idempotente)
+  try {
+    await d.execute(sql.raw("ALTER TABLE users MODIFY COLUMN role ENUM('user','admin','viewer','regente') NOT NULL DEFAULT 'user'"));
+  } catch { /* ya aplicado */ }
   // Sembrar el correo admin desde variable de entorno (primera vez)
   const adminEmail = (process.env.GOOGLE_ADMIN_EMAIL || "").trim().toLowerCase();
   if (adminEmail) {
@@ -220,7 +224,7 @@ export const correosAutorizados = {
     await asegurarTablaCorreos();
     const e = email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error("Correo inválido");
-    const r = rol === "admin" ? "admin" : "viewer";
+    const r = rol === "admin" ? "admin" : rol === "regente" ? "regente" : "viewer";
     await d.execute(sql`
       INSERT INTO correos_autorizados (email, rol, activo) VALUES (${e}, ${r}, 1)
       ON DUPLICATE KEY UPDATE rol = ${r}, activo = 1

@@ -2259,11 +2259,29 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
 }
 
 // Ejecuta una herramienta del asistente por nombre con sus argumentos
+// ─── MATRIZ DE PERMISOS por rol (deny by default) ───
+// admin: todo. regente: asistente operativo + asistencias + inventarios (sin
+// finanzas ni acciones). viewer (vendedor): stock, precios e info de productos.
+const HERRAMIENTAS_REGENTE = new Set([
+  "stockProducto", "infoProducto", "listarSucursales", "cajasAbiertas",
+  "vencimientosProximos", "productosUrgentes", "pedidoSucursal", "productosSinRotacion",
+  "trabajadoresSucursal",
+]);
+const HERRAMIENTAS_VENDEDOR = new Set([
+  "stockProducto", "infoProducto", "listarSucursales",
+]);
+function herramientaPermitida(nombre: string, rol?: string): boolean {
+  if (rol === "admin") return true;
+  if (rol === "regente") return HERRAMIENTAS_REGENTE.has(nombre);
+  if (rol === "viewer") return HERRAMIENTAS_VENDEDOR.has(nombre);
+  return false; // rol "user" u otro: sin herramientas
+}
+// Compatibilidad: sigue existiendo para el filtro del fallback
 const HERRAMIENTAS_SOLO_ADMIN = new Set([
   "gananciaPeriodo", "rentabilidadSucursales", "margenProductos", "compararPeriodos",
   "estadoPagosGastos", "resumenEjecutivo", "verAuditoria", "ventasPeriodo",
-  "mejoresVendedores", "ventasCliente", "trabajadoresSucursal",
-  "comprasProveedor", "historialCompraProducto", "productosSinRotacion",
+  "mejoresVendedores", "ventasCliente",
+  "comprasProveedor", "historialCompraProducto",
 ]);
 
 async function ejecutarHerramienta(nombre: string, args: any, usuario?: { id?: string; name?: string; email?: string; role?: string }): Promise<any> {
@@ -2272,11 +2290,12 @@ async function ejecutarHerramienta(nombre: string, args: any, usuario?: { id?: s
   if (esAccion && usuario?.role !== "admin") {
     return { error: "Solo el administrador puede ejecutar acciones. Tu usuario es de consulta." };
   }
-  // SEGURIDAD: herramientas con información financiera o de personal, solo para admin.
-  // Los vendedores (viewer) conservan las operativas: stock, precios, info de producto,
-  // vencimientos, pedidos, cajas, sucursales.
-  if (HERRAMIENTAS_SOLO_ADMIN.has(nombre) && usuario?.role !== "admin") {
-    return { error: "Esa información es solo para el administrador. Puedes consultar: stock, precios, información de productos, vencimientos y pedidos." };
+  // SEGURIDAD: matriz de permisos por rol (deny by default).
+  if (!herramientaPermitida(nombre, usuario?.role)) {
+    const disponibles = usuario?.role === "regente"
+      ? "stock, precios, info de productos, vencimientos, productos urgentes, pedidos, inventario sin rotación, cajas y asistencia del personal"
+      : "stock, precios e información de productos";
+    return { error: `Tu usuario no tiene permiso para esa consulta. Puedes consultar: ${disponibles}.` };
   }
   const { asistenteTools } = await import("./asistente");
   try {
@@ -2427,7 +2446,7 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
         { type: "function" as const, function: { name: "confirmarAccion", description: "Ejecuta la acción pendiente de confirmación. Úsala SOLO cuando el usuario confirme explícitamente ('sí', 'confirmo', 'dale', 'hazlo').", parameters: { type: "object", properties: {} } } },
         { type: "function" as const, function: { name: "cancelarAccion", description: "Cancela la acción pendiente. Úsala cuando el usuario diga 'no', 'cancela', 'mejor no'.", parameters: { type: "object", properties: {} } } },
         { type: "function" as const, function: { name: "verAuditoria", description: "Muestra las últimas acciones ejecutadas por el asistente (auditoría: qué se cambió, cuándo, valores antes/después). Úsala para 'qué acciones hiciste', 'auditoría', 'historial de cambios'.", parameters: { type: "object", properties: { limite: { type: "number" } } } } },
-        { type: "function" as const, function: { name: "autorizarCorreo", description: "ACCIÓN (requiere confirmación): autoriza un correo de Google para entrar al sistema. rol 'viewer' = vendedor (consultas operativas), 'admin' = acceso total. Úsala para 'autoriza el correo X', 'dale acceso a X'.", parameters: { type: "object", properties: { email: { type: "string" }, rol: { type: "string" } }, required: ["email"] } } },
+        { type: "function" as const, function: { name: "autorizarCorreo", description: "ACCIÓN (requiere confirmación): autoriza un correo de Google para entrar al sistema. Roles: 'viewer' = vendedor (stock y precios), 'regente' = asistente operativo + asistencias + inventarios, 'admin' = acceso total. Úsala para 'autoriza el correo X como vendedor/regente/admin'.", parameters: { type: "object", properties: { email: { type: "string" }, rol: { type: "string" } }, required: ["email"] } } },
         { type: "function" as const, function: { name: "revocarCorreo", description: "ACCIÓN (requiere confirmación): revoca el acceso de un correo (ya no podrá entrar con Google). Úsala para 'quita el acceso a X', 'revoca el correo X'.", parameters: { type: "object", properties: { email: { type: "string" } }, required: ["email"] } } },
         { type: "function" as const, function: { name: "verCorreosAutorizados", description: "Lista los correos autorizados a entrar con Google y su rol. Úsala para 'qué correos tienen acceso', 'lista de usuarios autorizados'.", parameters: { type: "object", properties: {} } } },
       ];
@@ -2466,8 +2485,8 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
           const pareceFuncionTexto = /DSML|tool_calls|invoke\s+name=|<function|<\uff5c/i.test(textoRaw);
           if (pareceFuncionTexto) {
             let fallback = await intentarHerramientaPorIntencion(input.pregunta);
-            if (fallback && HERRAMIENTAS_SOLO_ADMIN.has(fallback.nombre) && usuarioActual?.role !== "admin") {
-              fallback = { nombre: fallback.nombre, resultado: { error: "Esa información es solo para el administrador." } };
+            if (fallback && !herramientaPermitida(fallback.nombre, usuarioActual?.role)) {
+              fallback = { nombre: fallback.nombre, resultado: { error: "Tu usuario no tiene permiso para esa consulta." } };
             }
             if (fallback) {
               const r3 = await invokeDeepSeek({ maxTokens: 1024, messages: [

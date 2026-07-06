@@ -196,9 +196,10 @@ export const accionesTools = {
   async autorizarCorreo(email: string, rol?: string) {
     const e = String(email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { error: "Correo inválido." };
-    const r = rol === "admin" ? "admin" : "viewer";
+    const r = rol === "admin" ? "admin" : (rol === "regente" ? "regente" : "viewer");
+    const desc = r === "admin" ? "ADMINISTRADOR (acceso total)" : r === "regente" ? "REGENTE (asistente operativo + asistencias + inventarios)" : "vendedor (stock, precios e info de productos)";
     return proponer("autorizarCorreo", { email: e, rol: r },
-      `Autorizar el correo ${e} para entrar con Google como ${r === "admin" ? "ADMINISTRADOR (acceso total)" : "vendedor (solo consultas operativas)"}.`);
+      `Autorizar el correo ${e} para entrar con Google como ${desc}.`);
   },
 
   // Proponer: revocar el acceso de un correo
