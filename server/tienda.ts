@@ -298,6 +298,67 @@ export const tienda = {
     return { whatsappGeneral: general, porSucursal, sucursales: ALMACENES.map(a => a.sucursal) };
   },
 
+  // Productos MÁS VENDIDOS (para la sección "Lo más vendido" del home).
+  // Basado en ventas reales de los últimos 60 días, solo venta libre y con precio.
+  async masVendidos() {
+    await asegurarTablas();
+    const db = await getDb();
+    if (!db) return { productos: [] };
+    let top: any[] = [];
+    try {
+      top = rows(await db.execute(sql.raw(
+        `SELECT d.articuloNombre AS nombre, SUM(d.cantidad) AS vendido
+         FROM ventas_detalle d
+         WHERE d.fecha >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 60 DAY), '%Y-%m-%d')
+           AND d.articuloNombre NOT LIKE '%venta menor%' AND d.articuloNombre NOT LIKE '%ventas menores%'
+         GROUP BY d.articuloNombre ORDER BY vendido DESC LIMIT 40`
+      )));
+    } catch { top = []; }
+    if (top.length === 0) return { productos: [] };
+    // Enriquecer con precio, imagen, descripción desde el cache; filtrar controlados/ocultos
+    const nombres = top.map((t: any) => t.nombre);
+    const placeholders = nombres.map(() => "?").join(",");
+    let info: any[] = [];
+    try {
+      info = rows(await db.execute(sql`
+        SELECT nombre, precioUno, imagenUrl, descripcion, ocultoTienda FROM productos_cache
+        WHERE nombre IN (${sql.join(nombres.map(n => sql`${n}`), sql`, `)}) AND precioUno > 0
+      `));
+    } catch { info = []; }
+    const norm = (s2: string) => String(s2 || "").trim().toLowerCase();
+    const infoMap: Record<string, any> = {};
+    for (const it of info) infoMap[norm(it.nombre)] = it;
+    // Ofertas activas
+    let ofertasMap: Record<string, number> = {};
+    try {
+      const ofs = rows(await db.execute(sql.raw(
+        `SELECT nombreProducto, precioOferta FROM ofertas_tienda WHERE activa = 1 AND (hastaFecha IS NULL OR hastaFecha >= CURDATE())`
+      )));
+      for (const o of ofs) ofertasMap[norm(o.nombreProducto)] = num(o.precioOferta);
+    } catch { /* sin ofertas */ }
+    const stocks = stockPorProductoNoBloqueante();
+    const productos = [];
+    for (const t of top) {
+      const it = infoMap[norm(t.nombre)];
+      if (!it || num(it.ocultoTienda) === 1) continue;
+      if (esControlado(it.nombre, it.descripcion)) continue;
+      const precioNormal = num(it.precioUno);
+      const oferta = ofertasMap[norm(it.nombre)];
+      const enOferta = oferta != null && oferta > 0 && oferta < precioNormal;
+      productos.push({
+        nombre: it.nombre,
+        precio: enOferta ? oferta : precioNormal,
+        precioNormal: enOferta ? precioNormal : null,
+        enOferta,
+        imagen: it.imagenUrl || null,
+        descripcion: it.descripcion || null,
+        disponibilidad: ALMACENES.map(a => ({ sucursal: a.sucursal, estado: estadoDe(stocks[norm(it.nombre)]?.[a.sucursal]) })),
+      });
+      if (productos.length >= 10) break;
+    }
+    return { productos };
+  },
+
   // Ofertas activas (público): para la zona de ofertas del home
   async ofertas() {
     await asegurarTablas();

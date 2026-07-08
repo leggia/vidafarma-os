@@ -10,12 +10,12 @@ import { trpc } from "@/lib/trpc";
 type ItemCarrito = { nombre: string; precio: number; cantidad: number; imagen?: string | null };
 
 const CATEGORIAS = [
-  { txt: "Dolor y fiebre", q: "paracetamol" },
-  { txt: "Gripe y tos", q: "jarabe" },
-  { txt: "Vitaminas", q: "vitamina" },
-  { txt: "Estómago", q: "omeprazol" },
-  { txt: "Bebé", q: "pañal" },
-  { txt: "Dermo", q: "crema" },
+  { txt: "Dolor y fiebre", q: "paracetamol", emoji: "🤕" },
+  { txt: "Gripe y tos", q: "jarabe", emoji: "🤧" },
+  { txt: "Vitaminas", q: "vitamina", emoji: "💊" },
+  { txt: "Estómago", q: "omeprazol", emoji: "🩹" },
+  { txt: "Bebé", q: "pañal", emoji: "🍼" },
+  { txt: "Dermo", q: "crema", emoji: "🧴" },
 ];
 
 export default function TiendaClientes() {
@@ -67,6 +67,7 @@ export default function TiendaClientes() {
   }, [data]);
   const { data: config } = trpc.tienda.config.useQuery(undefined, { staleTime: 300000 });
   const { data: ofertasData } = trpc.tienda.ofertas.useQuery(undefined, { staleTime: 120000 });
+  const { data: masVendidos } = trpc.tienda.masVendidos.useQuery(undefined, { staleTime: 300000 });
   const { data: yo } = trpc.auth.me.useQuery(undefined, { staleTime: 300000 });
   const esCliente = !!yo?.email;
   const { data: misReservas } = trpc.tienda.misReservas.useQuery(undefined, { enabled: esCliente, staleTime: 60000 });
@@ -149,6 +150,51 @@ export default function TiendaClientes() {
   const sucCorta = (s: string) => s.replace("Sucursal ", "").replace("Casa Matriz Cobol", "Cobol").replace("Casa Matriz", "Matriz");
   const enHome = buscado.length < 3;
 
+  // Tarjeta de producto tipo grid (estilo CVS): foto grande, precio, disponibilidad, botón.
+  const TarjetaProducto = ({ p }: { p: any }) => {
+    const mejorEstado = p.disponibilidad?.some((d: any) => d.estado === "disponible") ? "disponible"
+      : p.disponibilidad?.some((d: any) => d.estado === "ultimas") ? "ultimas"
+      : p.disponibilidad?.some((d: any) => d.estado === "agotado") ? "agotado" : "consultar";
+    return (
+      <div className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+        <div className="relative bg-gray-50 aspect-square flex items-center justify-center p-3">
+          {p.imagen ? (
+            <img src={p.imagen} alt={p.nombre} loading="lazy" className="w-full h-full object-contain"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          ) : (
+            <Avatar nombre={p.nombre} imagen={null} grande />
+          )}
+          {p.enOferta && (
+            <span className="absolute top-2 left-2 text-[10px] font-black px-2 py-0.5 rounded-full bg-red-500 text-white shadow">
+              -{Math.round((1 - p.precio / p.precioNormal) * 100)}%
+            </span>
+          )}
+        </div>
+        <div className="p-3 flex flex-col flex-1">
+          <p className="font-semibold text-gray-900 text-xs leading-tight line-clamp-2 min-h-[2rem]">{p.nombre}</p>
+          {p.descripcion && <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mt-0.5">{p.descripcion}</p>}
+          <div className="mt-1.5 mb-2">
+            {p.enOferta ? (
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-black text-red-600">Bs {p.precio.toFixed(2)}</span>
+                <span className="line-through text-gray-400 text-[10px]">Bs {p.precioNormal.toFixed(2)}</span>
+              </div>
+            ) : (
+              <span className="text-lg font-black text-emerald-700">Bs {p.precio.toFixed(2)}</span>
+            )}
+          </div>
+          <div className="mt-auto">
+            <div className="mb-2"><Estado estado={mejorEstado} /></div>
+            <button onClick={() => agregar(p)}
+              className="w-full h-9 rounded-xl bg-emerald-600 text-white font-bold text-xs active:scale-95">
+              Agregar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-white pb-28">
       <div className="max-w-lg mx-auto px-4 py-6">
@@ -193,79 +239,97 @@ export default function TiendaClientes() {
           </div>
         )}
 
-        {/* HOME comercial: ofertas + categorías */}
+        {/* HOME comercial estilo profesional */}
         {enHome && (
           <>
-            {esCliente && puntos && (
-              <div className="mb-5 p-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs opacity-90">Tus puntos VidaFarma</p>
-                    <p className="text-3xl font-black">{puntos.puntos}</p>
-                  </div>
-                  <div className="text-right">
-                    {puntos.vales > 0 && <p className="text-sm font-bold">🎟️ {puntos.vales} vale(s) de Bs {puntos.valorVale}</p>}
-                    <p className="text-[11px] opacity-90">Te faltan {puntos.faltanParaVale} pts para tu próximo vale</p>
-                    <p className="text-[10px] opacity-75 mt-0.5">Ganas puntos en tienda y en mostrador</p>
-                  </div>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-white/25 overflow-hidden">
-                  <div className="h-full bg-white rounded-full" style={{ width: `${Math.min(100, ((1000 - puntos.faltanParaVale) / 1000) * 100)}%` }} />
-                </div>
-              </div>
-            )}
-            {(ofertasData?.ofertas?.length || 0) > 0 && (
-              <div className="mb-5">
-                <h2 className="font-black text-gray-900 mb-2 flex items-center gap-2">🔥 Ofertas de la semana</h2>
-                <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory">
-                  {ofertasData!.ofertas.map((o: any, i: number) => (
-                    <div key={i} className="snap-start shrink-0 w-44 p-3 rounded-2xl bg-white border-2 border-amber-200 shadow-sm flex flex-col">
-                      <div className="relative">
-                        <Avatar nombre={o.nombre} imagen={o.imagen} grande />
-                        <span className="absolute -top-1 -right-1 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white shadow">
-                          -{Math.round((1 - o.precio / o.precioNormal) * 100)}%
-                        </span>
-                      </div>
-                      <p className="font-bold text-gray-900 text-xs leading-tight mt-2 line-clamp-2 min-h-[2rem]">{o.nombre}</p>
-                      <div className="mt-1">
-                        <span className="line-through text-gray-400 text-[10px]">Bs {o.precioNormal.toFixed(2)}</span>
-                        <p className="text-lg font-black text-red-600 leading-none">Bs {o.precio.toFixed(2)}</p>
-                      </div>
-                      {o.hasta && <p className="text-[9px] text-gray-400 mt-0.5">Hasta {o.hasta}</p>}
-                      <button onClick={() => agregar(o)} className="mt-2 h-9 rounded-xl bg-emerald-600 text-white font-bold text-xs active:scale-95">
-                        Agregar
-                      </button>
+            {/* Tarjeta de recompensas (estilo "Savings & rewards" de CVS) */}
+            {esCliente && puntos ? (
+              <div className="mb-5 p-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-lg">
+                <p className="text-xs font-bold opacity-90 mb-2">Puntos y recompensas</p>
+                <div className="flex items-end justify-between">
+                  <div className="flex items-end gap-4">
+                    <div>
+                      <p className="text-3xl font-black leading-none">{puntos.puntos}</p>
+                      <p className="text-[10px] opacity-80 mt-1">puntos</p>
                     </div>
-                  ))}
+                    <div className="border-l border-white/30 pl-4">
+                      <p className="text-3xl font-black leading-none">{puntos.vales}</p>
+                      <p className="text-[10px] opacity-80 mt-1">vale{puntos.vales !== 1 ? "s" : ""} de Bs {puntos.valorVale}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setVerMisReservas(true)} className="h-9 px-4 rounded-full bg-white text-emerald-700 text-xs font-black active:scale-95">
+                    Ver todo
+                  </button>
                 </div>
+                <div className="mt-3 h-2 rounded-full bg-white/25 overflow-hidden">
+                  <div className="h-full bg-white rounded-full transition-all" style={{ width: `${Math.min(100, ((1000 - puntos.faltanParaVale) / 1000) * 100)}%` }} />
+                </div>
+                <p className="text-[10px] opacity-80 mt-1.5">Te faltan {puntos.faltanParaVale} pts para tu próximo vale · Ganas puntos en tienda y mostrador</p>
               </div>
+            ) : (
+              <a href="/api/oauth/google/cliente" className="block mb-5 p-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-lg active:scale-[0.99]">
+                <p className="font-black text-base">Únete y gana puntos 🎁</p>
+                <p className="text-xs opacity-90 mt-0.5">Inicia sesión y acumula puntos en cada compra, canjéalos por vales de descuento.</p>
+              </a>
             )}
+
+            {/* Categorías con íconos */}
+            <div className="grid grid-cols-3 gap-2 mb-6">
+              {CATEGORIAS.map(c => (
+                <button key={c.txt} onClick={() => buscarInmediato(c.q)}
+                  className="flex flex-col items-center justify-center gap-1 h-20 rounded-2xl bg-white border border-gray-100 shadow-sm active:scale-95">
+                  <span className="text-2xl">{c.emoji}</span>
+                  <span className="text-[10px] font-bold text-gray-700 text-center leading-tight px-1">{c.txt}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Pedir de nuevo */}
             {esCliente && (recompra?.productos?.length || 0) > 0 && (
-              <div className="mb-5">
-                <h2 className="font-black text-emerald-900 mb-2">🔁 Pedir de nuevo</h2>
-                <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="mb-6">
+                <h2 className="font-black text-gray-900 mb-2">Pedir de nuevo</h2>
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
                   {recompra!.productos.map((n: string, i: number) => (
                     <button key={i} onClick={() => buscarInmediato(n)}
-                      className="shrink-0 h-10 px-3 rounded-xl bg-white border border-emerald-100 text-xs font-bold text-emerald-900 active:scale-95">
-                      {n.length > 22 ? n.slice(0, 22) + "…" : n}
+                      className="shrink-0 h-10 px-3 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 active:scale-95">
+                      🔁 {n.length > 20 ? n.slice(0, 20) + "…" : n}
                     </button>
                   ))}
                 </div>
               </div>
             )}
-            <h2 className="font-black text-emerald-900 mb-2">Explora por categoría</h2>
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              {CATEGORIAS.map(c => (
-                <button key={c.txt} onClick={() => buscarInmediato(c.q)}
-                  className="h-16 rounded-2xl bg-white border border-emerald-100 shadow-sm text-xs font-bold text-emerald-900 active:scale-95 px-1">
-                  {c.txt}
-                </button>
-              ))}
-            </div>
+
+            {/* Ofertas de la semana (carrusel) */}
+            {(ofertasData?.ofertas?.length || 0) > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-black text-gray-900">🔥 Ofertas de la semana</h2>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x">
+                  {ofertasData!.ofertas.map((o: any, i: number) => (
+                    <div key={i} className="snap-start shrink-0 w-40">
+                      <TarjetaProducto p={{ ...o, disponibilidad: [] }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Lo más vendido (grid estilo Trending now de CVS) */}
+            {(masVendidos?.productos?.length || 0) > 0 && (
+              <div className="mb-6">
+                <h2 className="font-black text-gray-900 mb-2">⭐ Lo más vendido</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  {masVendidos!.productos.map((p: any, i: number) => (
+                    <TarjetaProducto key={i} p={p} />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
-        {/* Resultados de búsqueda */}
+        {/* Resultados de búsqueda (grid 2 columnas) */}
         {isFetching && <p className="text-center text-sm text-emerald-700 py-6">Buscando…</p>}
         {!isFetching && !enHome && data?.mensaje && (
           <div className="text-center py-6">
@@ -278,40 +342,13 @@ export default function TiendaClientes() {
             )}
           </div>
         )}
-        <div className="space-y-3">
-          {!enHome && data?.productos?.map((p: any, i: number) => (
-            <div key={i} className="p-4 rounded-2xl bg-white border border-emerald-100 shadow-sm">
-              <div className="flex items-start gap-3 mb-2">
-                <Avatar nombre={p.nombre} imagen={p.imagen} />
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 text-sm leading-tight">{p.nombre}</p>
-                  {p.descripcion && <p className="text-[11px] text-gray-500 leading-tight mt-0.5">{p.descripcion}</p>}
-                  {p.enOferta ? (
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <span className="text-xs line-through text-gray-400">Bs {p.precioNormal.toFixed(2)}</span>
-                      <span className="text-xl font-black text-red-600">Bs {p.precio.toFixed(2)}</span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">OFERTA</span>
-                    </div>
-                  ) : (
-                    <p className="text-xl font-black text-emerald-700 mt-0.5">Bs {p.precio.toFixed(2)}</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {p.disponibilidad.map((d: any, j: number) => (
-                  <div key={j} className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-500">{sucCorta(d.sucursal)}:</span>
-                    <Estado estado={d.estado} />
-                  </div>
-                ))}
-              </div>
-              <button onClick={() => agregar(p)}
-                className="w-full h-11 rounded-xl bg-emerald-600 text-white font-bold text-sm active:scale-95">
-                Agregar al carrito
-              </button>
-            </div>
-          ))}
-        </div>
+        {!enHome && (data?.productos?.length || 0) > 0 && (
+          <div className="grid grid-cols-2 gap-3">
+            {data!.productos.map((p: any, i: number) => (
+              <TarjetaProducto key={i} p={p} />
+            ))}
+          </div>
+        )}
 
         <p className="text-center text-[10px] text-gray-400 mt-8">
           Los productos con receta se atienden en mostrador. Precios sujetos a confirmación en farmacia.

@@ -2682,6 +2682,10 @@ const tiendaRouter = router({
     const { tienda } = await import("./tienda");
     return tienda.ofertas();
   }),
+  masVendidos: publicProcedure.query(async () => {
+    const { tienda } = await import("./tienda");
+    return tienda.masVendidos();
+  }),
   config: publicProcedure.query(async () => {
     const { tienda } = await import("./tienda");
     return tienda.config();
