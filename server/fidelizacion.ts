@@ -105,6 +105,8 @@ export async function clientesPorRecordar(opts: {
         MIN(d.fecha) AS primera,
         MAX(d.fecha) AS ultima,
         DATEDIFF(MAX(d.fecha), MIN(d.fecha)) AS spanDias,
+        SUM(d.cantidad) AS cantidadTotal,
+        SUBSTRING_INDEX(GROUP_CONCAT(d.cantidad ORDER BY d.fecha DESC SEPARATOR '||'), '||', 1) AS cantidadUltima,
         SUBSTRING_INDEX(GROUP_CONCAT(v.nombreSucursal ORDER BY d.fecha DESC SEPARATOR '||'), '||', 1) AS ultimaSucursal
       FROM ventas v
       JOIN ventas_detalle d ON d.ventaId = v.id
@@ -126,17 +128,41 @@ export async function clientesPorRecordar(opts: {
     for (const p of patrones) {
       const veces = num(p.veces);
       const spanDias = num(p.spanDias);
-      // Intervalo promedio entre compras consecutivas.
-      const intervaloDias = Math.round(spanDias / (veces - 1));
-      if (intervaloDias <= 0) continue;
+      const cantidadTotal = num(p.cantidadTotal);
+      const cantidadUltima = num(p.cantidadUltima) || 1;
 
       const ultima = String(p.ultima);
       const [uy, um, ud] = ultima.split("-").map(Number);
       const ultimaMid = Date.UTC(uy, um - 1, ud);
       const diasDesdeUltima = Math.round((hoyMid - ultimaMid) / diaMs);
 
-      const proximaMid = ultimaMid + intervaloDias * diaMs;
-      const diasParaProxima = Math.round((proximaMid - hoyMid) / diaMs);
+      // TASA DE CONSUMO: unidades por día. Se calcula con las compras ANTERIORES a
+      // la última (las unidades consumidas entre la primera y la última compra, que
+      // es lo que efectivamente se terminó en ese lapso). Así, un cliente que lleva
+      // 20 tabletas recibe el aviso al doble de días que uno que lleva 10.
+      const unidadesConsumidasHistoricas = cantidadTotal - cantidadUltima; // lo comprado salvo la última vez
+      let diasParaProxima: number;
+      let intervaloDias: number;
+
+      if (unidadesConsumidasHistoricas > 0 && spanDias > 0) {
+        // Consumo diario = unidades consumidas entre primera y última compra ÷ días.
+        const consumoDiario = unidadesConsumidasHistoricas / spanDias;
+        if (consumoDiario <= 0) continue;
+        // Cuántos días dura lo que se llevó la ÚLTIMA vez.
+        const duracionUltimaCompra = cantidadUltima / consumoDiario;
+        intervaloDias = Math.round(duracionUltimaCompra);
+        const seAcabaMid = ultimaMid + Math.round(duracionUltimaCompra) * diaMs;
+        diasParaProxima = Math.round((seAcabaMid - hoyMid) / diaMs);
+      } else {
+        // Respaldo (sin cantidades fiables): intervalo promedio entre compras.
+        intervaloDias = Math.round(spanDias / (veces - 1));
+        if (intervaloDias <= 0) continue;
+        const proximaMid = ultimaMid + intervaloDias * diaMs;
+        diasParaProxima = Math.round((proximaMid - hoyMid) / diaMs);
+      }
+      if (intervaloDias <= 0) continue;
+
+      const proximaMid = hoyMid + diasParaProxima * diaMs;
       const proximaEsperada = new Date(proximaMid).toISOString().slice(0, 10);
 
       // Clasificar
