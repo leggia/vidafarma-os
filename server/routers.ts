@@ -2629,6 +2629,13 @@ const marketingRouter = router({
     const { redesDisponibles } = await import("./publicacion-redes");
     return redesDisponibles();
   }),
+  generarImagen: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      soloAdminMkt(ctx);
+      const { generarImagenPost } = await import("./marketing-imagen");
+      return generarImagenPost(input.id);
+    }),
 });
 
 const fidelizacionRouter = router({

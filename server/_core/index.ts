@@ -332,6 +332,8 @@ async function startServer() {
   // Fotos de productos (servidas desde MySQL con caché)
   const { registerFotoProductoRoute } = await import("../fotos-productos");
   registerFotoProductoRoute(app);
+  const { registerImagenPostRoute } = await import("../marketing-imagen");
+  registerImagenPostRoute(app);
   // Webhook de pago del banco (BNB/OpenBCB llaman aquí al confirmarse un pago QR)
   app.post("/api/pagos/webhook", async (req: any, res: any) => {
     try {

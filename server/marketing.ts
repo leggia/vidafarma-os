@@ -34,6 +34,8 @@ async function asegurarTablas() {
       INDEX idx_mp_estado (estado)
     )`));
   } catch { /* ya existe */ }
+  try { await db.execute(sql.raw("ALTER TABLE marketing_posts ADD COLUMN imagen MEDIUMBLOB")); } catch { /* ya existe */ }
+  try { await db.execute(sql.raw("ALTER TABLE marketing_posts ADD COLUMN imagenMime VARCHAR(40)")); } catch { /* ya existe */ }
   tablasListas = true;
 }
 
@@ -169,7 +171,9 @@ export const marketing = {
     if (!db) return { posts: [] };
     const cond = estado ? sql`WHERE estado = ${estado}` : sql`WHERE estado != 'descartado'`;
     const posts = rows(await db.execute(sql`
-      SELECT * FROM marketing_posts ${cond} ORDER BY creadoEn DESC LIMIT 50
+      SELECT id, tipo, titulo, contenido, hashtags, sugerenciaImagen, estado, redes,
+             publicadoEn, creadoEn, (imagen IS NOT NULL) AS tieneImagen
+      FROM marketing_posts ${cond} ORDER BY creadoEn DESC LIMIT 50
     `));
     return { posts };
   },
@@ -200,7 +204,9 @@ export const marketing = {
     if (post.estado !== "aprobado") return { error: "Solo se publican posts APROBADOS. Apruébalo primero." };
     const { publicarEnRedes, redesDisponibles } = await import("./publicacion-redes");
     const texto = `${post.titulo ? post.titulo + "\n\n" : ""}${post.contenido}\n\n${post.hashtags || ""}`.trim();
-    const resultado = await publicarEnRedes(texto);
+    const { urlImagenPublica } = await import("./marketing-imagen");
+    const imagenUrl = await urlImagenPublica(num(id));
+    const resultado = await publicarEnRedes(texto, imagenUrl || undefined);
     if (resultado.modo === "manual") {
       // Sin credenciales: devolver el texto listo para copiar (no marcar publicado)
       return { modo: "manual", texto, mensaje: "Sin credenciales de redes configuradas: copia el texto y publícalo manualmente. Cuando lo hagas, márcalo como publicado.", redes: redesDisponibles() };

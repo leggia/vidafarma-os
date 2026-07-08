@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Megaphone, Sparkles, Check, X, Copy, Send, Pencil, Loader2 } from "lucide-react";
+import { Megaphone, Sparkles, Check, X, Copy, Send, Pencil, Loader2, ImagePlus } from "lucide-react";
 
 /**
  * PANEL DE MARKETING (solo admin): el agente redacta publicaciones con datos reales
@@ -35,6 +35,16 @@ export default function Marketing() {
   });
   const editar = trpc.marketing.editar.useMutation({
     onSuccess: () => { setEditando(null); utils.marketing.listar.invalidate(); toast.success("Guardado"); },
+  });
+  const [generandoImg, setGenerandoImg] = useState<number | null>(null);
+  const generarImagen = trpc.marketing.generarImagen.useMutation({
+    onSuccess: (r: any) => {
+      setGenerandoImg(null);
+      if (r?.error) { toast.error(r.error, { duration: 8000 }); return; }
+      toast.success("Imagen generada 🎨");
+      utils.marketing.listar.invalidate();
+    },
+    onError: (e) => { setGenerandoImg(null); toast.error(e.message); },
   });
   const publicar = trpc.marketing.publicar.useMutation({
     onSuccess: (r: any) => {
@@ -132,9 +142,11 @@ export default function Marketing() {
                 {p.titulo && <p className="font-black text-sm mb-1">{p.titulo}</p>}
                 <p className="text-sm whitespace-pre-wrap">{p.contenido}</p>
                 {p.hashtags && <p className="text-xs text-sky-600 mt-1.5">{p.hashtags}</p>}
-                {p.sugerenciaImagen && (
+                {p.tieneImagen ? (
+                  <img src={`/api/imagen-post/${p.id}?v=${p.id}`} alt="" className="mt-3 rounded-xl w-full max-w-xs border" loading="lazy" />
+                ) : p.sugerenciaImagen ? (
                   <p className="text-[11px] text-muted-foreground mt-2 italic">📷 Imagen sugerida: {p.sugerenciaImagen}</p>
-                )}
+                ) : null}
               </>
             )}
 
@@ -150,6 +162,12 @@ export default function Marketing() {
                     <button onClick={() => { setEditando(p.id); setTextoEdit(p.contenido); }}
                       className="h-9 px-4 rounded-xl bg-muted text-xs font-bold flex items-center gap-1.5">
                       <Pencil className="w-3.5 h-3.5" /> Editar
+                    </button>
+                    <button onClick={() => { setGenerandoImg(p.id); generarImagen.mutate({ id: p.id }); }}
+                      disabled={generandoImg === p.id}
+                      className="h-9 px-4 rounded-xl bg-violet-100 text-violet-800 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50">
+                      {generandoImg === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                      {p.tieneImagen ? "Regenerar imagen" : "Generar imagen"}
                     </button>
                     <button onClick={() => cambiarEstado.mutate({ id: p.id, estado: "descartado" })}
                       className="h-9 px-3 rounded-xl bg-muted text-muted-foreground text-xs font-bold">
@@ -169,6 +187,11 @@ export default function Marketing() {
                     </button>
                     <button onClick={() => cambiarEstado.mutate({ id: p.id, estado: "publicado" })}
                       className="h-9 px-4 rounded-xl bg-muted text-xs font-bold">✓ Ya lo publiqué</button>
+                    <button onClick={() => { setGenerandoImg(p.id); generarImagen.mutate({ id: p.id }); }}
+                      disabled={generandoImg === p.id}
+                      className="h-9 px-3 rounded-xl bg-violet-100 text-violet-800 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50">
+                      {generandoImg === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                    </button>
                   </>
                 )}
                 {p.estado === "publicado" && (
