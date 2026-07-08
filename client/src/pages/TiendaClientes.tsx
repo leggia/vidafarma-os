@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, Search, Receipt, Gift } from "lucide-react";
+import { Home, Search, Receipt, Gift, ShoppingCart, Bell, User } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 /**
@@ -196,28 +196,46 @@ export default function TiendaClientes() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-white pb-28">
-      <div className="max-w-lg mx-auto px-4 py-6">
-        {/* Barra superior: logo pequeño + cuenta */}
-        <div className="flex items-center justify-between mb-4">
-          <img src="/vidafarma-logo.png" alt="VidaFarma" className="h-9 w-auto" />
-          {esCliente ? (
-            <button onClick={() => setVerMisReservas(true)}
-              className="flex items-center gap-1.5 h-9 px-3 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold active:scale-95">
-              🧾 Mis reservas{(misReservas?.reservas?.length || 0) > 0 ? ` (${misReservas!.reservas.length})` : ""}
+    <div className="min-h-screen bg-white pb-28">
+      {/* Barra superior FIJA (sticky) estilo CVS */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-gray-100">
+        <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+          <img src="/vidafarma-logo.png" alt="VidaFarma" className="h-8 w-auto" />
+          <div className="flex items-center gap-1">
+            {esCliente ? (
+              <button onClick={() => setVerMisReservas(true)}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-gray-600 active:scale-90" title="Mi cuenta">
+                <User className="w-5 h-5" />
+              </button>
+            ) : (
+              <a href="/api/oauth/google/cliente"
+                className="w-10 h-10 rounded-full flex items-center justify-center text-gray-600 active:scale-90" title="Iniciar sesión">
+                <User className="w-5 h-5" />
+              </a>
+            )}
+            <button onClick={() => esCliente ? setVerMisReservas(true) : (window.location.href = "/api/oauth/google/cliente")}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-gray-600 active:scale-90 relative" title="Mis reservas">
+              <Bell className="w-5 h-5" />
+              {(misReservas?.reservas?.filter((r: any) => r.estado === "pendiente" || r.estado === "lista").length || 0) > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white" />
+              )}
             </button>
-          ) : (
-            <a href="/api/oauth/google/cliente"
-              className="flex items-center gap-2 h-9 px-4 rounded-full bg-white border-2 border-emerald-500 text-emerald-700 text-xs font-bold shadow-sm active:scale-95">
-              <svg width="14" height="14" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.3 6.1 29.4 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.3 6.1 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C41 35.3 44 30.1 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
-              Iniciar sesión
-            </a>
-          )}
+            <button onClick={() => carrito.length > 0 && setVerCarrito(true)}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-gray-600 active:scale-90 relative" title="Carrito">
+              <ShoppingCart className="w-5 h-5" />
+              {totalItems > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center">
+                  {totalItems}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
+      </div>
 
-        {/* Encabezado con lema mejorado + símbolo de marca */}
-        <div className="text-center mb-5 relative">
-          <img src="/vidafarma-simbolo.png" alt="" className="w-10 h-10 mx-auto mb-1 opacity-90" />
+      <div className="max-w-lg mx-auto px-4 py-6">
+        {/* Encabezado con lema */}
+        <div className="text-center mb-5">
           <h1 className="text-xl font-black text-gray-900">Tu salud, más cerca que nunca</h1>
           <p className="text-sm text-gray-500 mt-0.5">Busca, reserva y recoge en tu sucursal</p>
         </div>
