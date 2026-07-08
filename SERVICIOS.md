@@ -38,7 +38,7 @@ Regla de oro transversal: **el agente sugiere, el humano aprueba.** Nada estruct
 | 3 | **Atención al cliente** | Consultas, reservas, WhatsApp, fidelización | 🟢 Operativo |
 | 4 | **Finanzas** | Rentabilidad, gastos, sueldos, reportes | 🟢 Operativo |
 | 5 | **Desarrollo (Dev)** | Código, features, mantenimiento de la app | 🟢 Operativo |
-| 6 | **Testing / QA** | Verificación, prevención de errores | 🟡 Parcial |
+| 6 | **Testing / QA** | Verificación pre-push, prevención de errores | 🟢 Operativo |
 | 7 | **Marketing** | Promociones, publicación auto en Facebook/TikTok, recompra, contenido | 🟡 En diseño |
 | 8 | **Inteligencia de negocio** | Análisis, decisiones, competencia | 🟢 Operativo |
 | 9 | **Cumplimiento / Legal** | Controlados, recetas, normativa, datos | 🟡 Parcial |

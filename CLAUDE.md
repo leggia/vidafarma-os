@@ -49,3 +49,14 @@ App web Node.js/TypeScript (React + tRPC + Drizzle/MySQL) de gestión para una f
 3. Para entender la estructura de negocio (áreas: operaciones, ventas, atención,
    finanzas, desarrollo, testing, marketing, inteligencia, cumplimiento) y la hoja
    de ruta Company of One, leer `SERVICIOS.md`.
+
+## Antes de cada push (OBLIGATORIO)
+
+Correr el chequeo pre-push, que detecta el error use-before-declaration (que esbuild
+no ve y crashea en producción) y verifica compilación:
+
+```bash
+node scripts/verificar.mjs   # o: npm run verificar
+```
+
+No hacer push si falla. Ver `TESTING.md` para el checklist completo de release.
