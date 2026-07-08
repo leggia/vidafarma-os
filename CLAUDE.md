@@ -46,3 +46,6 @@ App web Node.js/TypeScript (React + tRPC + Drizzle/MySQL) de gestión para una f
 
 1. `git pull` para traer los últimos cambios (Luis trabaja desde varias máquinas).
 2. Leer `HISTORIAL_PROYECTO.md` si necesitas contexto de qué se hizo y por qué.
+3. Para entender la estructura de negocio (áreas: operaciones, ventas, atención,
+   finanzas, desarrollo, testing, marketing, inteligencia, cumplimiento) y la hoja
+   de ruta Company of One, leer `SERVICIOS.md`.
