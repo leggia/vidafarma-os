@@ -332,6 +332,27 @@ async function startServer() {
   // Fotos de productos (servidas desde MySQL con caché)
   const { registerFotoProductoRoute } = await import("../fotos-productos");
   registerFotoProductoRoute(app);
+  // Webhook de pago del banco (BNB/OpenBCB llaman aquí al confirmarse un pago QR)
+  app.post("/api/pagos/webhook", async (req: any, res: any) => {
+    try {
+      // El banco envía el id externo del QR. Aceptamos varios nombres de campo.
+      const b = req.body || {};
+      const qrId = String(b.qrId || b.id || b.QRId || b.transactionId || b.operationId || "");
+      const monto = Number(b.amount || b.monto || 0) || undefined;
+      // Validación opcional por secreto compartido
+      const secret = process.env.PAGO_WEBHOOK_SECRET;
+      if (secret && req.headers["x-webhook-secret"] !== secret && b.secret !== secret) {
+        return res.status(401).json({ ok: false });
+      }
+      if (!qrId) return res.status(400).json({ ok: false, motivo: "sin id" });
+      const { pagos } = await import("../pagos");
+      const r = await pagos.confirmarPagoWebhook(qrId, monto);
+      return res.json(r);
+    } catch (e: any) {
+      console.error("[Webhook pago] error:", e?.message);
+      return res.status(500).json({ ok: false });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

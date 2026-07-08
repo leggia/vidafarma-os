@@ -24,6 +24,10 @@ export default function Reservas() {
     onSuccess: () => { utils.tienda.listarReservas.invalidate(); },
     onError: (e) => toast.error("No se pudo actualizar: " + (e.message || "")),
   });
+  const confirmarPago = trpc.tienda.confirmarPagoManual.useMutation({
+    onSuccess: () => { utils.tienda.listarReservas.invalidate(); toast.success("Pago confirmado"); },
+    onError: (e) => toast.error("No se pudo: " + (e.message || "")),
+  });
 
   const marcar = (id: number, estado: string, txt: string) => {
     cambiar.mutate({ id, estado });
@@ -85,7 +89,10 @@ export default function Reservas() {
               )}
               <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
                 <span>{r.nombreCliente} · <a className="text-emerald-700 font-bold" href={`https://wa.me/${String(r.telefono).replace(/[^\d]/g, "")}`} target="_blank" rel="noreferrer">{r.telefono}</a></span>
-                <span className="font-bold">{r.sucursal?.replace("Sucursal ", "")} · Bs {Number(r.precio).toFixed(2)}</span>
+                <span className="font-bold">{r.sucursal?.replace("Sucursal ", "")} · Bs {Number(r.precio).toFixed(2)}
+                  {r.estadoPago === "pagado" && <span className="ml-1 text-emerald-600">✓ pagado</span>}
+                  {r.estadoPago === "por_verificar" && <span className="ml-1 text-amber-600">⏳ verificar pago</span>}
+                </span>
               </div>
               <div className="flex gap-2">
                 {tab === "pendiente" && (
@@ -101,6 +108,10 @@ export default function Reservas() {
                 {tab === "lista" && (
                   <button onClick={() => marcar(r.id, "entregada", "Entregada ✔")}
                     className="flex-1 h-10 rounded-xl bg-emerald-600 text-white text-xs font-bold active:scale-95">✔ Entregada</button>
+                )}
+                {r.estadoPago === "por_verificar" && (
+                  <button onClick={() => confirmarPago.mutate({ reservaId: r.id })}
+                    className="h-10 px-3 rounded-xl bg-amber-500 text-white text-xs font-bold active:scale-95">Confirmar pago</button>
                 )}
               </div>
             </div>

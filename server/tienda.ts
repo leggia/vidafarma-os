@@ -323,7 +323,7 @@ export const tienda = {
     try { await db.execute(sql.raw(`UPDATE reservas_tienda SET estado='expirada' WHERE estado='pendiente' AND creadoEn < NOW() - INTERVAL 48 HOUR`)); } catch { /* ignore */ }
     const est = ["pendiente", "lista", "entregada", "cancelada", "expirada"].includes(estado || "") ? estado : "pendiente";
     return rows(await db.execute(sql`
-      SELECT id, codigo, producto, precio, sucursal, nombreCliente, telefono, estado, creadoEn
+      SELECT id, codigo, producto, precio, sucursal, nombreCliente, telefono, estado, estadoPago, items, creadoEn
       FROM reservas_tienda WHERE estado = ${est} ORDER BY creadoEn DESC LIMIT 50
     `));
   },
@@ -354,7 +354,7 @@ export const tienda = {
     if (!db || !email) return { reservas: [] };
     const e = String(email).trim().toLowerCase();
     const lista = rows(await db.execute(sql`
-      SELECT codigo, producto, precio, sucursal, estado, items, creadoEn
+      SELECT id, codigo, producto, precio, sucursal, estado, estadoPago, items, creadoEn
       FROM reservas_tienda WHERE emailCliente = ${e} ORDER BY creadoEn DESC LIMIT 30
     `));
     return {
@@ -362,8 +362,8 @@ export const tienda = {
         let items: any[] = [];
         try { items = typeof r.items === "string" ? JSON.parse(r.items) : (r.items || []); } catch { items = []; }
         return {
-          codigo: r.codigo, resumen: r.producto, total: num(r.precio),
-          sucursal: r.sucursal, estado: r.estado, items,
+          id: num(r.id), codigo: r.codigo, resumen: r.producto, total: num(r.precio),
+          sucursal: r.sucursal, estado: r.estado, estadoPago: r.estadoPago || "no_pagado", items,
           fecha: String(r.creadoEn).slice(0, 10),
         };
       }),

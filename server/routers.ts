@@ -2652,6 +2652,32 @@ const tiendaRouter = router({
     const { tienda } = await import("./tienda");
     return tienda.misPuntos(email);
   }),
+  // ─── Pagos QR ───
+  iniciarPago: publicProcedure
+    .input(z.object({ reservaId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { pagos } = await import("./pagos");
+      return pagos.iniciarPagoReserva(input.reservaId);
+    }),
+  subirComprobante: publicProcedure
+    .input(z.object({ reservaId: z.number(), comprobanteUrl: z.string().max(600) }))
+    .mutation(async ({ input }) => {
+      const { pagos } = await import("./pagos");
+      return pagos.subirComprobante(input.reservaId, input.comprobanteUrl);
+    }),
+  estadoPago: publicProcedure
+    .input(z.object({ reservaId: z.number() }))
+    .query(async ({ input }) => {
+      const { pagos } = await import("./pagos");
+      return pagos.estadoPago(input.reservaId);
+    }),
+  // Staff: confirmar pago manual tras revisar comprobante
+  confirmarPagoManual: protectedProcedure
+    .input(z.object({ reservaId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { pagos } = await import("./pagos");
+      return pagos.confirmarPagoManual(input.reservaId);
+    }),
   ofertas: publicProcedure.query(async () => {
     const { tienda } = await import("./tienda");
     return tienda.ofertas();

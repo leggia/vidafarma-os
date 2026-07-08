@@ -52,7 +52,9 @@ export default function TiendaClientes() {
   const { data: recompra } = trpc.tienda.recompra.useQuery(undefined, { enabled: esCliente, staleTime: 60000 });
   const { data: puntos } = trpc.tienda.misPuntos.useQuery(undefined, { enabled: esCliente, staleTime: 60000 });
   const [verMisReservas, setVerMisReservas] = useState(false);
+  const [pagoActivo, setPagoActivo] = useState<any>(null);
   const reservar = trpc.tienda.reservar.useMutation();
+  const iniciarPago = trpc.tienda.iniciarPago.useMutation();
 
   const totalItems = carrito.reduce((t, i) => t + i.cantidad, 0);
   const subtotalBs = carrito.reduce((t, i) => t + i.precio * i.cantidad, 0);
@@ -299,9 +301,50 @@ export default function TiendaClientes() {
                 </div>
                 <p className="text-sm text-gray-700 mt-1">{r.resumen}</p>
                 <p className="text-xs text-gray-400">{r.sucursal?.replace("Sucursal ", "")} · Bs {r.total.toFixed(2)} · {r.fecha}</p>
+                {r.estado === "pendiente" && (
+                  <button
+                    onClick={async () => { const p = await iniciarPago.mutateAsync({ reservaId: r.id }); setPagoActivo({ ...p, total: r.total, codigo: r.codigo }); }}
+                    className="mt-2 h-9 px-4 rounded-lg bg-emerald-600 text-white text-xs font-bold active:scale-95">
+                    💳 Pagar en línea
+                  </button>
+                )}
               </div>
             ))}
             <button onClick={() => setVerMisReservas(false)} className="w-full h-11 mt-4 rounded-xl bg-emerald-600 text-white font-bold">Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Pago QR */}
+      {pagoActivo && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => setPagoActivo(null)}>
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md p-6 text-center" onClick={e => e.stopPropagation()}>
+            <h3 className="font-black text-lg text-gray-900 mb-1">Pagar reserva {pagoActivo.codigo}</h3>
+            <p className="text-2xl font-black text-emerald-700 mb-3">Bs {Number(pagoActivo.total || pagoActivo.monto || 0).toFixed(2)}</p>
+            {pagoActivo.modo === "qr" && pagoActivo.qrImagen && (
+              <>
+                <img src={pagoActivo.qrImagen.startsWith("data:") ? pagoActivo.qrImagen : `data:image/png;base64,${pagoActivo.qrImagen}`}
+                     alt="QR de pago" className="w-56 h-56 mx-auto rounded-xl border" />
+                <p className="text-sm text-gray-600 mt-3">Escanea este QR con la app de tu banco. Tu pago se confirma automáticamente.</p>
+              </>
+            )}
+            {pagoActivo.modo === "manual" && (
+              <div className="text-left text-sm">
+                {pagoActivo.datosPago?.qrEstatico && (
+                  <img src={pagoActivo.datosPago.qrEstatico} alt="QR" className="w-48 h-48 mx-auto rounded-xl border mb-3" />
+                )}
+                <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                  {pagoActivo.datosPago?.titular && <p><b>Titular:</b> {pagoActivo.datosPago.titular}</p>}
+                  {pagoActivo.datosPago?.banco && <p><b>Banco:</b> {pagoActivo.datosPago.banco}</p>}
+                  {pagoActivo.datosPago?.cuenta && <p><b>Cuenta:</b> {pagoActivo.datosPago.cuenta}</p>}
+                </div>
+                <p className="text-gray-600 mt-3">{pagoActivo.mensaje}</p>
+                <p className="text-xs text-gray-400 mt-2">Cuando pagues, avísanos por WhatsApp con tu comprobante y código {pagoActivo.codigo}.</p>
+              </div>
+            )}
+            {pagoActivo.yaPagado && <p className="text-emerald-700 font-bold">{pagoActivo.mensaje}</p>}
+            {pagoActivo.error && <p className="text-red-600">{pagoActivo.error}</p>}
+            <button onClick={() => setPagoActivo(null)} className="w-full h-11 mt-4 rounded-xl bg-gray-100 text-gray-600 font-bold">Cerrar</button>
           </div>
         </div>
       )}
