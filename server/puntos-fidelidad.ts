@@ -7,6 +7,13 @@ import { sql } from "drizzle-orm";
 
 const rows = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
 const num = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+// Normaliza teléfono a solo dígitos, tomando los últimos 8 (celular Bolivia) para
+// casar formatos distintos (con/sin +591, con espacios). Es la LLAVE cross-canal.
+function normTel(t: string | null | undefined): string | null {
+  const d = String(t || "").replace(/\D/g, "");
+  if (d.length < 7) return null;
+  return d.slice(-8);
+}
 
 // Reglas (como Chávez Plus+): 1 punto por cada Bs gastado; 1000 puntos = vale Bs 10.
 const PUNTOS_POR_BS = 1;
@@ -20,12 +27,14 @@ async function asegurarTablas() {
   if (!db) return;
   try {
     await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS clientes_puntos (
-      email VARCHAR(320) PRIMARY KEY,
+      telefono VARCHAR(30) PRIMARY KEY,
+      email VARCHAR(320),
       nombre VARCHAR(150),
       puntos INT NOT NULL DEFAULT 0,
       puntosHistoricos INT NOT NULL DEFAULT 0,
       valesGenerados INT NOT NULL DEFAULT 0,
-      actualizadoEn DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      actualizadoEn DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_cp_email (email)
     )`));
   } catch { /* ya existe */ }
   try {
@@ -41,7 +50,39 @@ async function asegurarTablas() {
   } catch { /* ya existe */ }
   // Evitar doble otorgamiento por reserva: marca en reservas_tienda
   try { await db.execute(sql.raw("ALTER TABLE reservas_tienda ADD COLUMN puntosOtorgados INT NOT NULL DEFAULT 0")); } catch { /* ya existe */ }
+  // Registro de ventas de 365 ya premiadas (idempotencia por idVenta)
+  try {
+    await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS puntos_ventas_procesadas (
+      idVenta BIGINT PRIMARY KEY,
+      creadoEn DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`));
+  } catch { /* ya existe */ }
   tablasListas = true;
+}
+
+// Otorga puntos a un teléfono. Núcleo común para reservas y ventas de 365.
+async function acreditar(telefono: string, monto: number, nombre: string | null, email: string | null, detalle: string) {
+  const db = await getDb();
+  if (!db) return;
+  const tel = normTel(telefono);
+  if (!tel) return;
+  const puntos = Math.floor(monto * PUNTOS_POR_BS);
+  if (puntos <= 0) return;
+  await db.execute(sql`
+    INSERT INTO clientes_puntos (telefono, email, nombre, puntos, puntosHistoricos)
+    VALUES (${tel}, ${email}, ${nombre}, ${puntos}, ${puntos})
+    ON DUPLICATE KEY UPDATE puntos = puntos + ${puntos}, puntosHistoricos = puntosHistoricos + ${puntos},
+      nombre = COALESCE(nombre, ${nombre}), email = COALESCE(email, ${email}), actualizadoEn = NOW()
+  `);
+  await db.execute(sql`INSERT INTO puntos_movimientos (email, tipo, puntos, detalle) VALUES (${tel}, 'gana', ${puntos}, ${detalle})`);
+  // Vale automático al llegar a 1000
+  const saldo = rows(await db.execute(sql`SELECT puntos FROM clientes_puntos WHERE telefono = ${tel} LIMIT 1`))[0];
+  if (saldo && num(saldo.puntos) >= PUNTOS_PARA_VALE) {
+    const vales = Math.floor(num(saldo.puntos) / PUNTOS_PARA_VALE);
+    const usados = vales * PUNTOS_PARA_VALE;
+    await db.execute(sql`UPDATE clientes_puntos SET puntos = puntos - ${usados}, valesGenerados = valesGenerados + ${vales} WHERE telefono = ${tel}`);
+    await db.execute(sql`INSERT INTO puntos_movimientos (email, tipo, puntos, detalle) VALUES (${tel}, 'vale', ${-usados}, ${`${vales} vale(s) de Bs ${VALOR_VALE_BS}`})`);
+  }
 }
 
 // Otorgar puntos por una reserva entregada (idempotente por reserva).
@@ -55,26 +96,40 @@ export async function otorgarPuntosPorReserva(reservaId: number) {
   `));
   const r = res[0];
   if (!r || !r.emailCliente || num(r.puntosOtorgados) === 1) return; // sin cuenta o ya otorgado
-  const email = String(r.emailCliente).toLowerCase();
-  const puntos = Math.floor(num(r.precio) * PUNTOS_POR_BS);
-  if (puntos <= 0) return;
-  await db.execute(sql`
-    INSERT INTO clientes_puntos (email, nombre, puntos, puntosHistoricos)
-    VALUES (${email}, ${r.nombreCliente || null}, ${puntos}, ${puntos})
-    ON DUPLICATE KEY UPDATE puntos = puntos + ${puntos}, puntosHistoricos = puntosHistoricos + ${puntos},
-      nombre = COALESCE(nombre, ${r.nombreCliente || null}), actualizadoEn = NOW()
-  `);
-  await db.execute(sql`INSERT INTO puntos_movimientos (email, tipo, puntos, detalle) VALUES (${email}, 'gana', ${puntos}, ${`Compra ${r.id} (Bs ${num(r.precio)})`})`);
+  await acreditar(String(r.telefono || ""), num(r.precio), r.nombreCliente || null, r.emailCliente ? String(r.emailCliente).toLowerCase() : null, `Reserva ${r.id} (Bs ${num(r.precio)})`);
   await db.execute(sql`UPDATE reservas_tienda SET puntosOtorgados = 1 WHERE id = ${num(reservaId)}`);
+}
 
-  // ¿Alcanzó para un vale? Convertir automáticamente (como Chávez: vale al llegar a 1000)
-  const saldo = rows(await db.execute(sql`SELECT puntos, valesGenerados FROM clientes_puntos WHERE email = ${email} LIMIT 1`))[0];
-  if (saldo && num(saldo.puntos) >= PUNTOS_PARA_VALE) {
-    const vales = Math.floor(num(saldo.puntos) / PUNTOS_PARA_VALE);
-    const puntosUsados = vales * PUNTOS_PARA_VALE;
-    await db.execute(sql`UPDATE clientes_puntos SET puntos = puntos - ${puntosUsados}, valesGenerados = valesGenerados + ${vales} WHERE email = ${email}`);
-    await db.execute(sql`INSERT INTO puntos_movimientos (email, tipo, puntos, detalle) VALUES (${email}, 'vale', ${-puntosUsados}, ${`${vales} vale(s) de Bs ${VALOR_VALE_BS} generado(s)`})`);
+// Otorgar puntos por VENTAS de 365 (mostrador). Enlaza venta -> idCliente ->
+// cliente.telefono. Idempotente por idVenta. Procesa las ventas recientes con
+// cliente identificado que aún no fueron premiadas.
+export async function otorgarPuntosVentas365(desdeDias = 30) {
+  await asegurarTablas();
+  const db = await getDb();
+  if (!db) return { procesadas: 0 };
+  const ventas = rows(await db.execute(sql`
+    SELECT v.id, v.total, v.razonSocialCliente, c.telefono, c.email, c.nombre
+    FROM ventas v
+    JOIN clientes c ON c.id = v.idCliente
+    LEFT JOIN puntos_ventas_procesadas pp ON pp.idVenta = v.id
+    WHERE v.idCliente IS NOT NULL AND v.idCliente > 0
+      AND c.telefono IS NOT NULL AND c.telefono != ''
+      AND v.fecha >= DATE_SUB(CURDATE(), INTERVAL ${num(desdeDias)} DAY)
+      AND pp.idVenta IS NULL
+    LIMIT 500
+  `));
+  let procesadas = 0;
+  for (const v of ventas) {
+    try {
+      await acreditar(String(v.telefono), num(v.total), v.nombre || v.razonSocialCliente || null, v.email ? String(v.email).toLowerCase() : null, `Venta mostrador ${v.id} (Bs ${num(v.total)})`);
+      await db.execute(sql`INSERT INTO puntos_ventas_procesadas (idVenta) VALUES (${v.id})`);
+      procesadas++;
+    } catch (e: any) {
+      // Si ya estaba (carrera), marcar igual para no reintentar en loop
+      try { await db.execute(sql`INSERT IGNORE INTO puntos_ventas_procesadas (idVenta) VALUES (${v.id})`); } catch { /* ignore */ }
+    }
   }
+  return { procesadas };
 }
 
 // Saldo de un cliente (para la tienda)
@@ -83,7 +138,7 @@ export async function saldoCliente(email: string) {
   const db = await getDb();
   if (!db || !email) return { puntos: 0, vales: 0, valorVale: VALOR_VALE_BS, faltanParaVale: PUNTOS_PARA_VALE };
   const e = String(email).toLowerCase();
-  const s = rows(await db.execute(sql`SELECT puntos, valesGenerados FROM clientes_puntos WHERE email = ${e} LIMIT 1`))[0];
+  const s = rows(await db.execute(sql`SELECT puntos, valesGenerados FROM clientes_puntos WHERE email = ${e} ORDER BY puntos DESC LIMIT 1`))[0];
   const puntos = num(s?.puntos);
   return {
     puntos,

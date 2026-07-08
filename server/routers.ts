@@ -1578,6 +1578,12 @@ const ventasRouter = router({
       intentos++;
       if (huboHueco) await new Promise((res) => setTimeout(res, 800));
     }
+    // Tras sincronizar ventas, otorgar puntos de fidelidad a las ventas de mostrador
+    // con cliente identificado (idempotente). No bloquea si falla.
+    try {
+      const { otorgarPuntosVentas365 } = await import("./puntos-fidelidad");
+      await otorgarPuntosVentas365(30);
+    } catch (e: any) { console.warn("[Sync] puntos 365 no procesados:", e?.message); }
     return { nuevas: totalNuevas, ultimoId, primeraVez, huboHueco };
   }),
 

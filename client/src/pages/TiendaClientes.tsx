@@ -175,6 +175,7 @@ export default function TiendaClientes() {
                   <div className="text-right">
                     {puntos.vales > 0 && <p className="text-sm font-bold">🎟️ {puntos.vales} vale(s) de Bs {puntos.valorVale}</p>}
                     <p className="text-[11px] opacity-90">Te faltan {puntos.faltanParaVale} pts para tu próximo vale</p>
+                    <p className="text-[10px] opacity-75 mt-0.5">Ganas puntos en tienda y en mostrador</p>
                   </div>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-white/25 overflow-hidden">
