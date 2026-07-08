@@ -32,6 +32,7 @@ export type ClienteRecordatorio = {
   estado: "por_acabar" | "atrasado";
   confianza: "alta" | "media"; // alta = 3+ compras, media = 2
   sucursal: string | null;
+  yaContactado?: boolean; // true si se le envió recordatorio de este producto en los últimos 20 días
 };
 
 export type ResultadoFidelizacion = {
@@ -174,6 +175,13 @@ export async function clientesPorRecordar(opts: {
       return a.diasParaProxima - b.diasParaProxima;
     });
 
+    // Marcar los ya contactados hace poco (no se quitan; se marcan para que el
+    // staff no repita el mismo recordatorio y sepa a quién ya escribió).
+    const yaContactados = await contactadosRecientes(20);
+    for (const r of recordatorios) {
+      (r as any).yaContactado = yaContactados.has(`${r.idCliente}|${r.producto.toLowerCase()}`);
+    }
+
     const clientesUnicos = new Set(recordatorios.map((r) => r.idCliente)).size;
     const porAcabar = recordatorios.filter((r) => r.estado === "por_acabar").length;
     const atrasados = recordatorios.filter((r) => r.estado === "atrasado").length;
@@ -207,4 +215,59 @@ function vacio(error: string): ResultadoFidelizacion {
     cobertura: { clientesConTelefono: 0, nota: "" },
     error,
   };
+}
+
+// ─── Registro de contactos (para no repetir el mismo recordatorio) ───
+import { getDb as _getDb } from "./db";
+import { sql as _sql } from "drizzle-orm";
+
+let _tablaContactos = false;
+async function _asegurarContactos() {
+  if (_tablaContactos) return;
+  const db = await _getDb();
+  if (!db) return;
+  try {
+    await db.execute(_sql.raw(`CREATE TABLE IF NOT EXISTS recordatorios_enviados (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      idCliente INT NOT NULL,
+      producto VARCHAR(300) NOT NULL,
+      telefono VARCHAR(30),
+      estado VARCHAR(20),
+      canal VARCHAR(20) NOT NULL DEFAULT 'whatsapp',
+      enviadoEn DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_re_cliente (idCliente), INDEX idx_re_fecha (enviadoEn)
+    )`));
+  } catch { /* ya existe */ }
+  _tablaContactos = true;
+}
+
+// Registrar que se contactó a un cliente por un producto (evita repetir en N días).
+export async function registrarRecordatorioEnviado(idCliente: number, producto: string, telefono: string, estado: string) {
+  await _asegurarContactos();
+  const db = await _getDb();
+  if (!db) return { ok: false };
+  await db.execute(_sql`
+    INSERT INTO recordatorios_enviados (idCliente, producto, telefono, estado)
+    VALUES (${idCliente}, ${String(producto).slice(0, 300)}, ${telefono || null}, ${estado || null})
+  `);
+  return { ok: true };
+}
+
+// Set de "cliente|producto" contactados en los últimos N días (para filtrar la lista).
+export async function contactadosRecientes(dias = 20): Promise<Set<string>> {
+  await _asegurarContactos();
+  const db = await _getDb();
+  if (!db) return new Set();
+  try {
+    const r: any = await db.execute(_sql`
+      SELECT idCliente, producto FROM recordatorios_enviados
+      WHERE enviadoEn >= DATE_SUB(NOW(), INTERVAL ${dias} DAY)
+    `);
+    const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
+    const set = new Set<string>();
+    for (const f of (Array.isArray(filas) ? filas : [])) {
+      set.add(`${f.idCliente}|${String(f.producto).toLowerCase()}`);
+    }
+    return set;
+  } catch { return new Set(); }
 }

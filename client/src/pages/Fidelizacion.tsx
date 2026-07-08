@@ -29,16 +29,20 @@ export default function Fidelizacion() {
 
   const data = lista.data;
   const recordatorios = data?.recordatorios ?? [];
+  const marcarContactado = trpc.fidelizacion.marcarContactado.useMutation({
+    onSuccess: () => lista.refetch(),
+  });
 
   const abrirWhatsapp = (r: any) => {
     const msg = encodeURIComponent(armarMensaje(r.nombre, r.producto, r.estado === "atrasado"));
     if (r.telefonoWhatsapp) {
       window.open(`https://wa.me/${r.telefonoWhatsapp}?text=${msg}`, "_blank");
     } else {
-      // Sin número válido para WhatsApp: copiar mensaje y avisar
       navigator.clipboard?.writeText(decodeURIComponent(msg));
       alert(`Este cliente no tiene un número de celular válido para WhatsApp (tel: ${r.telefono}). El mensaje se copió al portapapeles para que lo envíes manualmente.`);
     }
+    // Registrar el contacto para no repetirlo (se marca aunque copie el mensaje)
+    marcarContactado.mutate({ idCliente: r.idCliente, producto: r.producto, telefono: r.telefono, estado: r.estado });
   };
 
   return (
@@ -151,6 +155,11 @@ export default function Fidelizacion() {
                     ? `atrasado ${Math.abs(r.diasParaProxima)}d`
                     : `en ${r.diasParaProxima}d`}
                 </span>
+                {r.yaContactado && (
+                  <span title="Ya le enviaste un recordatorio de este producto hace poco" className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                    ✓ contactado
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5 text-sm text-slate-500 mt-0.5">
                 <Package className="w-3.5 h-3.5 shrink-0" />
@@ -164,10 +173,10 @@ export default function Fidelizacion() {
 
             <button
               onClick={() => abrirWhatsapp(r)}
-              className="shrink-0 inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-3 py-2 rounded-lg"
+              className={`shrink-0 inline-flex items-center gap-1.5 text-white text-sm font-medium px-3 py-2 rounded-lg ${r.yaContactado ? "bg-slate-400 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-700"}`}
             >
               <MessageCircle className="w-4 h-4" />
-              WhatsApp
+              {r.yaContactado ? "Reenviar" : "WhatsApp"}
             </button>
           </div>
         ))}

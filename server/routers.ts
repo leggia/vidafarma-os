@@ -2592,6 +2592,13 @@ const fidelizacionRouter = router({
       const { clientesPorRecordar } = await import("./fidelizacion");
       return clientesPorRecordar(input ?? {});
     }),
+  // Registrar que se contactó a un cliente (para no repetir el recordatorio)
+  marcarContactado: protectedProcedure
+    .input(z.object({ idCliente: z.number(), producto: z.string(), telefono: z.string().optional(), estado: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const { registrarRecordatorioEnviado } = await import("./fidelizacion");
+      return registrarRecordatorioEnviado(input.idCliente, input.producto, input.telefono || "", input.estado || "");
+    }),
 });
 
 // ─── TIENDA PÚBLICA (clientes, sin login) ───
