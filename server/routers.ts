@@ -2578,6 +2578,59 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
 });
 
 // ─── Fidelización de clientes crónicos ───────────────────────────────────────
+
+const soloAdminMkt = (ctx: any) => {
+  if (ctx?.user?.role !== "admin") throw new Error("Solo el administrador puede gestionar marketing.");
+};
+
+const marketingRouter = router({
+  tipos: protectedProcedure.query(async ({ ctx }) => {
+    soloAdminMkt(ctx);
+    const { tiposDePost } = await import("./marketing");
+    return { tipos: tiposDePost };
+  }),
+  generar: protectedProcedure
+    .input(z.object({ tipo: z.string().max(40), indicaciones: z.string().max(500).optional() }))
+    .mutation(async ({ input, ctx }) => {
+      soloAdminMkt(ctx);
+      const { generarPost } = await import("./marketing");
+      return generarPost(input.tipo, input.indicaciones);
+    }),
+  listar: protectedProcedure
+    .input(z.object({ estado: z.string().max(20).optional() }).optional())
+    .query(async ({ input, ctx }) => {
+      soloAdminMkt(ctx);
+      const { marketing } = await import("./marketing");
+      return marketing.listar(input?.estado);
+    }),
+  editar: protectedProcedure
+    .input(z.object({ id: z.number(), titulo: z.string().max(200).optional(), contenido: z.string().max(4000).optional(), hashtags: z.string().max(400).optional() }))
+    .mutation(async ({ input, ctx }) => {
+      soloAdminMkt(ctx);
+      const { marketing } = await import("./marketing");
+      return marketing.editar(input.id, input);
+    }),
+  cambiarEstado: protectedProcedure
+    .input(z.object({ id: z.number(), estado: z.string().max(20) }))
+    .mutation(async ({ input, ctx }) => {
+      soloAdminMkt(ctx);
+      const { marketing } = await import("./marketing");
+      return marketing.cambiarEstado(input.id, input.estado);
+    }),
+  publicar: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      soloAdminMkt(ctx);
+      const { marketing } = await import("./marketing");
+      return marketing.publicar(input.id);
+    }),
+  redes: protectedProcedure.query(async ({ ctx }) => {
+    soloAdminMkt(ctx);
+    const { redesDisponibles } = await import("./publicacion-redes");
+    return redesDisponibles();
+  }),
+});
+
 const fidelizacionRouter = router({
   // Lista diaria de clientes a recordar (recompra próxima o atrasada).
   porRecordar: protectedProcedure
@@ -2752,6 +2805,7 @@ export const appRouter = router({
   ventas: ventasRouter,
   gastos: gastosRouter,
   fidelizacion: fidelizacionRouter,
+  marketing: marketingRouter,
 });
 
 export type AppRouter = typeof appRouter;

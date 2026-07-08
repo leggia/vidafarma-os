@@ -33,7 +33,7 @@ const CONTROLADOS = [
   // Precursores de uso restringido
   "pseudoefedrina", "efedrina", "misoprostol",
 ];
-const esControlado = (nombre: string, descripcion?: string | null) => {
+export const esControlado = (nombre: string, descripcion?: string | null) => {
   const texto = `${nombre || ""} ${descripcion || ""}`.toLowerCase();
   if (CONTROLADOS.some(c => texto.includes(c))) return true;
   // Respaldo: si el nombre es una marca conocida cuyo principio es controlado
