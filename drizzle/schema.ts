@@ -248,6 +248,7 @@ export const productosCache = mysqlTable("productos_cache", {
   codigo: varchar("codigo", { length: 100 }),
   idProveedor: int("idProveedor"),
   nombreProveedor: varchar("nombreProveedor", { length: 255 }),
+  descripcion: varchar("descripcion", { length: 600 }),
   precioCostoUnid: decimal("precioCostoUnid", { precision: 12, scale: 4 }).default("0"),
   precioCostoPaq: decimal("precioCostoPaq", { precision: 12, scale: 4 }).default("0"),
   precioUno: decimal("precioUno", { precision: 12, scale: 4 }).default("0"),

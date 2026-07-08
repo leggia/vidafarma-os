@@ -68,6 +68,7 @@ export interface ArticuloAPI {
   vencimiento?: string | null;
   nombre_categoria?: string;
   nombre_proveedor?: string;
+  descripcion?: string;
 }
 
 // Estructura de almacén devuelto por la API
@@ -471,13 +472,36 @@ class Inventarios365Service {
     id: number; nombre: string; codigo: string; precioVenta: number; stock: number;
   }>> {
     const articulos = await this.listarArticulos(buscar, "");
-    return articulos.map((a) => ({
+    const base = articulos.map((a) => ({
       id: a.id,
       nombre: a.nombre,
       codigo: a.codigo,
       precioVenta: parseFloat(String(a.precio_uno ?? 0)) || 0,
       stock: parseFloat(String(a.stock ?? 0)) || 0,
     }));
+    // Enriquecer: si 365 buscó solo por nombre, sumar coincidencias por PRINCIPIO
+    // ACTIVO (descripción) desde el cache local, sin duplicar por id.
+    try {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (db && buscar.trim().length >= 3) {
+        const palabras = buscar.trim().split(/\s+/).filter(Boolean).slice(0, 4);
+        let cond = sql`(nombre LIKE ${"%" + palabras[0] + "%"} OR descripcion LIKE ${"%" + palabras[0] + "%"})`;
+        for (let i = 1; i < palabras.length; i++) cond = sql`${cond} AND (nombre LIKE ${"%" + palabras[i] + "%"} OR descripcion LIKE ${"%" + palabras[i] + "%"})`;
+        const r: any = await db.execute(sql`SELECT articuloId, nombre, codigo, precioUno FROM productos_cache WHERE ${cond} LIMIT 20`);
+        const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
+        const extra = Array.isArray(filas) ? filas : [];
+        const ids = new Set(base.map((b) => b.id));
+        for (const e of extra) {
+          if (!ids.has(e.articuloId)) {
+            base.push({ id: e.articuloId, nombre: e.nombre, codigo: e.codigo || "", precioVenta: parseFloat(String(e.precioUno ?? 0)) || 0, stock: 0 });
+            ids.add(e.articuloId);
+          }
+        }
+      }
+    } catch { /* si el cache falla, devolver solo lo de 365 */ }
+    return base;
   }
 
   async listarArticulos(buscar = "", idProveedor = ""): Promise<ArticuloAPI[]> {

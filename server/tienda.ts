@@ -13,14 +13,28 @@ const num = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
 // benzodiacepinas, opioides, barbitúricos y otros de venta bajo receta retenida.
 // El admin puede ocultar más productos con la marca ocultoTienda.
 const CONTROLADOS = [
+  // Benzodiacepinas
   "diazepam", "clonazepam", "alprazolam", "lorazepam", "midazolam", "bromazepam",
-  "zolpidem", "zopiclona", "fenobarbital", "tramadol", "codeina", "codeína",
-  "morfina", "fentanil", "metilfenidato", "ketamina", "oxicodona", "petidina",
-  "clobazam", "carbamazepina", "metadona", "buprenorfina", "ergotamina",
+  "clobazam", "flunitrazepam", "nitrazepam", "triazolam", "cloxazolam", "ketazolam",
+  "clordiazepoxido", "clordiazepóxido", "flurazepam", "tetrazepam",
+  // Hipnóticos / sedantes
+  "zolpidem", "zopiclona", "zaleplon", "fenobarbital", "pentobarbital", "secobarbital",
+  // Opioides
+  "tramadol", "codeina", "codeína", "morfina", "fentanil", "fentanilo", "oxicodona",
+  "hidrocodona", "petidina", "meperidina", "metadona", "buprenorfina", "nalbufina",
+  "tapentadol", "dextropropoxifeno", "tilidina",
+  // Estimulantes / TDAH
+  "metilfenidato", "anfetamina", "lisdexanfetamina", "modafinilo",
+  // Anestésicos / otros de control
+  "ketamina", "ergotamina", "flunarizina",
+  // Anticonvulsivos de control
+  "carbamazepina", "pregabalina", "gabapentina",
+  // Precursores de uso restringido
+  "pseudoefedrina", "efedrina", "misoprostol",
 ];
-const esControlado = (nombre: string) => {
-  const n = (nombre || "").toLowerCase();
-  return CONTROLADOS.some(c => n.includes(c));
+const esControlado = (nombre: string, descripcion?: string | null) => {
+  const texto = `${nombre || ""} ${descripcion || ""}`.toLowerCase();
+  return CONTROLADOS.some(c => texto.includes(c));
 };
 
 // ─── Tablas (idempotente) ───
@@ -48,6 +62,9 @@ async function asegurarTablas() {
   } catch { /* ya existe */ }
   try {
     await db.execute(sql.raw("ALTER TABLE productos_cache ADD COLUMN imagenUrl VARCHAR(600)"));
+  } catch { /* ya existe */ }
+  try {
+    await db.execute(sql.raw("ALTER TABLE productos_cache ADD COLUMN descripcion VARCHAR(600)"));
   } catch { /* ya existe */ }
   try {
     await db.execute(sql.raw("ALTER TABLE reservas_tienda ADD COLUMN items JSON"));
@@ -127,14 +144,17 @@ export const tienda = {
     const t = String(termino || "").trim().slice(0, 80);
     if (t.length < 3) return { productos: [], mensaje: "Escribe al menos 3 letras." };
     const palabras = t.split(/\s+/).filter(Boolean).slice(0, 5);
-    let cond = sql`nombre LIKE ${"%" + palabras[0] + "%"}`;
-    for (let i = 1; i < palabras.length; i++) cond = sql`${cond} AND nombre LIKE ${"%" + palabras[i] + "%"}`;
+    // Cada palabra puede aparecer en el NOMBRE o en la DESCRIPCIÓN (principio activo
+    // + proveedor). Así "ibuprofeno" encuentra marcas cuyo genérico es ibuprofeno.
+    const enNombreODesc = (w: string) => sql`(nombre LIKE ${"%" + w + "%"} OR descripcion LIKE ${"%" + w + "%"})`;
+    let cond = enNombreODesc(palabras[0]);
+    for (let i = 1; i < palabras.length; i++) cond = sql`${cond} AND ${enNombreODesc(palabras[i])}`;
     const prods = rows(await db.execute(sql`
-      SELECT nombre, precioUno, imagenUrl FROM productos_cache
+      SELECT nombre, precioUno, imagenUrl, descripcion FROM productos_cache
       WHERE ${cond} AND ocultoTienda = 0 AND precioUno > 0
-      ORDER BY nombre LIMIT 12
+      ORDER BY nombre LIMIT 15
     `));
-    const visibles = prods.filter((p: any) => !esControlado(p.nombre));
+    const visibles = prods.filter((p: any) => !esControlado(p.nombre, p.descripcion));
     if (visibles.length === 0) return { productos: [], mensaje: "No encontramos ese producto. Consúltanos por WhatsApp." };
     const stocks = await stockPorProducto();
     const norm = (s: string) => String(s || "").trim().toLowerCase();
@@ -143,6 +163,7 @@ export const tienda = {
         nombre: p.nombre,
         precio: num(p.precioUno),
         imagen: p.imagenUrl || null,
+        descripcion: p.descripcion || null,
         disponibilidad: ALMACENES.map(a => ({
           sucursal: a.sucursal,
           estado: estadoDe(stocks[norm(p.nombre)]?.[a.sucursal]),

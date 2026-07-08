@@ -232,7 +232,8 @@ export default function TiendaClientes() {
                 <Avatar nombre={p.nombre} imagen={p.imagen} />
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-gray-900 text-sm leading-tight">{p.nombre}</p>
-                  <p className="text-xl font-black text-emerald-700">Bs {p.precio.toFixed(2)}</p>
+                  {p.descripcion && <p className="text-[11px] text-gray-500 leading-tight mt-0.5">{p.descripcion}</p>}
+                  <p className="text-xl font-black text-emerald-700 mt-0.5">Bs {p.precio.toFixed(2)}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">
