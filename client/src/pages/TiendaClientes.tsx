@@ -254,7 +254,15 @@ export default function TiendaClientes() {
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-gray-900 text-sm leading-tight">{p.nombre}</p>
                   {p.descripcion && <p className="text-[11px] text-gray-500 leading-tight mt-0.5">{p.descripcion}</p>}
-                  <p className="text-xl font-black text-emerald-700 mt-0.5">Bs {p.precio.toFixed(2)}</p>
+                  {p.enOferta ? (
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <span className="text-xs line-through text-gray-400">Bs {p.precioNormal.toFixed(2)}</span>
+                      <span className="text-xl font-black text-red-600">Bs {p.precio.toFixed(2)}</span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">OFERTA</span>
+                    </div>
+                  ) : (
+                    <p className="text-xl font-black text-emerald-700 mt-0.5">Bs {p.precio.toFixed(2)}</p>
+                  )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">

@@ -171,17 +171,33 @@ export const tienda = {
     if (visibles.length === 0) return { productos: [], mensaje: "No encontramos ese producto. Consúltanos por WhatsApp." };
     const stocks = await stockPorProducto();
     const norm = (s: string) => String(s || "").trim().toLowerCase();
+    // Ofertas activas: mapa nombre → precio de oferta (para mostrar "antes/ahora").
+    let ofertasMap: Record<string, number> = {};
+    try {
+      const ofs = rows(await db.execute(sql.raw(
+        `SELECT nombreProducto, precioOferta FROM ofertas_tienda
+         WHERE activa = 1 AND (hastaFecha IS NULL OR hastaFecha >= CURDATE())`
+      )));
+      for (const o of ofs) ofertasMap[norm(o.nombreProducto)] = num(o.precioOferta);
+    } catch { /* sin ofertas */ }
     return {
-      productos: visibles.map((p: any) => ({
-        nombre: p.nombre,
-        precio: num(p.precioUno),
-        imagen: p.imagenUrl || null,
-        descripcion: p.descripcion || null,
-        disponibilidad: ALMACENES.map(a => ({
-          sucursal: a.sucursal,
-          estado: estadoDe(stocks[norm(p.nombre)]?.[a.sucursal]),
-        })),
-      })),
+      productos: visibles.map((p: any) => {
+        const precioNormal = num(p.precioUno);
+        const oferta = ofertasMap[norm(p.nombre)];
+        const enOferta = oferta != null && oferta > 0 && oferta < precioNormal;
+        return {
+          nombre: p.nombre,
+          precio: enOferta ? oferta : precioNormal,
+          precioNormal: enOferta ? precioNormal : null,
+          enOferta,
+          imagen: p.imagenUrl || null,
+          descripcion: p.descripcion || null,
+          disponibilidad: ALMACENES.map(a => ({
+            sucursal: a.sucursal,
+            estado: estadoDe(stocks[norm(p.nombre)]?.[a.sucursal]),
+          })),
+        };
+      }),
     };
   },
 
