@@ -39,7 +39,7 @@ Regla de oro transversal: **el agente sugiere, el humano aprueba.** Nada estruct
 | 4 | **Finanzas** | Rentabilidad, gastos, sueldos, reportes | 🟢 Operativo |
 | 5 | **Desarrollo (Dev)** | Código, features, mantenimiento de la app | 🟢 Operativo |
 | 6 | **Testing / QA** | Verificación, prevención de errores | 🟡 Parcial |
-| 7 | **Marketing** | Promociones, recompra, contenido, difusión | 🟡 En diseño |
+| 7 | **Marketing** | Promociones, publicación auto en Facebook/TikTok, recompra, contenido | 🟡 En diseño |
 | 8 | **Inteligencia de negocio** | Análisis, decisiones, competencia | 🟢 Operativo |
 | 9 | **Cumplimiento / Legal** | Controlados, recetas, normativa, datos | 🟡 Parcial |
 
@@ -167,72 +167,169 @@ commit con versión → push → Railway despliega.
 
 ---
 
-## 7. Área: TESTING / QA 🟡
+## 7. Área: TESTING / QA 🟡 → objetivo 🟢
 
-**Qué hace.** Asegurar que lo que se despliega funciona y no rompe lo existente.
+**Qué hace.** Asegurar que lo que se despliega funciona y no rompe lo existente. En
+un negocio donde el mismo sistema maneja dinero, inventario y clientes, un error en
+producción cuesta ventas y confianza. El objetivo: **cero crashes en producción.**
 
-**Automatización actual:**
-- **Verificación de compilación** obligatoria antes de cada push (esbuild).
-- **Heurístico de "usar variable antes de declararla"** (el patrón que causó el crash
-  de la tienda): escanea hooks que usan variables declaradas después.
-- **Balance de llaves/paréntesis** tras ediciones grandes.
-- **Regla:** tras cambios grandes de frontend, abrir la página una vez (los errores de
-  inicialización solo aparecen en producción minificada).
+### 7.1 Lo ya existente
+- **Verificación de compilación** obligatoria antes de cada push (esbuild). Nota: el
+  build de vite falla localmente (falta un plugin que solo existe en Railway) — eso
+  NO es error real; se verifica con esbuild.
+- **Heurístico de "usar variable antes de declararla"**: el patrón exacto que causó el
+  crash de la tienda ("No se puede acceder a 'X' antes de la inicialización"). Escanea
+  hooks (useEffect/useMemo/useCallback) que referencian variables declaradas después.
+- **Balance de llaves/paréntesis** tras ediciones grandes de archivos.
+- **Regla operativa:** tras cambios grandes de frontend, abrir la página una vez —los
+  errores de inicialización solo aparecen en producción minificada, no al compilar.
 
-**Herramienta de operación:** scripts de verificación + Claude Code.
+### 7.2 Lecciones aprendidas (que definen las pruebas)
+Errores reales que ya ocurrieron y que las pruebas deben prevenir:
+- **Use-before-declaration** en React → crash total de la página en producción.
+- **`drizzle-kit push --force`** borró ventas una vez → PROHIBIDO; columnas nuevas
+  con ALTER idempotente (try/catch).
+- **Llamadas a 365 al arrancar** → el servidor debe escuchar primero, cero llamadas a
+  365 en el arranque.
+- **Zona horaria** (servidor UTC, Bolivia UTC-4) → sin `ahoraBolivia()`, "hoy" consulta
+  el día equivocado entre 20:00 y medianoche.
+- **365 rechaza peticiones muy rápidas** → reintentos + pausa.
 
-**Responsable:** Claude Code (automático) + Luis (prueba visual final).
+### 7.3 Diseño de la suite (para llegar a 🟢)
 
-**Pendientes (para pasar a 🟢):**
-- Suite de pruebas automatizadas de los endpoints críticos (reservas, puntos, pagos).
-- Chequeo pre-push que corra el heurístico + compilación de todos los archivos
-  tocados, como filtro estándar.
-- Entorno de staging (una rama/deploy de prueba) antes de producción.
+1. **Chequeo pre-push automatizado** (`scripts/verificar.sh` o skill de Claude Code)
+   - Corre en orden: (a) heurístico use-before-declaration sobre archivos tocados,
+     (b) compilación esbuild de cada archivo modificado, (c) balance de llaves.
+   - Si algo falla, **bloquea el commit**. Es el filtro estándar antes de cada push.
+
+2. **Pruebas de humo (smoke tests) de endpoints críticos**
+   - Los flujos que no pueden romperse: crear reserva, calcular total con cupón,
+     otorgar puntos, buscar producto, filtro de controlados (que un controlado NUNCA
+     aparezca en la tienda).
+   - Ejecutables contra una BD de prueba, sin tocar producción ni 365.
+
+3. **Entorno de staging**
+   - Una rama/deploy de prueba (Railway permite entornos). Probar ahí antes de
+     mandar a producción. Especialmente para cambios de tienda (cara al cliente).
+
+4. **Checklist de release** (en `CHANGELOG.md` o `todo.md`)
+   - Antes de cada versión importante: compila / heurístico / abrir páginas tocadas /
+     probar el flujo afectado / subir versión en package.json.
+
+5. **Casos de prueba de seguridad** (críticos por rubro farmacia)
+   - Un medicamento controlado no aparece en la tienda ni por nombre ni por principio
+     activo ni por marca del diccionario.
+   - Un rol no-admin no accede a finanzas.
+   - El cálculo de total nunca confía en precios que manda el cliente.
+
+**Herramienta de operación:** scripts de verificación + Claude Code + revisión visual
+de Luis.
+
+**Responsable:** Claude Code (automático) + Luis (prueba visual y de negocio).
+
+**Pendientes (orden):** (1) chequeo pre-push como filtro estándar, (2) smoke tests de
+los 5 flujos críticos, (3) staging, (4) checklist de release documentado.
 
 ---
 
-## 8. Área: MARKETING 🟡
+## 8. Área: MARKETING 🟡 → objetivo 🟢
 
-**Qué hace.** Atraer y retener clientes: promociones, difusión, contenido, recompra.
+**Qué hace.** Atraer y retener clientes: promociones, difusión, contenido y
+publicación automática en redes (Facebook y TikTok principalmente), recompra.
 
-**Automatización actual (base ya construida):**
-- **Motor de promociones** (cupones, ofertas, promos por monto) — la herramienta de
-  campañas ya existe; se opera por el asistente ("crea un cupón VERANO de 15%").
-- **Recordatorios de recompra** — retención automática por WhatsApp.
-- **Programa de puntos** — fidelización que incentiva volver.
-- **"Lo más vendido"** en la tienda — prueba social que impulsa ventas.
+Marketing es el área de mayor potencial Company of One: donde una cadena contrata un
+equipo de community managers, VidaFarma usa **un agente + un API de publicación**.
 
-**Diseño propuesto (lo que falta para 🟢):**
+### 8.1 Lo ya construido (base)
+- **Motor de promociones** (cupones, ofertas, promos por monto), operable por el
+  asistente ("crea un cupón VERANO de 15%").
+- **Recordatorios de recompra** por WhatsApp (retención automática).
+- **Programa de puntos** (fidelización).
+- **"Lo más vendido"** en la tienda (prueba social).
 
-Marketing es el área con más oportunidad Company of One. Estructura sugerida, toda
-operable por agente + APIs (sin contratar un community manager):
+### 8.2 Módulo de PUBLICACIÓN AUTOMÁTICA en redes (nuevo, el gran salto)
 
-1. **Campañas de promoción** (parcialmente listo)
-   - Ya: crear cupones/ofertas por asistente.
-   - Falta: calendario de campañas (ej. "oferta de temporada de gripe"), y que el
-     asistente sugiera qué poner en oferta según rotación y vencimientos (mover stock
-     por vencer con descuento = menos merma + más venta).
+**Objetivo:** que VidaFarma publique sola en **Facebook y TikTok** contenido de valor
+(ofertas de la semana, consejos de salud, recordatorios de temporada), con el agente
+redactando y generando la pieza, y Luis aprobando antes de publicar.
 
-2. **Contenido para redes** (nuevo)
-   - Un agente que redacte posts para WhatsApp Estado / Facebook: consejos de salud,
-     ofertas de la semana, recordatorios de temporada. Con API (Claude/DeepSeek).
-   - El humano aprueba y publica. Costo casi nulo.
+**Realidad técnica (investigada):**
+- **Facebook** (Graph API de páginas de negocio): publicar es relativamente directo
+  con un token de página de larga duración. Texto + imagen + enlace a la tienda.
+- **TikTok** (Content Posting API): requiere **auditoría de la app** (2-4 semanas) para
+  publicar en modo público; sin auditar, los posts quedan privados. Tokens de 24h.
+  Límite ~15 posts/día. UX obligatoria (mostrar avatar del creador, disclosure de
+  contenido comercial).
+- **Decisión Company of One:** NO integrar cada red por separado (semanas de trámite
+  por cada una, mantenimiento eterno). Usar un **API unificado de publicación** ya
+  auditado (ej. Ayrshare, Postpeer, Zernio, Postproxy) que publica a Facebook +
+  TikTok + Instagram con **una sola llamada** y maneja tokens/auditorías/UX por
+  nosotros. Costo ~$24-50/mes. Es el "alquilar en vez de construir" del enfoque.
 
-3. **Segmentación de clientes** (nuevo, aprovecha datos que ya tienes)
-   - Con el historial de ventas por teléfono: identificar clientes de crónicos,
-     clientes que no vuelven hace X, clientes de alto valor. Campañas dirigidas.
+**Arquitectura propuesta (enchufable, como los pagos QR):**
 
-4. **Difusión de la tienda** (nuevo)
-   - QR físico en el mostrador → lleva a `/tienda`. Volante con el link.
-   - Mensaje post-venta: "Reserva tu próxima compra en línea y gana puntos".
+```
+  Agente de contenido (API Claude/DeepSeek)
+        │  redacta post + sugiere pieza visual
+        ▼
+  Cola de aprobación (tabla marketing_posts: borrador → aprobado → publicado)
+        │  Luis revisa y aprueba desde la app
+        ▼
+  Conector de publicación ENCHUFABLE
+        ├── Facebook (Graph API directo, gratis)
+        └── API unificado (TikTok + IG + FB) ← se activa con credenciales
+        │
+        ▼
+  Redes sociales  +  registro de qué se publicó y cuándo
+```
 
-**Herramienta de operación:** asistente (promos) + un futuro "agente de marketing"
-(redacción por API) + WhatsApp/redes para publicar.
+**Componentes a construir:**
 
-**Responsable:** Luis aprueba, agente redacta/sugiere.
+1. **Generador de contenido** (`server/marketing.ts`)
+   - Un agente que, por API, redacta posts según plantillas: "oferta de la semana",
+     "consejo de salud de temporada", "producto destacado", "recordatorio (época de
+     gripe, alergias, etc.)". Genera título, texto con hashtags y sugerencia de imagen.
+   - Alimentado por datos reales: las ofertas activas, lo más vendido, productos por
+     vencer (para promocionar y reducir merma).
 
-**Pendientes (orden sugerido):** (1) sugerencias de oferta por rotación/vencimiento,
-(2) agente de redacción de contenido, (3) segmentación de clientes, (4) QR de difusión.
+2. **Cola de aprobación** (tabla `marketing_posts`)
+   - Estados: `borrador` → `aprobado` → `publicado` / `descartado`.
+   - Panel en la app (`/marketing`, solo admin): ver borradores, editar el texto,
+     aprobar o descartar. **El humano siempre aprueba antes de publicar** (regla de oro).
+
+3. **Conector de publicación enchufable** (`server/publicacion-redes.ts`)
+   - Sin credenciales → modo manual (genera el texto + imagen para copiar/pegar).
+   - Con credenciales de Facebook → publica directo en la página.
+   - Con credenciales del API unificado → publica a TikTok + Instagram + Facebook.
+   - Igual que los pagos QR: la arquitectura se construye ya, se activa con las llaves.
+
+4. **Calendario y automatización**
+   - Programar publicaciones (ej. "oferta de la semana cada lunes 9am").
+   - Sugerencias proactivas: el agente propone contenido según el momento (temporada,
+     stock por vencer, producto que subió en ventas).
+
+### 8.3 Otras funciones de marketing
+- **Sugerencias de oferta por rotación/vencimiento:** el asistente propone qué poner
+  en oferta para mover stock por vencer (menos merma + más venta).
+- **Segmentación de clientes** (usa el historial por teléfono): crónicos, inactivos,
+  alto valor → campañas dirigidas por WhatsApp.
+- **Difusión de la tienda:** QR físico en mostrador → `/tienda`; mensaje post-venta.
+
+**Herramienta de operación:** app web (`/marketing`) + asistente + API de publicación.
+
+**Responsable:** Luis aprueba; el agente redacta, genera y (tras aprobación) publica.
+
+**Pendientes (orden sugerido):**
+1. Tabla `marketing_posts` + panel de aprobación (`/marketing`).
+2. Generador de contenido por API (posts de ofertas y consejos).
+3. Conector de Facebook (Graph API — el más accesible, empezar por aquí).
+4. Conector unificado para TikTok + Instagram (tras elegir proveedor).
+5. Calendario/programación + sugerencias proactivas.
+6. Segmentación de clientes.
+
+**Trámite de Luis (en paralelo):** crear página de Facebook de negocio (si no existe)
+y cuenta de TikTok de la farmacia; decidir el API unificado (comparar Ayrshare vs
+Postpeer vs Zernio por costo y redes cubiertas).
 
 ---
 
@@ -257,26 +354,76 @@ semana bajaron X% vs la pasada").
 
 ---
 
-## 10. Área: CUMPLIMIENTO / LEGAL 🟡
+## 10. Área: CUMPLIMIENTO / LEGAL 🟡 → objetivo 🟢
 
-**Qué hace.** Operar dentro de la norma: medicamentos controlados, recetas, datos.
+**Qué hace.** Operar dentro de la norma boliviana: medicamentos controlados, recetas,
+protección de datos del cliente, facturación, y responsabilidad sanitaria. En una
+farmacia esto no es opcional — es licencia para operar.
 
-**Automatización actual:**
-- **Filtro de controlados** en la tienda (psicotrópicos, estupefacientes, precursores
-  según normativa Bolivia): no se ofertan online, se atienden en mostrador con receta.
+### 10.1 Lo ya construido
+- **Filtro de controlados** en la tienda (revisa nombre + principio activo +
+  diccionario de marcas): psicotrópicos, estupefacientes y precursores según normativa
+  NO se ofertan online; se atienden en mostrador con receta. Igual que la competencia
+  (Farmacorp, Chávez tampoco los venden online).
 - **Roles y permisos** (deny by default): finanzas solo admin, cliente solo tienda.
-- **Auditoría** de acciones sensibles (quién cambió qué precio, qué gasto).
-- **Anti-CSRF** en logins, rate limiting, state por BD.
+- **Auditoría** de acciones sensibles (quién cambió qué precio, qué gasto, cuándo).
+- **Seguridad técnica:** anti-CSRF en logins (state por BD), rate limiting, cookies
+  seguras, validación de datos server-side.
 
-**Herramienta de operación:** backend (reglas) + revisión de Luis/regente.
+### 10.2 Marco normativo aplicable (Bolivia) — a verificar con asesoría
+Áreas que la operación debe respetar (consultar con contador/abogado local para el
+detalle vigente):
+- **Medicamentos controlados:** Ley 1008 y normativa de sustancias controladas.
+  Venta bajo receta retenida, registro de dispensación. Solo mostrador.
+- **Registro sanitario:** los productos deben tener registro sanitario vigente
+  (AGEMED). No promocionar productos sin registro.
+- **Publicidad de medicamentos:** hay restricciones sobre publicitar ciertos
+  medicamentos (especialmente los de venta con receta). **Importante para el módulo de
+  marketing/redes:** el agente NO debe generar publicidad de medicamentos de venta
+  controlada; enfocar el contenido en venta libre, cuidado personal, y consejos de
+  salud generales.
+- **Facturación:** cumplir con la normativa de facturación electrónica del SIN
+  (Servicio de Impuestos Nacionales) vigente. inventarios365 maneja la facturación.
+- **Protección de datos personales:** el cliente entrega teléfono, nombre, historial
+  de compras. Debe haber transparencia sobre qué se guarda y para qué.
 
-**Responsable:** Luis + regente (criterio farmacéutico).
+### 10.3 Diseño (para llegar a 🟢)
 
-**Pendientes (para 🟢):**
-- Política de datos del cliente (qué se guarda, por cuánto, consentimiento) visible
-  en la tienda.
-- Registro de recetas para controlados que sí se venden en mostrador.
-- Revisar cumplimiento de facturación electrónica según normativa vigente.
+1. **Política de privacidad y datos** (visible en la tienda)
+   - Página `/privacidad`: qué datos se guardan (nombre, teléfono, historial), para
+     qué (reservas, puntos, recordatorios), por cuánto tiempo, y cómo pedir borrado.
+   - Casilla de consentimiento al crear cuenta o reservar.
+   - **Requisito directo:** TikTok y Facebook EXIGEN una URL de política de privacidad
+     para aprobar apps de publicación → esta página también habilita el marketing.
+
+2. **Registro de dispensación de controlados** (mostrador)
+   - Para los controlados que SÍ se venden en mostrador con receta: registro de a
+     quién, qué, cuándo, y receta asociada. Cumplimiento y trazabilidad.
+
+3. **Salvaguardas en el agente de marketing**
+   - Regla dura: el generador de contenido no publicita medicamentos de venta con
+     receta ni hace afirmaciones médicas (curar/tratar). Solo venta libre, cuidado,
+     consejos generales con descargo ("consulta a tu médico/farmacéutico").
+
+4. **Descargo sanitario en la tienda**
+   - La tienda ya aclara que los productos con receta se atienden en mostrador y que
+     los precios se confirman en farmacia. Reforzar con: "La información no reemplaza
+     la consulta con un profesional de salud."
+
+5. **Responsabilidad de la regente**
+   - Toda decisión farmacéutica (qué se dispensa, sustituciones, consultas de salud)
+     pasa por criterio de la regente. El sistema asiste, no reemplaza el criterio
+     profesional.
+
+**Herramienta de operación:** backend (reglas automáticas) + criterio de Luis y la
+regente + asesoría legal/contable externa para lo normativo.
+
+**Responsable:** Luis + regente (criterio farmacéutico) + asesor legal para validar.
+
+**Pendientes (orden):** (1) página de privacidad + consentimiento (habilita también
+el marketing en redes), (2) salvaguardas legales en el agente de contenido, (3)
+registro de dispensación de controlados, (4) revisar con asesor la normativa de
+publicidad de medicamentos antes de lanzar redes.
 
 ---
 
@@ -317,15 +464,26 @@ Company of One — siempre el mejor modelo, se paga solo lo usado, cero mantenim
 
 Ordenadas por impacto sobre esfuerzo, enfoque Company of One:
 
-1. **Marketing — sugerencias de oferta por rotación/vencimiento** (mueve stock por
+1. **Testing — chequeo pre-push automatizado** (evita crashes como el de la tienda).
+   Impacto en estabilidad, esfuerzo bajo. Es la base para construir con confianza.
+2. **Legal — página de privacidad + consentimiento.** Doble beneficio: cumple la norma
+   de datos Y es requisito de Facebook/TikTok para el marketing en redes. Desbloquea.
+3. **Marketing — sugerencias de oferta por rotación/vencimiento** (mueve stock por
    vencer, reduce merma, usa datos que ya tienes). Alto impacto, esfuerzo medio.
-2. **Testing — chequeo pre-push automatizado** (evita crashes como el de la tienda).
-   Impacto en estabilidad, esfuerzo bajo.
-3. **Atención — adopción del registro de teléfono en mostrador** (desbloquea puntos
+4. **Marketing — cola de aprobación + generador de contenido** (`/marketing`): el
+   agente redacta posts, Luis aprueba. Base del módulo de redes.
+5. **Marketing — conector de Facebook** (Graph API, el más accesible). Primera red
+   con publicación real.
+6. **Marketing — conector unificado TikTok + Instagram** (tras elegir proveedor y
+   tener la política de privacidad). Completa la publicación automática.
+7. **Atención — adopción del registro de teléfono en mostrador** (desbloquea puntos
    y recordatorios masivos). Sin código: es hábito de las vendedoras.
-4. **Pagos QR automáticos** (tras el trámite bancario). Ya construido, falta activar.
-5. **Marketing — agente de contenido** para redes/WhatsApp. Nuevo, alto valor.
-6. **Cumplimiento — política de datos** visible en la tienda. Confianza + norma.
+8. **Pagos QR automáticos** (tras el trámite bancario). Ya construido, falta activar.
+9. **Marketing — segmentación de clientes** y calendario de publicaciones.
+
+**Nota de secuencia:** Testing (1) y Privacidad (2) van primero porque habilitan todo
+lo demás con seguridad y cumplimiento. El marketing en redes (4-6) depende de la
+política de privacidad (2). Es la ruta Company of One: bases sólidas, luego escalar.
 
 ---
 
