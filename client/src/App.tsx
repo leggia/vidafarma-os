@@ -23,6 +23,7 @@ import TiendaClientes from "./pages/TiendaClientes";
 import FotosProductos from "./pages/FotosProductos";
 import Reservas from "./pages/Reservas";
 import Marketing from "./pages/Marketing";
+import Privacidad from "./pages/Privacidad";
 import { useAuth } from "./_core/hooks/useAuth";
 import { useLocation } from "wouter";
 
@@ -33,6 +34,11 @@ function Router() {
   // TIENDA PÚBLICA para clientes: accesible SIN login, antes de cualquier control de rol.
   if (location.startsWith("/tienda")) {
     return <TiendaClientes />;
+  }
+
+  // Política de privacidad: pública (requisito legal y de Facebook/TikTok).
+  if (location.startsWith("/privacidad")) {
+    return <Privacidad />;
   }
 
   // Clientes logueados (rol "cliente") solo acceden a la tienda, no al sistema interno.

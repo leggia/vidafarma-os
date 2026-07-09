@@ -370,6 +370,7 @@ export default function TiendaClientes() {
 
         <p className="text-center text-[10px] text-gray-400 mt-8">
           Los productos con receta se atienden en mostrador. Precios sujetos a confirmación en farmacia.
+          {" · "}<a href="/privacidad" className="underline">Política de privacidad</a>
         </p>
       </div>
 

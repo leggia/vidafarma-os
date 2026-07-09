@@ -890,6 +890,90 @@ export const asistenteTools = {
 
   // 19. VENCIMIENTOS PRÓXIMOS: productos comprados cuyo vencimiento cae en los
   // próximos N meses (según las fechas registradas en compras).
+  // MARKETING: sugerir qué poner en OFERTA cruzando vencimiento + rotación + margen.
+  // Objetivo Company of One: mover stock por vencer con descuento = menos merma + más venta.
+  async sugerirOfertas() {
+    const db = await getDb();
+    if (!db) return { error: "Sin BD" };
+    const hoyStr = ahoraBolivia().toISOString().slice(0, 10);
+    const hoy = ahoraBolivia();
+    const limite = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 5, hoy.getUTCDate()))
+      .toISOString().slice(0, 10);
+    // 1. Lotes comprados que vencen en los próximos 5 meses
+    const lotes = rows(await db.execute(sql`
+      SELECT pi.productName, MIN(pi.expiryDate) AS vence, SUM(pi.quantity) AS comprado
+      FROM purchase_items pi
+      WHERE pi.expiryDate IS NOT NULL AND pi.expiryDate != ''
+        AND pi.expiryDate >= ${hoyStr} AND pi.expiryDate <= ${limite}
+      GROUP BY pi.productName ORDER BY vence ASC LIMIT 60
+    `));
+    if (lotes.length === 0) return { mensaje: "No hay productos con vencimiento próximo (5 meses) registrado en compras. Nada urgente que ofertar por vencimiento." };
+    // 2. Rotación: unidades vendidas en los últimos 60 días por producto
+    const nombres = lotes.map((l: any) => l.productName);
+    const ventas = rows(await db.execute(sql`
+      SELECT d.articuloNombre AS nombre, SUM(d.cantidad) AS vendido60
+      FROM ventas_detalle d
+      WHERE d.fecha >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 60 DAY), '%Y-%m-%d')
+        AND d.articuloNombre IN (${sql.join(nombres.map((n: string) => sql`${n}`), sql`, `)})
+      GROUP BY d.articuloNombre
+    `));
+    const ventasMap: Record<string, number> = {};
+    for (const v of ventas) ventasMap[String(v.nombre).toLowerCase()] = num(v.vendido60);
+    // 3. Precio y costo desde el cache
+    const info = rows(await db.execute(sql`
+      SELECT nombre, precioUno, precioCostoUnid FROM productos_cache
+      WHERE nombre IN (${sql.join(nombres.map((n: string) => sql`${n}`), sql`, `)})
+    `));
+    const infoMap: Record<string, any> = {};
+    for (const i of info) infoMap[String(i.nombre).toLowerCase()] = i;
+    // 4. Armar sugerencias: prioridad = vence pronto Y rota lento
+    const candidatos = [];
+    for (const l of lotes) {
+      const k = String(l.productName).toLowerCase();
+      const vendido60 = ventasMap[k] || 0;
+      const inf = infoMap[k];
+      const precio = num(inf?.precioUno);
+      const costo = num(inf?.precioCostoUnid);
+      if (precio <= 0) continue;
+      const vence = String(l.vence).slice(0, 10);
+      const [vy, vm, vd] = vence.split("-").map(Number);
+      const diasParaVencer = Math.round((Date.UTC(vy, vm - 1, vd) - Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate())) / 86400000);
+      const comprado = num(l.comprado);
+      // Ritmo diario de venta y cuánto se vendería antes del vencimiento
+      const ritmoDiario = vendido60 / 60;
+      const seVenderiaAntes = Math.round(ritmoDiario * diasParaVencer);
+      const riesgoMerma = comprado > seVenderiaAntes; // no alcanza a venderse al ritmo actual
+      if (!riesgoMerma && vendido60 > 0) continue; // rota bien, no necesita oferta
+      // Precio de oferta sugerido: 15-25% de descuento según urgencia, SIN bajar del costo+10%
+      const pctDesc = diasParaVencer <= 60 ? 0.25 : diasParaVencer <= 100 ? 0.2 : 0.15;
+      const pisoCosto = costo > 0 ? costo * 1.1 : precio * 0.6;
+      const ofertaSugerida = Math.max(pisoCosto, precio * (1 - pctDesc));
+      const redondeada = Math.max(0.5, Math.round(ofertaSugerida * 2) / 2);
+      if (redondeada >= precio) continue; // sin espacio para descuento rentable
+      candidatos.push({
+        producto: l.productName,
+        vence,
+        diasParaVencer,
+        compradoConEseVencimiento: comprado,
+        vendidoUltimos60Dias: vendido60,
+        precioActual: `Bs ${precio.toFixed(2)}`,
+        ofertaSugerida: `Bs ${redondeada.toFixed(2)}`,
+        descuento: `${Math.round((1 - redondeada / precio) * 100)}%`,
+        razon: vendido60 === 0
+          ? "Sin ventas en 60 días y con vencimiento en camino"
+          : `Al ritmo actual (${vendido60} en 60d) no se vendería todo antes del vencimiento`,
+      });
+      if (candidatos.length >= 12) break;
+    }
+    if (candidatos.length === 0) return { mensaje: "Buenas noticias: los productos con vencimiento próximo rotan bien al ritmo actual. No hay ofertas urgentes que sugerir." };
+    return {
+      criterio: "Productos que al ritmo de venta actual no se venderían antes de su vencimiento (o sin rotación). Precio sugerido con descuento 15-25% según urgencia, sin bajar del costo+10%.",
+      sugerencias: candidatos,
+      comoAplicar: "Para activar una, pide: 'pon en oferta [producto] a [precio] hasta [fecha de vencimiento menos 15 días]'. También puedes generar el post de marketing de la oferta en /marketing.",
+      instruccionEstricta: "Muestra SOLO estas sugerencias con sus datos. NO inventes productos ni precios.",
+    };
+  },
+
   async vencimientosProximos(meses?: number) {
     const db = await getDb();
     if (!db) return { error: "Sin BD" };
