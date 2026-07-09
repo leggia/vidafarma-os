@@ -95,6 +95,34 @@ function chequearUseBeforeDeclaration(archivo, contenido) {
   return problemas;
 }
 
+// ─── 1b. Re-export sin binding local (el bug de la tienda v2.3.1) ───
+// `export { X } from "./mod"` re-exporta pero NO importa X al scope local.
+// Si el mismo archivo USA X internamente, es un ReferenceError de runtime que
+// esbuild no detecta. Detectamos: nombres re-exportados con "from" que también se
+// usan en el cuerpo del archivo sin un import/const propio.
+function chequearReexportSinBinding(archivo, contenido) {
+  const problemas = [];
+  const reExport = /export\s*\{([^}]+)\}\s*from\s*["']/g;
+  let m;
+  while ((m = reExport.exec(contenido)) !== null) {
+    const nombres = m[1].split(",").map((n) => n.trim().split(/\s+as\s+/)[0].trim()).filter(Boolean);
+    for (const nombre of nombres) {
+      if (nombre.length < 2) continue;
+      // ¿Tiene binding local? (import { nombre } / const nombre / function nombre)
+      const tieneImport = new RegExp(`import\\s*\\{[^}]*\\b${nombre}\\b[^}]*\\}\\s*from`).test(contenido);
+      const tieneLocal = new RegExp(`(const|let|function|class)\\s+${nombre}\\b`).test(contenido);
+      if (tieneImport || tieneLocal) continue;
+      // ¿Se USA en el archivo (más allá de la línea del export)?
+      const sinExports = contenido.replace(/export\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?/g, "");
+      const usos = (sinExports.match(new RegExp(`\\b${nombre}\\s*\\(`, "g")) || []).length;
+      if (usos > 0) {
+        problemas.push(`   ⚠ '${nombre}' se re-exporta con "export {...} from" pero se USA ${usos} vez/veces sin import local → ReferenceError en runtime. Usa: import { ${nombre} } from "..." y luego export { ${nombre} }.`);
+      }
+    }
+  }
+  return problemas;
+}
+
 // ─── 2. Balance de llaves y paréntesis ───
 function chequearBalance(contenido) {
   let llaves = 0, parentesis = 0;
@@ -159,6 +187,7 @@ for (const archivo of archivos) {
   // porque detecta un error que esbuild NO detecta (solo aparece en runtime).
   const problemas = [
     ...chequearUseBeforeDeclaration(archivo, contenido),
+    ...chequearReexportSinBinding(archivo, contenido),
     ...chequearCompilacion(archivo),
   ];
   if (problemas.length > 0) {
