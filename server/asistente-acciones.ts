@@ -123,7 +123,7 @@ async function ejecutarRevocarCorreo(params: any) {
 // asistente). "Cobol" y variantes apuntan a la Casa Matriz Cobol; "Honduras" a la
 // Casa Matriz / Almacén Principal.
 const ALMACENES_ACCION: { id: number; nombre: string; alias: string[] }[] = [
-  { id: 1, nombre: "Almacén Principal", alias: ["principal", "matriz", "casa matriz", "honduras"] },
+  { id: 1, nombre: "Almacén Principal", alias: ["principal", "matriz", "casa matriz", "honduras", "central"] },
   { id: 2, nombre: "Almacén Petrolera", alias: ["petrolera"] },
   { id: 3, nombre: "Almacén Lanza", alias: ["lanza"] },
   { id: 4, nombre: "Almacén Cobol", alias: ["cobol", "sucursal cobol", "casa matriz cobol", "cob"] },

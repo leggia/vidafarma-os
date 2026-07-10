@@ -2396,7 +2396,7 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
   if (q.includes("petrolera")) sucursal = "Petrolera";
   else if (q.includes("lanza")) sucursal = "Lanza";
   else if (q.includes("cobol")) sucursal = "Cobol";
-  else if (q.includes("matriz") || q.includes("casa matriz") || q.includes("honduras")) sucursal = "Casa Matriz";
+  else if (q.includes("matriz") || q.includes("casa matriz") || q.includes("honduras") || q.includes("central")) sucursal = "Casa Matriz";
 
   const { asistenteTools } = await import("./asistente");
 
@@ -2649,7 +2649,7 @@ REGLA ABSOLUTA — NO INVENTAR: Solo puedes mencionar nombres, cifras, productos
 
 Para comparar sucursales usa una sola llamada. Nunca escribas funciones como texto. Solo lectura. Montos en Bs.
 
-SUCURSALES: Petrolera, Lanza, Cobol (nombre completo "Casa Matriz Cobol" — "Cobol" o "Sucursal Cobol" es la misma) y Casa Matriz (también conocida como "Honduras" — es la misma sucursal; si el usuario dice "Honduras" trátalo como Casa Matriz).`;
+SUCURSALES: Petrolera, Lanza, Cobol (nombre completo "Casa Matriz Cobol" — "Cobol" o "Sucursal Cobol" es la misma) y Casa Matriz (también conocida como "Honduras" o "Central" — son la misma sucursal; si el usuario dice "Honduras" o "Central" trátalo como Casa Matriz).`;
 
       const tools = [
         { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período (hoy/ayer/semana/mes/YYYY-MM), opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
@@ -2661,7 +2661,7 @@ SUCURSALES: Petrolera, Lanza, Cobol (nombre completo "Casa Matriz Cobol" — "Co
         { type: "function" as const, function: { name: "trabajadoresSucursal", description: "Trabajadores de una sucursal.", parameters: { type: "object", properties: { sucursal: { type: "string" } }, required: ["sucursal"] } } },
         { type: "function" as const, function: { name: "mejoresVendedores", description: "Mejores vendedores en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "listarSucursales", description: "Lista las sucursales.", parameters: { type: "object", properties: {} } } },
-        { type: "function" as const, function: { name: "stockProducto", description: "Stock/existencias actuales de un producto en tiempo real, por almacén. Si se da un almacén (petrolera, lanza, cobol, principal/matriz/honduras) muestra solo ese; si no, muestra todos.", parameters: { type: "object", properties: { nombre: { type: "string" }, almacen: { type: "string" } }, required: ["nombre"] } } },
+        { type: "function" as const, function: { name: "stockProducto", description: "Stock/existencias actuales de un producto en tiempo real, por almacén. Si se da un almacén (petrolera, lanza, cobol, principal/matriz/honduras/central) muestra solo ese; si no, muestra todos.", parameters: { type: "object", properties: { nombre: { type: "string" }, almacen: { type: "string" } }, required: ["nombre"] } } },
         { type: "function" as const, function: { name: "cajasAbiertas", description: "Quién tiene caja abierta ahora mismo y en qué sucursal (tiempo real). Úsala para 'quién está vendiendo', 'quién abrió caja', 'quién está en cada sucursal ahora'.", parameters: { type: "object", properties: {} } } },
         { type: "function" as const, function: { name: "historialCompraProducto", description: "A cuánto se compró un producto: precio más bajo registrado y la última compra (avisa si la última fue la más baja).", parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] } } },
         { type: "function" as const, function: { name: "rentabilidadSucursales", description: "Rentabilidad/ganancia neta por sucursal: ingresos, costo, sueldos (por asistencia) y gastos de cada sucursal. Úsala para 'ganancia por sucursal', 'cuánto gana cada sucursal', 'qué sucursal es más rentable'.", parameters: { type: "object", properties: { periodo: { type: "string" } }, required: ["periodo"] } } },
