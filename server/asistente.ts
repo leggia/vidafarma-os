@@ -363,7 +363,7 @@ export const asistenteTools = {
       const { inventarios365 } = await import("./inventarios365");
       // Almacenes conocidos (id → nombre legible)
       const ALMACENES: { id: number; nombre: string; alias: string[] }[] = [
-        { id: 1, nombre: "Almacén Principal", alias: ["principal", "matriz", "casa matriz"] },
+        { id: 1, nombre: "Almacén Principal", alias: ["principal", "matriz", "casa matriz", "honduras"] },
         { id: 2, nombre: "Almacén Petrolera", alias: ["petrolera"] },
         { id: 3, nombre: "Almacén Lanza", alias: ["lanza"] },
         { id: 4, nombre: "Almacén Cobol", alias: ["cobol", "cob"] },
@@ -605,7 +605,7 @@ export const asistenteTools = {
       }
       // Si se filtra por sucursal, usar el stock del ALMACÉN de esa sucursal
       // (stock por almacén). Si no, el stock total.
-      const ALMACENES: Record<string, number> = { petrolera: 2, lanza: 3, cobol: 4, matriz: 1, principal: 1 };
+      const ALMACENES: Record<string, number> = { petrolera: 2, lanza: 3, cobol: 4, matriz: 1, principal: 1, honduras: 1 };
       let idAlmacen: number | null = null;
       if (sucursal) {
         const s = sucursal.toLowerCase();
@@ -713,7 +713,7 @@ export const asistenteTools = {
         `));
         if (pr[0]?.idProveedor) idProv = String(pr[0].idProveedor);
       }
-      const ALMACENES: Record<string, number> = { petrolera: 2, lanza: 3, cobol: 4, matriz: 1, principal: 1 };
+      const ALMACENES: Record<string, number> = { petrolera: 2, lanza: 3, cobol: 4, matriz: 1, principal: 1, honduras: 1 };
       let idAlmacen: number | null = null;
       if (sucursal) {
         const s = sucursal.toLowerCase();
