@@ -1085,10 +1085,12 @@ const inventarioRouter = router({
             { role: "user", content: [
               { type: "text", text: `Esta foto es una hoja de conteo físico de inventario, con columnas: # (número de fila, impreso), Clase (A/B/C, impreso), Producto (impreso), Sistema (cantidad del sistema, IMPRESA), Físico (una CASILLA EN BLANCO donde el personal ANOTA A MANO la cantidad contada).
 
+⚠️ LA HOJA ESTÁ IMPRESA EN 2 COLUMNAS lado a lado (como un periódico). El orden de impresión es: primero TODA la columna IZQUIERDA de arriba a abajo (filas #1, #2, #3... en orden correlativo), y RECIÉN DESPUÉS continúa la columna DERECHA (con los números siguientes). NO leas fila por fila cruzando ambas columnas por su altura en la imagen (eso mezcla filas de columnas distintas que casualmente están a la misma altura y es la causa de errores). Para cada fila que reportes, usa el NÚMERO impreso en la columna "#" como identificador — es la fuente de verdad de qué producto es, más confiable que la posición en la imagen.
+
 TAREA CRÍTICA: extrae SOLO las filas donde la casilla "Físico" tiene algo ESCRITO A MANO por el personal. Esa casilla nace vacía (con borde de recuadro) — si está vacía o no distingues una anotación manuscrita clara ahí, esa fila NO se cuenta, aunque tenga otros datos impresos.
 - NUNCA copies el número de la columna "Sistema" como si fuera el "Físico". Son columnas distintas: Sistema está impresa (a máquina) y Físico es manuscrita (a mano, en el recuadro vacío).
-- Solo reporta un producto si estás seguro de que su casilla Físico fue modificada/llenada a mano. Ante la duda, omite la fila — es preferible reportar menos filas pero con certeza, que adivinar.
-- El NÚMERO DE FILA (columna "#", a la izquierda, impreso) es la clave para identificar el producto correcto: léelo con cuidado. Si no se alcanza a leer, pon null.
+- Solo reporta un producto si estás seguro de que su casilla Físico fue modificada/llenada a mano Y de que el NÚMERO "#" que le asignas es el que está impreso junto a esa fila exacta. Ante la duda (del número o de la cantidad), omite la fila — es preferible reportar menos filas pero con certeza, que adivinar.
+- El NÚMERO DE FILA (columna "#", a la izquierda de cada fila, impreso) es la clave para identificar el producto correcto: léelo con cuidado, fila por fila. Si no se alcanza a leer con seguridad, pon null (no adivines un número).
 
 Devuelve JSON:
 {"items":[{"numero": numero_de_fila_columna_#_o_null_si_no_se_ve, "nombre":"nombre del producto tal como se lee","cantidad": numero_entero_escrito_a_mano_en_Fisico}]}
@@ -1259,8 +1261,12 @@ Devuelve JSON:
       const { getDb } = await import("./db");
       const { inventarioProveedores, inventarioSesiones } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
+      const { sql: sqlRaw } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new Error("Sin base de datos");
+      // Migración idempotente: columnas de estado del ajuste (contingencia real).
+      try { await db.execute(sqlRaw.raw("ALTER TABLE inventario_proveedores ADD COLUMN ajusteEstado VARCHAR(20)")); } catch { /* ya existe */ }
+      try { await db.execute(sqlRaw.raw("ALTER TABLE inventario_proveedores ADD COLUMN ajusteMensaje VARCHAR(500)")); } catch { /* ya existe */ }
 
       const conDif = input.conteos.filter((c) => c.diferencia !== 0).length;
       const estado = input.completar ? "completado" : "en_progreso";
@@ -1272,6 +1278,10 @@ Devuelve JSON:
           eq(inventarioProveedores.proveedorNombre, input.proveedorNombre)
         )))[0];
 
+      // PASO 1 (siempre primero, protege el conteo): guardar el conteo local.
+      // Esto NO depende de 365 — aunque el ajuste real falle después, el conteo
+      // manuscrito del personal ya quedó a salvo y NUNCA hay que volver a contar.
+      let idRegistro: number;
       if (existente) {
         await db.update(inventarioProveedores).set({
           totalProductos: input.totalProductos,
@@ -1281,8 +1291,9 @@ Devuelve JSON:
           estado,
           completadoEn: input.completar ? new Date() : null,
         }).where(eq(inventarioProveedores.id, existente.id));
+        idRegistro = existente.id;
       } else {
-        await db.insert(inventarioProveedores).values({
+        const ins: any = await db.insert(inventarioProveedores).values({
           sesionId: input.sesionId,
           proveedorId: input.proveedorId || null,
           proveedorNombre: input.proveedorNombre,
@@ -1293,9 +1304,11 @@ Devuelve JSON:
           estado,
           completadoEn: input.completar ? new Date() : null,
         });
+        idRegistro = ins?.[0]?.insertId ?? ins?.insertId ?? existente?.id;
       }
 
-      // Si se completa Y se pidió ajustar, aplicar el ajuste real en inventarios365
+      // PASO 2: intentar el ajuste REAL en 365 (puede fallar por conexión — nunca
+      // hace perder el conteo del paso 1, que ya quedó guardado).
       let ajusteResultado: { ok: boolean; ajustados: number; mensaje: string } | null = null;
       if (input.completar && input.ajustarStock && conDif > 0) {
         const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, input.sesionId)))[0];
@@ -1314,10 +1327,87 @@ Devuelve JSON:
                 fechaVencimiento: c.fechaVencimiento || null,
               })),
           });
+          // PASO 3: dejar registrado el resultado REAL del ajuste (no solo un
+          // toast pasajero) — así al reabrir la sesión se ve claramente si el
+          // stock de 365 quedó al día o si hace falta reintentar.
+          try {
+            await db.update(inventarioProveedores).set({
+              ajusteEstado: ajusteResultado.ok ? "ok" : "fallo",
+              ajusteMensaje: ajusteResultado.mensaje.slice(0, 500),
+            }).where(eq(inventarioProveedores.id, idRegistro));
+          } catch { /* no crítico */ }
         }
       }
 
-      return { success: true, conDiferencia: conDif, contados: input.conteos.length, ajuste: ajusteResultado };
+      return { success: true, conDiferencia: conDif, contados: input.conteos.length, ajuste: ajusteResultado, registroId: idRegistro };
+    }),
+
+  // CONTINGENCIA: reintentar el ajuste real en 365 cuando falló antes (ej. se
+  // cortó la conexión). NUNCA reenvía a ciegas: primero VERIFICA el stock actual
+  // de cada producto en 365. Si ya quedó en el valor contado, lo salta (evita
+  // duplicar el ajuste). Si cambió a algo distinto de lo esperado, lo marca para
+  // revisión manual en vez de sobrescribirlo. Solo reintenta lo que sigue
+  // genuinamente pendiente. El conteo (ya guardado) nunca se vuelve a pedir.
+  reintentarAjuste: protectedProcedure
+    .input(z.object({ registroId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { inventarioProveedores, inventarioSesiones } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new Error("Sin base de datos");
+
+      const reg = (await db.select().from(inventarioProveedores).where(eq(inventarioProveedores.id, input.registroId)))[0];
+      if (!reg) throw new Error("No se encontró el registro del conteo.");
+      const conteos: any[] = Array.isArray(reg.conteos) ? (reg.conteos as any[]) : [];
+      const conDiferencia = conteos.filter((c) => c.diferencia !== 0);
+      if (conDiferencia.length === 0) return { ok: true, mensaje: "No hay diferencias pendientes de ajustar." };
+
+      const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, reg.sesionId)))[0];
+      if (!sesion) throw new Error("No se encontró la sesión de inventario.");
+
+      const { inventarios365 } = await import("./inventarios365");
+      // Verificar el stock ACTUAL de cada producto antes de reenviar nada.
+      const stockActualLista = await inventarios365.listarParaInventario(sesion.almacenId, "");
+      const stockActualPorId = new Map(stockActualLista.map((p: any) => [p.id, Number(p.stock)]));
+
+      const pendientes: typeof conDiferencia = [];
+      const yaAplicados: string[] = [];
+      const ambiguos: string[] = [];
+      for (const c of conDiferencia) {
+        const actual = stockActualPorId.get(c.articuloId);
+        if (actual == null) { ambiguos.push(c.nombre); continue; } // no se pudo verificar: no tocar, avisar
+        if (actual === c.stockFisico) { yaAplicados.push(c.nombre); continue; } // ya quedó como se contó: no duplicar
+        if (actual === c.stockSistema) { pendientes.push(c); continue; } // sigue en el valor de antes: seguro reintentar
+        ambiguos.push(c.nombre); // cambió a otro valor distinto (ej. una venta de por medio): no sobrescribir a ciegas
+      }
+
+      let resultado: { ok: boolean; ajustados: number; mensaje: string } = { ok: true, ajustados: 0, mensaje: "Nada pendiente de reintentar." };
+      if (pendientes.length > 0) {
+        resultado = await inventarios365.ajustarInventario({
+          almacenId: sesion.almacenId,
+          motivoId: 2,
+          ajustes: pendientes.map((c: any) => ({
+            productoId: c.articuloId, inventarioId: c.inventarioId ?? null,
+            stockAnterior: c.stockSistema, stockReal: c.stockFisico,
+            fechaVencimiento: c.fechaVencimiento || null,
+          })),
+        });
+      }
+
+      const partes: string[] = [];
+      if (pendientes.length > 0) partes.push(`${resultado.ok ? "✅" : "❌"} ${resultado.ok ? pendientes.length : 0} reintentado(s): ${resultado.mensaje}`);
+      if (yaAplicados.length > 0) partes.push(`✓ ${yaAplicados.length} ya estaban aplicados en 365 (no se duplicaron): ${yaAplicados.slice(0, 5).join(", ")}${yaAplicados.length > 5 ? "…" : ""}`);
+      if (ambiguos.length > 0) partes.push(`⚠️ ${ambiguos.length} requieren revisión manual (el stock cambió desde el conteo): ${ambiguos.slice(0, 5).join(", ")}${ambiguos.length > 5 ? "…" : ""}`);
+      const mensajeFinal = partes.join(" · ") || "Nada que reintentar.";
+      const nuevoEstado = ambiguos.length > 0 ? "revisar" : (pendientes.length === 0 || resultado.ok) ? "ok" : "fallo";
+
+      try {
+        await db.update(inventarioProveedores).set({ ajusteEstado: nuevoEstado, ajusteMensaje: mensajeFinal.slice(0, 500) })
+          .where(eq(inventarioProveedores.id, input.registroId));
+      } catch { /* no crítico */ }
+
+      return { ok: nuevoEstado !== "fallo", mensaje: mensajeFinal, aplicadosAhora: pendientes.length, yaEstaban: yaAplicados.length, revisar: ambiguos.length };
     }),
 
   // Marcar sesión como completada

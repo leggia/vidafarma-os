@@ -161,6 +161,24 @@ export default function Inventario() {
   });
   const crearSesion = trpc.inventario.crearSesion.useMutation();
   const guardarConteoProveedor = trpc.inventario.guardarConteoProveedor.useMutation();
+  const reintentarAjuste = trpc.inventario.reintentarAjuste.useMutation();
+  const [reintentandoId, setReintentandoId] = useState<number | null>(null);
+  const reintentarAhora = async (registroId: number) => {
+    setReintentandoId(registroId);
+    try {
+      const r = await reintentarAjuste.mutateAsync({ registroId });
+      if (r.ok) toast.success(r.mensaje, { duration: 8000 });
+      else toast.error(r.mensaje, { duration: 10000 });
+      if (sesionActiva) {
+        const detalle = await utils.inventario.detalleSesion.fetch({ sesionId: sesionActiva.id });
+        if (detalle) setSesionActiva((prev: any) => ({ ...prev, proveedores: detalle.proveedores }));
+      }
+    } catch (e: any) {
+      toast.error("No se pudo reintentar: " + (e.message || ""), { duration: 8000 });
+    } finally {
+      setReintentandoId(null);
+    }
+  };
   const completarSesion = trpc.inventario.completarSesion.useMutation();
 
   const almacenes = [
@@ -293,7 +311,7 @@ export default function Inventario() {
         if (res.ajuste.ok) {
           toast.success(`Proveedor completado. ${res.ajuste.ajustados} producto(s) ajustados en el sistema.`, { duration: 6000 });
         } else {
-          toast.error(`Conteo guardado, pero el ajuste falló: ${res.ajuste.mensaje}`, { duration: 7000 });
+          toast.error(`Tu conteo quedó guardado a salvo, pero el ajuste en 365 falló: ${res.ajuste.mensaje}. Puedes reintentar desde la lista de proveedores sin volver a contar.`, { duration: 10000 });
         }
       } else {
         toast.success(completar ? "Proveedor completado" : "Progreso guardado", { duration: 4000 });
@@ -537,19 +555,33 @@ export default function Inventario() {
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Proveedores inventariados</p>
             <div className="space-y-2">
               {provsHechos.map((p: any) => (
-                <button key={p.id} onClick={() => cargarProductos(p.proveedorId || "", p.proveedorNombre)} className="w-full flex items-center justify-between gap-2 rounded-lg border border-foreground/15 hover:border-primary/50 p-3 transition-all">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {p.estado === "completado" ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" /> : <Clock className="h-4 w-4 text-amber-600 shrink-0" />}
-                    <div className="text-left min-w-0">
-                      <p className="text-sm font-medium truncate">{p.proveedorNombre}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {p.productosContados}/{p.totalProductos} contados
-                        {p.conDiferencia > 0 && <span className="text-red-600"> · {p.conDiferencia} dif.</span>}
-                      </p>
+                <div key={p.id} className="rounded-lg border border-foreground/15 overflow-hidden">
+                  <button onClick={() => cargarProductos(p.proveedorId || "", p.proveedorNombre)} className="w-full flex items-center justify-between gap-2 hover:border-primary/50 p-3 transition-all">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {p.estado === "completado" ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" /> : <Clock className="h-4 w-4 text-amber-600 shrink-0" />}
+                      <div className="text-left min-w-0">
+                        <p className="text-sm font-medium truncate">{p.proveedorNombre}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {p.productosContados}/{p.totalProductos} contados
+                          {p.conDiferencia > 0 && <span className="text-red-600"> · {p.conDiferencia} dif.</span>}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </button>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </button>
+                  {/* Contingencia: si el ajuste real en 365 no se aplicó (o quedó ambiguo), avisar y ofrecer reintentar sin perder el conteo */}
+                  {(p.ajusteEstado === "fallo" || p.ajusteEstado === "revisar") && (
+                    <div className={`px-3 py-2 border-t text-[11px] flex items-center justify-between gap-2 ${p.ajusteEstado === "fallo" ? "bg-red-50 dark:bg-red-950/20" : "bg-amber-50 dark:bg-amber-950/20"}`}>
+                      <span className={p.ajusteEstado === "fallo" ? "text-red-700" : "text-amber-700"}>
+                        {p.ajusteEstado === "fallo" ? "⚠ El ajuste en 365 no se aplicó" : "⚠ Requiere revisión"} — tu conteo está a salvo.
+                      </span>
+                      <button onClick={(e) => { e.stopPropagation(); reintentarAhora(p.id); }} disabled={reintentandoId === p.id}
+                        className="shrink-0 h-7 px-2.5 rounded-lg bg-white dark:bg-card border font-bold disabled:opacity-50">
+                        {reintentandoId === p.id ? "Reintentando…" : "Reintentar"}
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           </div>

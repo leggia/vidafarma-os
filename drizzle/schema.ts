@@ -218,6 +218,12 @@ export const inventarioProveedores = mysqlTable("inventario_proveedores", {
   conDiferencia: int("conDiferencia").notNull().default(0),
   conteos: json("conteos"), // array de {articuloId, nombre, stockSistema, stockFisico, diferencia}
   estado: varchar("estado", { length: 20 }).notNull().default("en_progreso"),
+  // Resultado del intento de ajuste REAL en inventarios365 (independiente de si el
+  // conteo local se guardó, que siempre ocurre primero). null = no se intentó,
+  // 'ok' = se aplicó, 'fallo' = no se aplicó (contingencia: reintentar con
+  // verificación, nunca reenviar a ciegas). Ver reintentarAjuste en routers.ts.
+  ajusteEstado: varchar("ajusteEstado", { length: 20 }),
+  ajusteMensaje: varchar("ajusteMensaje", { length: 500 }),
   completadoEn: timestamp("completadoEn"),
   actualizadoEn: timestamp("actualizadoEn").defaultNow().onUpdateNow().notNull(),
 });
