@@ -35,7 +35,7 @@ import {
   Users,
   Plus,
   Sparkles,
-  HeartHandshake, Megaphone } from "lucide-react";
+  HeartHandshake, Megaphone, Landmark, Wallet2 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -53,6 +53,8 @@ const menuItems = [
   { icon: HeartHandshake, label: "Fidelización", path: "/fidelizacion" },
   { icon: Megaphone, label: "Marketing", path: "/marketing" },
   { icon: Wallet, label: "Gastos", path: "/gastos" },
+  { icon: Landmark, label: "Créditos", path: "/creditos" },
+  { icon: Wallet2, label: "Personal", path: "/personal", soloAdmin: true },
   { icon: ListTodo, label: "Tareas Pendientes", path: "/tareas" },
   { icon: History, label: "Historial", path: "/historial" },
 ];
@@ -209,7 +211,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0 pt-2">
             <SidebarMenu className="px-2 py-1 space-y-0.5">
-              {menuItems.map((item) => {
+              {menuItems.filter((item) => !item.soloAdmin || user?.role === "admin").map((item) => {
                 const isActive = location === item.path;
                 return (
                   <SidebarMenuItem key={item.path}>

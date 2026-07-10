@@ -1069,23 +1069,26 @@ const inventarioRouter = router({
     .input(z.object({
       fileBase64: z.string().max(12_000_000),
       mimeType: z.string(),
-      productos: z.array(z.object({ id: z.number(), nombre: z.string(), codigo: z.string().optional() })),
+      // productos en el MISMO ORDEN que la hoja impresa (alfabético), con su
+      // número de fila (1..N) tal como aparece en la columna "#" del PDF.
+      productos: z.array(z.object({ id: z.number(), nombre: z.string(), codigo: z.string().optional(), stock: z.number().optional(), numero: z.number().optional() })),
     }))
     .mutation(async ({ input }) => {
       const isImage = input.mimeType.startsWith("image/");
       if (!isImage) return { error: "Sube una foto (imagen) de la hoja de conteo." };
       const dataUrl = `data:${input.mimeType};base64,${input.fileBase64}`;
-      let leidos: { nombre: string; cantidad: number }[] = [];
+      let leidos: { numero: number | null; nombre: string; cantidad: number }[] = [];
       try {
         const llmResult = await invokeLLM({
           messages: [
             { role: "system", content: "Eres experto en leer hojas de conteo de inventario de farmacia, incluida letra manuscrita. Respondes SOLO JSON válido." },
             { role: "user", content: [
-              { type: "text", text: `Esta foto es una hoja de conteo físico de inventario. Cada fila tiene el NOMBRE de un producto y la CANTIDAD FÍSICA contada (escrita a mano o impresa).
-Extrae SOLO las filas que tengan una cantidad anotada. Devuelve JSON:
-{"items":[{"nombre":"nombre del producto tal como se lee","cantidad": numero_entero}]}
-- Lee la cantidad manuscrita con el mayor cuidado (puede estar en una columna "Físico" o al lado del nombre).
-- Si una fila no tiene cantidad escrita, OMÍTELA.
+              { type: "text", text: `Esta foto es una hoja de conteo físico de inventario, con columnas: # (número de fila), Clase (A/B/C), Producto, Sistema, Físico (cantidad contada, a mano o impresa).
+Extrae SOLO las filas que tengan una cantidad FÍSICA anotada. Devuelve JSON:
+{"items":[{"numero": numero_de_fila_columna_#_o_null_si_no_se_ve, "nombre":"nombre del producto tal como se lee","cantidad": numero_entero_de_la_columna_fisico}]}
+- El NÚMERO DE FILA (columna "#", a la izquierda) es MUY IMPORTANTE: léelo con cuidado, es la clave para identificar el producto correcto. Si no se alcanza a leer, pon null.
+- Lee la cantidad FÍSICA (manuscrita o impresa) con el mayor cuidado — no la confundas con la columna "Sistema".
+- Si una fila no tiene cantidad física escrita, OMÍTELA.
 - Responde SOLO el JSON.` },
               { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
             ] },
@@ -1094,27 +1097,54 @@ Extrae SOLO las filas que tengan una cantidad anotada. Devuelve JSON:
         });
         const txt = (llmResult?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim();
         const parsed = JSON.parse(txt);
-        leidos = Array.isArray(parsed?.items) ? parsed.items.filter((i: any) => i?.nombre && i?.cantidad != null) : [];
+        leidos = Array.isArray(parsed?.items)
+          ? parsed.items.filter((i: any) => i?.nombre && i?.cantidad != null)
+              .map((i: any) => ({ numero: i.numero != null && !isNaN(Number(i.numero)) ? Math.round(Number(i.numero)) : null, nombre: i.nombre, cantidad: i.cantidad }))
+          : [];
       } catch (e: any) {
-        return { error: "No se pudo leer la foto. Asegúrate de que se vean bien los nombres y las cantidades." };
+        return { error: "No se pudo leer la foto. Asegúrate de que se vean bien los nombres, el número de fila y las cantidades." };
       }
       if (leidos.length === 0) return { error: "No se encontraron cantidades en la foto." };
 
-      // Emparejar cada lectura contra los productos de la sesión (motor difuso)
+      // Emparejar cada lectura contra los productos de la sesión (motor difuso).
+      // El NÚMERO DE FILA leído es la señal más precisa (ancla contra la hoja
+      // impresa); el nombre por similitud de texto es el respaldo/verificación.
       const { mejoresCandidatos } = await import("./domain/emparejar");
       const catalogo = input.productos.map((p) => p.nombre);
+      const porNumero = new Map(input.productos.filter((p) => p.numero != null).map((p) => [p.numero, p]));
+
       const resultados = leidos.map((l) => {
-        const cands = mejoresCandidatos(l.nombre, catalogo, 3);
-        const mejor = cands[0];
-        const prodMejor = mejor ? input.productos.find((p) => p.nombre === mejor.nombre) : null;
+        const cands = mejoresCandidatos(l.nombre, catalogo, 5); // más opciones "cercanas" para elegir
+        const porNombreMap = new Map(input.productos.map((p) => [p.nombre, p]));
+        const candidatosEnriquecidos = cands.map((c) => {
+          const pr = porNombreMap.get(c.nombre);
+          return pr ? { id: pr.id, nombre: pr.nombre, codigo: pr.codigo || null, stock: pr.stock ?? null, confianza: c.confianza } : null;
+        }).filter(Boolean) as any[];
+
+        // Candidato por NÚMERO DE FILA leído (ancla contra la hoja impresa)
+        const prodPorNumero = l.numero != null ? porNumero.get(l.numero) : undefined;
+        let sugerido: any = null;
+        let viaNumero = false;
+        if (prodPorNumero) {
+          // Confianza alta directa por número; si además el nombre coincide bien, mejor aún.
+          sugerido = { id: prodPorNumero.id, nombre: prodPorNumero.nombre, confianza: "alta" };
+          viaNumero = true;
+          // Asegurar que esté primero en la lista de candidatos mostrados
+          if (!candidatosEnriquecidos.some((c) => c.id === prodPorNumero.id)) {
+            candidatosEnriquecidos.unshift({ id: prodPorNumero.id, nombre: prodPorNumero.nombre, codigo: prodPorNumero.codigo || null, stock: prodPorNumero.stock ?? null, confianza: "alta" });
+          }
+        } else {
+          const mejor = candidatosEnriquecidos[0];
+          sugerido = mejor && mejor.confianza !== "baja" ? { id: mejor.id, nombre: mejor.nombre, confianza: mejor.confianza } : null;
+        }
+
         return {
+          numeroLeido: l.numero,
           textoLeido: l.nombre,
           cantidad: Math.round(Number(l.cantidad)),
-          sugerido: mejor && mejor.confianza !== "baja" && prodMejor ? { id: prodMejor.id, nombre: prodMejor.nombre, confianza: mejor.confianza } : null,
-          candidatos: cands.map((c) => {
-            const pr = input.productos.find((p) => p.nombre === c.nombre);
-            return pr ? { id: pr.id, nombre: pr.nombre, confianza: c.confianza } : null;
-          }).filter(Boolean),
+          sugerido,
+          viaNumero,
+          candidatos: candidatosEnriquecidos.slice(0, 5),
         };
       });
       const emparejados = resultados.filter((r) => r.sugerido).length;

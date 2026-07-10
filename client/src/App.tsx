@@ -24,6 +24,8 @@ import FotosProductos from "./pages/FotosProductos";
 import Reservas from "./pages/Reservas";
 import Marketing from "./pages/Marketing";
 import Privacidad from "./pages/Privacidad";
+import Creditos from "./pages/Creditos";
+import Personal from "./pages/Personal";
 import { useAuth } from "./_core/hooks/useAuth";
 import { useLocation } from "wouter";
 
@@ -92,6 +94,8 @@ function Router() {
         <Route path="/gastos" component={Gastos} />
         <Route path="/fidelizacion" component={Fidelizacion} />
         <Route path="/marketing" component={Marketing} />
+        <Route path="/creditos" component={Creditos} />
+        <Route path="/personal" component={Personal} />
         <Route path="/consulta" component={Consulta} />
         <Route path="/asistente" component={Asistente} />
         <Route path="/404" component={NotFound} />

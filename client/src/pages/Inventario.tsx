@@ -53,9 +53,16 @@ export default function Inventario() {
   const fotoConteoRef = useRef<HTMLInputElement>(null);
   const [procesandoFoto, setProcesandoFoto] = useState(false);
   const [revisionFoto, setRevisionFoto] = useState<any[] | null>(null);
+  const [busquedaManual, setBusquedaManual] = useState<Record<number, string>>({});
   const extraerConteoFoto = trpc.inventario.extraerConteoFoto.useMutation();
 
   // Comprimir y enviar la foto de la hoja de conteo; abrir modal de revisión
+  // Mismo orden que el PDF impreso (alfabético, TODOS los items sin filtrar) con
+  // numeración 1..N — es la clave para emparejar por número de fila desde la foto.
+  const itemsNumerados = useMemo(() => {
+    return [...items].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((it, i) => ({ ...it, numero: i + 1 }));
+  }, [items]);
+
   const procesarFotoConteo = (file: File) => {
     const img = new Image();
     img.onload = async () => {
@@ -71,7 +78,7 @@ export default function Inventario() {
       try {
         const r: any = await extraerConteoFoto.mutateAsync({
           fileBase64: b64, mimeType: "image/jpeg",
-          productos: items.map(i => ({ id: i.id, nombre: i.nombre, codigo: i.codigo })),
+          productos: itemsNumerados.map(i => ({ id: i.id, nombre: i.nombre, codigo: i.codigo, stock: i.stock, numero: i.numero })),
         });
         if (r?.error) { toast.error(r.error, { duration: 7000 }); return; }
         setRevisionFoto(r.resultados);
@@ -100,7 +107,7 @@ export default function Inventario() {
       return copia;
     });
     toast.success(`${aplicados} cantidad(es) cargada(s) al conteo`);
-    setRevisionFoto(null);
+    setRevisionFoto(null); setBusquedaManual({});
   };
   const [cacheProductos, setCacheProductos] = useState<any[]>([]);
   const [cargandoCache, setCargandoCache] = useState(false);
@@ -305,14 +312,14 @@ export default function Inventario() {
     const sucursal = sesionActiva?.almacenNombre || "";
     const nombreSesion = sesionActiva?.nombre || "Inventario";
 
-    // Ordenar alfabéticamente A-Z por nombre
-    const ordenados = [...items].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    // Mismo orden y numeración que se usará para leer la foto de vuelta
+    const ordenados = itemsNumerados;
     const totalItems = ordenados.length;
 
     // Filas: #, ABC, Producto, Sistema, Físico (en blanco)
-    const filas = ordenados.map((it, i) => `
+    const filas = ordenados.map((it) => `
       <tr>
-        <td class="num">${i + 1}</td>
+        <td class="num">${it.numero}</td>
         <td class="c">${it.clase}</td>
         <td class="n">${it.nombre}</td>
         <td class="s">${it.stock}</td>
@@ -338,7 +345,7 @@ export default function Inventario() {
         padding: 2px 3px; border-bottom: 1.2px solid #000; font-weight: 700; }
       td { padding: 2.5px 3px; border-bottom: 0.4px solid #bbb; font-size: 9.5px; vertical-align: middle; }
       tr { break-inside: avoid; }
-      .num { width: 22px; text-align: center; color: #555; font-size: 8.5px; }
+      .num { width: 24px; text-align: center; color: #000; font-size: 9.5px; font-weight: 800; background: #eee; border-radius: 2px; }
       .c { width: 16px; text-align: center; font-weight: 700; color: #000; }
       .n { line-height: 1.15; }
       .s { width: 34px; text-align: center; font-weight: 700; }
@@ -370,7 +377,7 @@ export default function Inventario() {
           </tr></thead>
           <tbody>${filas}</tbody>
         </table>
-        <div class="leyenda">A/B/C = prioridad por valor. Anote en "Físico" solo lo que difiera del sistema; deje en blanco lo que coincida. Luego ingrese las diferencias en la app.</div>
+        <div class="leyenda">A/B/C = prioridad por valor. Anote en "Físico" TODAS las cantidades contadas (el número "#" de cada fila ayuda a cargar el conteo por foto en la app con más precisión). Luego suba una foto de esta hoja o ingrese las diferencias manualmente.</div>
       </div>
     </body></html>`;
 
@@ -785,9 +792,20 @@ export default function Inventario() {
                 <div className="overflow-y-auto p-3 space-y-2 flex-1">
                   {revisionFoto.map((r: any, idx: number) => {
                     const destino = r.elegidoId ?? r.sugerido?.id ?? null;
+                    const prodElegido = destino != null ? itemsNumerados.find(p => p.id === destino) : null;
+                    const buscando = busquedaManual[idx] || "";
+                    const resultadosManual = buscando.trim().length >= 2
+                      ? itemsNumerados.filter(p => p.nombre.toLowerCase().includes(buscando.toLowerCase())).slice(0, 8)
+                      : [];
                     return (
                       <div key={idx} className={`rounded-lg border p-2.5 ${destino ? "border-green-300 bg-green-50/40 dark:bg-green-950/10" : "border-red-300 bg-red-50/40 dark:bg-red-950/10"}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 mb-1">
+                          {/* Guía: número de fila leído de la hoja impresa (columna #) */}
+                          {r.numeroLeido != null ? (
+                            <span className="text-[10px] font-black shrink-0 px-1.5 py-0.5 rounded bg-gray-800 text-white" title="Número de fila leído en la hoja impresa">#{r.numeroLeido}</span>
+                          ) : (
+                            <span className="text-[10px] font-bold shrink-0 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700" title="No se pudo leer el número de fila">#?</span>
+                          )}
                           <span className="text-[10px] text-muted-foreground shrink-0">Leído:</span>
                           <span className="text-xs font-medium flex-1 truncate">"{r.textoLeido}"</span>
                           <span className="text-[10px] text-muted-foreground shrink-0">Cant:</span>
@@ -795,18 +813,45 @@ export default function Inventario() {
                             onChange={(e) => setRevisionFoto(prev => prev!.map((x, i) => i === idx ? { ...x, cantidad: parseInt(e.target.value) || 0 } : x))}
                             className="w-16 h-8 text-center text-sm font-bold border rounded-lg bg-white dark:bg-background" />
                         </div>
+                        {prodElegido && (
+                          <p className="text-[10px] text-muted-foreground mb-1 pl-6">
+                            → {prodElegido.nombre} {prodElegido.codigo ? `· Cód: ${prodElegido.codigo}` : ""} · Sistema: {prodElegido.stock}
+                            {r.viaNumero && <span className="text-emerald-700 font-bold"> · emparejado por N° de fila</span>}
+                          </p>
+                        )}
                         {r.candidatos && r.candidatos.length > 0 ? (
                           <select value={destino ?? ""}
                             onChange={(e) => setRevisionFoto(prev => prev!.map((x, i) => i === idx ? { ...x, elegidoId: e.target.value ? parseInt(e.target.value) : null } : x))}
                             className="w-full h-8 text-xs border rounded-lg px-2 bg-white dark:bg-background">
                             <option value="">— no cargar esta fila —</option>
                             {r.candidatos.map((c: any) => (
-                              <option key={c.id} value={c.id}>{c.confianza === "alta" ? "✓ " : "≈ "}{c.nombre}</option>
+                              <option key={c.id} value={c.id}>
+                                {c.confianza === "alta" ? "✓ " : c.confianza === "media" ? "≈ " : "· "}
+                                {c.nombre}{c.codigo ? ` (Cód: ${c.codigo})` : ""}{c.stock != null ? ` — Sistema: ${c.stock}` : ""}
+                              </option>
                             ))}
                           </select>
                         ) : (
-                          <p className="text-[11px] text-red-600 font-bold">✗ Sin coincidencia en la sesión — se ignorará</p>
+                          <p className="text-[11px] text-red-600 font-bold mb-1">✗ Sin coincidencia cercana — busca manualmente abajo</p>
                         )}
+                        {/* Búsqueda manual de respaldo: por si ninguna opción es la correcta */}
+                        <div className="mt-1.5">
+                          <input type="text" value={buscando} placeholder="🔍 Buscar otro producto por nombre…"
+                            onChange={(e) => setBusquedaManual(prev => ({ ...prev, [idx]: e.target.value }))}
+                            className="w-full h-7 text-[11px] border rounded-lg px-2 bg-white dark:bg-background" />
+                          {resultadosManual.length > 0 && (
+                            <div className="mt-1 max-h-28 overflow-y-auto border rounded-lg divide-y">
+                              {resultadosManual.map(p => (
+                                <button key={p.id} type="button"
+                                  onClick={() => { setRevisionFoto(prev => prev!.map((x, i) => i === idx ? { ...x, elegidoId: p.id } : x)); setBusquedaManual(prev => ({ ...prev, [idx]: "" })); }}
+                                  className="w-full text-left px-2 py-1.5 text-[11px] hover:bg-emerald-50 flex justify-between gap-2">
+                                  <span className="truncate">#{p.numero} {p.nombre}</span>
+                                  <span className="text-muted-foreground shrink-0">Sist: {p.stock}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
