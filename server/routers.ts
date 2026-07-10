@@ -1063,6 +1063,64 @@ const inventarioRouter = router({
       };
     }),
 
+  // Extraer cantidades contadas desde una FOTO de la hoja de conteo físico y
+  // emparejarlas contra los productos de la sesión en pantalla (letra manuscrita).
+  extraerConteoFoto: protectedProcedure
+    .input(z.object({
+      fileBase64: z.string().max(12_000_000),
+      mimeType: z.string(),
+      productos: z.array(z.object({ id: z.number(), nombre: z.string(), codigo: z.string().optional() })),
+    }))
+    .mutation(async ({ input }) => {
+      const isImage = input.mimeType.startsWith("image/");
+      if (!isImage) return { error: "Sube una foto (imagen) de la hoja de conteo." };
+      const dataUrl = `data:${input.mimeType};base64,${input.fileBase64}`;
+      let leidos: { nombre: string; cantidad: number }[] = [];
+      try {
+        const llmResult = await invokeLLM({
+          messages: [
+            { role: "system", content: "Eres experto en leer hojas de conteo de inventario de farmacia, incluida letra manuscrita. Respondes SOLO JSON válido." },
+            { role: "user", content: [
+              { type: "text", text: `Esta foto es una hoja de conteo físico de inventario. Cada fila tiene el NOMBRE de un producto y la CANTIDAD FÍSICA contada (escrita a mano o impresa).
+Extrae SOLO las filas que tengan una cantidad anotada. Devuelve JSON:
+{"items":[{"nombre":"nombre del producto tal como se lee","cantidad": numero_entero}]}
+- Lee la cantidad manuscrita con el mayor cuidado (puede estar en una columna "Físico" o al lado del nombre).
+- Si una fila no tiene cantidad escrita, OMÍTELA.
+- Responde SOLO el JSON.` },
+              { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+            ] },
+          ],
+          temperature: 0,
+        });
+        const txt = (llmResult?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(txt);
+        leidos = Array.isArray(parsed?.items) ? parsed.items.filter((i: any) => i?.nombre && i?.cantidad != null) : [];
+      } catch (e: any) {
+        return { error: "No se pudo leer la foto. Asegúrate de que se vean bien los nombres y las cantidades." };
+      }
+      if (leidos.length === 0) return { error: "No se encontraron cantidades en la foto." };
+
+      // Emparejar cada lectura contra los productos de la sesión (motor difuso)
+      const { mejoresCandidatos } = await import("./domain/emparejar");
+      const catalogo = input.productos.map((p) => p.nombre);
+      const resultados = leidos.map((l) => {
+        const cands = mejoresCandidatos(l.nombre, catalogo, 3);
+        const mejor = cands[0];
+        const prodMejor = mejor ? input.productos.find((p) => p.nombre === mejor.nombre) : null;
+        return {
+          textoLeido: l.nombre,
+          cantidad: Math.round(Number(l.cantidad)),
+          sugerido: mejor && mejor.confianza !== "baja" && prodMejor ? { id: prodMejor.id, nombre: prodMejor.nombre, confianza: mejor.confianza } : null,
+          candidatos: cands.map((c) => {
+            const pr = input.productos.find((p) => p.nombre === c.nombre);
+            return pr ? { id: pr.id, nombre: pr.nombre, confianza: c.confianza } : null;
+          }).filter(Boolean),
+        };
+      });
+      const emparejados = resultados.filter((r) => r.sugerido).length;
+      return { ok: true, total: resultados.length, emparejados, resultados };
+    }),
+
   // Crear una nueva sesión de inventario
   crearSesion: protectedProcedure
     .input(z.object({

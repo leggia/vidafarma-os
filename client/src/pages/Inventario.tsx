@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   ClipboardCheck, Search, Loader2, Check, AlertTriangle,
   Package, TrendingUp, Filter, Save, RotateCcw, ChevronRight,
-  Plus, FolderOpen, Building2, CheckCircle2, Clock, Printer,
+  Plus, FolderOpen, Building2, CheckCircle2, Clock, Printer, Camera, X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,6 +50,58 @@ export default function Inventario() {
   const [ajustarStock, setAjustarStock] = useState(true);
   // Conteo puntual: caché de productos + búsqueda en vivo multi-palabra
   const [busquedaPuntual, setBusquedaPuntual] = useState("");
+  const fotoConteoRef = useRef<HTMLInputElement>(null);
+  const [procesandoFoto, setProcesandoFoto] = useState(false);
+  const [revisionFoto, setRevisionFoto] = useState<any[] | null>(null);
+  const extraerConteoFoto = trpc.inventario.extraerConteoFoto.useMutation();
+
+  // Comprimir y enviar la foto de la hoja de conteo; abrir modal de revisión
+  const procesarFotoConteo = (file: File) => {
+    const img = new Image();
+    img.onload = async () => {
+      const MAX = 1600; // hojas de conteo: más resolución para leer números
+      let { width, height } = img;
+      if (width > MAX || height > MAX) { const e = MAX / Math.max(width, height); width = Math.round(width*e); height = Math.round(height*e); }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+      const b64 = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
+      URL.revokeObjectURL(img.src);
+      setProcesandoFoto(true);
+      try {
+        const r: any = await extraerConteoFoto.mutateAsync({
+          fileBase64: b64, mimeType: "image/jpeg",
+          productos: items.map(i => ({ id: i.id, nombre: i.nombre, codigo: i.codigo })),
+        });
+        if (r?.error) { toast.error(r.error, { duration: 7000 }); return; }
+        setRevisionFoto(r.resultados);
+        toast.success(`${r.total} cantidades leídas · ${r.emparejados} emparejadas`);
+      } catch (e: any) {
+        toast.error(e?.message || "Error procesando la foto");
+      } finally {
+        setProcesandoFoto(false);
+      }
+    };
+    img.src = URL.createObjectURL(file);
+  };
+
+  // Aplicar las cantidades revisadas a la lista de conteo
+  const aplicarConteoFoto = () => {
+    if (!revisionFoto) return;
+    let aplicados = 0;
+    setItems(prev => {
+      const copia = [...prev];
+      for (const r of revisionFoto) {
+        const destino = r.elegidoId ?? r.sugerido?.id;
+        if (destino == null) continue;
+        const idx = copia.findIndex(it => it.id === destino);
+        if (idx >= 0) { copia[idx] = { ...copia[idx], fisico: r.cantidad }; aplicados++; }
+      }
+      return copia;
+    });
+    toast.success(`${aplicados} cantidad(es) cargada(s) al conteo`);
+    setRevisionFoto(null);
+  };
   const [cacheProductos, setCacheProductos] = useState<any[]>([]);
   const [cargandoCache, setCargandoCache] = useState(false);
 
@@ -635,6 +687,10 @@ export default function Inventario() {
               <button onClick={() => setSoloDiferencias(!soloDiferencias)} className={`text-[11px] px-2.5 py-1 rounded font-medium flex items-center gap-1 ${soloDiferencias ? "bg-red-600 text-white" : "bg-muted text-muted-foreground"}`}>
                 <Filter className="h-3 w-3" /> Dif.
               </button>
+              <button onClick={() => fotoConteoRef.current?.click()} disabled={procesandoFoto}
+                className="text-[11px] px-2.5 py-1 rounded font-bold flex items-center gap-1 bg-emerald-600 text-white disabled:opacity-50">
+                {procesandoFoto ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />} Foto conteo
+              </button>
             </div>
             )}
           </div>
@@ -710,6 +766,60 @@ export default function Inventario() {
               );
             })}
           </div>
+
+          {/* Input de foto oculto (cámara o galería del celular) */}
+          <input ref={fotoConteoRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) procesarFotoConteo(f); e.target.value = ""; }} />
+
+          {/* Modal de revisión del conteo leído por foto */}
+          {revisionFoto && (
+            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => setRevisionFoto(null)}>
+              <div className="bg-white dark:bg-card rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-4 border-b">
+                  <div>
+                    <h3 className="font-black">Revisar conteo de la foto</h3>
+                    <p className="text-[11px] text-muted-foreground">Verifica el producto y la cantidad antes de cargar. Corrige lo que haga falta.</p>
+                  </div>
+                  <button onClick={() => setRevisionFoto(null)} className="p-1"><X className="h-5 w-5" /></button>
+                </div>
+                <div className="overflow-y-auto p-3 space-y-2 flex-1">
+                  {revisionFoto.map((r: any, idx: number) => {
+                    const destino = r.elegidoId ?? r.sugerido?.id ?? null;
+                    return (
+                      <div key={idx} className={`rounded-lg border p-2.5 ${destino ? "border-green-300 bg-green-50/40 dark:bg-green-950/10" : "border-red-300 bg-red-50/40 dark:bg-red-950/10"}`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[10px] text-muted-foreground shrink-0">Leído:</span>
+                          <span className="text-xs font-medium flex-1 truncate">"{r.textoLeido}"</span>
+                          <span className="text-[10px] text-muted-foreground shrink-0">Cant:</span>
+                          <input type="number" inputMode="numeric" value={r.cantidad}
+                            onChange={(e) => setRevisionFoto(prev => prev!.map((x, i) => i === idx ? { ...x, cantidad: parseInt(e.target.value) || 0 } : x))}
+                            className="w-16 h-8 text-center text-sm font-bold border rounded-lg bg-white dark:bg-background" />
+                        </div>
+                        {r.candidatos && r.candidatos.length > 0 ? (
+                          <select value={destino ?? ""}
+                            onChange={(e) => setRevisionFoto(prev => prev!.map((x, i) => i === idx ? { ...x, elegidoId: e.target.value ? parseInt(e.target.value) : null } : x))}
+                            className="w-full h-8 text-xs border rounded-lg px-2 bg-white dark:bg-background">
+                            <option value="">— no cargar esta fila —</option>
+                            {r.candidatos.map((c: any) => (
+                              <option key={c.id} value={c.id}>{c.confianza === "alta" ? "✓ " : "≈ "}{c.nombre}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-[11px] text-red-600 font-bold">✗ Sin coincidencia en la sesión — se ignorará</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="p-3 border-t flex gap-2">
+                  <button onClick={() => setRevisionFoto(null)} className="flex-1 h-11 rounded-xl bg-muted font-bold text-sm">Cancelar</button>
+                  <button onClick={aplicarConteoFoto} className="flex-[2] h-11 rounded-xl bg-emerald-600 text-white font-bold text-sm">
+                    Cargar cantidades al conteo
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {stats.conDiferencia > 0 && (
             <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg p-3 text-xs">
