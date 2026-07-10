@@ -7,6 +7,7 @@ import { esControlado } from "../domain/controlados";
 import { normTel } from "../domain/telefono";
 import { expandirBusqueda, principioDeMarca } from "../diccionario-principios";
 import { calcularDescuentosCascada } from "../domain/descuentos";
+import { mejoresCandidatos } from "../domain/emparejar";
 
 let pasan = 0, fallan = 0;
 function test(nombre: string, fn: () => void) {
@@ -75,6 +76,31 @@ test("cascada volumen 2% + efectivo 3% sobre 2000 = 1901.20", () => {
   const r = calcularDescuentosCascada(lineas, { pctVolumen: 2, pctEfectivo: 3 });
   assert.equal(r.subtotal, 2000);
   assert.equal(r.totalFinal, 1901.2);
+});
+
+// ─── 5. EMPAREJADO DIFUSO: listas de transferencia manuscritas ───
+console.log("\nEmparejado difuso (transferencias manuscritas):");
+const CATALOGO = [
+  "PARACETAMOL 500MG X100 GENFAR", "AMOXICILINA 500MG X50 CAPSULAS",
+  "AMOXICILINA 250MG SUSPENSION", "IBUPROFENO 400MG X50", "OMEPRAZOL 20MG X30 CAPSULAS",
+];
+test("error de ortografía: 'parasetamol 500' → PARACETAMOL 500MG (alta)", () => {
+  const r = mejoresCandidatos("parasetamol 500", CATALOGO);
+  assert.equal(r[0]?.nombre, "PARACETAMOL 500MG X100 GENFAR");
+  assert.equal(r[0]?.confianza, "alta");
+});
+test("abreviación + dosis: 'Amoxi 500' elige la de 500MG, no la de 250", () => {
+  const r = mejoresCandidatos("Amoxi 500", CATALOGO);
+  assert.equal(r[0]?.nombre, "AMOXICILINA 500MG X50 CAPSULAS");
+});
+test("'omeprasol' (s por z) → OMEPRAZOL (alta)", () => {
+  const r = mejoresCandidatos("omeprasol", CATALOGO);
+  assert.equal(r[0]?.nombre, "OMEPRAZOL 20MG X30 CAPSULAS");
+  assert.equal(r[0]?.confianza, "alta");
+});
+test("producto inexistente → sin candidatos (no inventa)", () => {
+  const r = mejoresCandidatos("crema dental blanqueadora xyz", CATALOGO);
+  assert.equal(r.length, 0);
 });
 
 // ─── Resultado ───

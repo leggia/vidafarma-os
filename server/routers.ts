@@ -686,6 +686,36 @@ INSTRUCCIONES IMPORTANTES:
       };
     }),
 
+  // Emparejar los nombres extraídos de la lista MANUSCRITA contra el catálogo real.
+  // Resuelve el problema de la letra variable de cada trabajadora: la visión
+  // transcribe con errores y este endpoint devuelve, por ítem, los candidatos del
+  // catálogo con su confianza, para confirmar con un toque.
+  emparejar: protectedProcedure
+    .input(z.object({
+      items: z.array(z.object({ productName: z.string().max(500), quantity: z.number() })).max(60),
+    }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const dbx = await getDb();
+      if (!dbx) throw new Error("Sin BD");
+      const r: any = await dbx.execute(sql.raw(`SELECT nombre FROM productos_cache WHERE precioUno >= 0`));
+      const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
+      const catalogo: string[] = (Array.isArray(filas) ? filas : []).map((f: any) => String(f.nombre));
+      const { mejoresCandidatos } = await import("./domain/emparejar");
+      return {
+        items: input.items.map((it) => {
+          const candidatos = mejoresCandidatos(it.productName, catalogo, 3);
+          return {
+            textoLeido: it.productName,
+            quantity: it.quantity,
+            candidatos, // [{nombre, puntaje, confianza}]
+            sugerido: candidatos[0]?.confianza !== "baja" ? candidatos[0]?.nombre ?? null : null,
+          };
+        }),
+      };
+    }),
+
   create: protectedProcedure
     .input(
       z.object({

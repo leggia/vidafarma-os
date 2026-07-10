@@ -1518,6 +1518,7 @@ class Inventarios365Service {
       }
 
       const arrayDetalle = [];
+      const omitidos: string[] = [];
       for (const item of params.items) {
         const articulo = await this.buscarArticulo(item.nombre);
         if (articulo) {
@@ -1526,13 +1527,15 @@ class Inventarios365Service {
             articulo: articulo.nombre,
             cantidad: item.cantidad,
           });
+        } else {
+          omitidos.push(item.nombre);
         }
       }
 
       if (arrayDetalle.length === 0) {
         return {
           success: false,
-          message: "No se encontraron artículos para transferir",
+          message: `No se encontró NINGÚN artículo en 365. Revisa los nombres: ${omitidos.join(", ")}`,
         };
       }
 
@@ -1550,7 +1553,9 @@ class Inventarios365Service {
 
       return {
         success: true,
-        message: "Transferencia registrada exitosamente en inventarios365.com",
+        message: omitidos.length === 0
+          ? `Transferencia registrada en 365 (${arrayDetalle.length} productos).`
+          : `Transferencia registrada en 365 con ${arrayDetalle.length} productos. ⚠ OMITIDOS (no encontrados en 365): ${omitidos.join(", ")} — transfiérelos manualmente o corrige el nombre.`,
       };
     } catch (error: any) {
       console.error(

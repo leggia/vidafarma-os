@@ -28,6 +28,9 @@ import { toast } from "sonner";
 
 interface ExtractedItem {
   productName: string;
+  textoLeido?: string;
+  candidatos?: { nombre: string; puntaje: number; confianza: string }[];
+  confianza?: string;
   quantity: number;
 }
 
@@ -49,6 +52,51 @@ export default function NuevaTransferencia() {
 
   const utils = trpc.useUtils();
   const uploadAndExtract = trpc.transfers.uploadAndExtract.useMutation();
+  const emparejar = trpc.transfers.emparejar.useMutation();
+  const [buscandoFila, setBuscandoFila] = useState<number | null>(null);
+
+  // Empareja una lista de items leídos contra el catálogo real y devuelve
+  // items con el nombre sugerido aplicado + candidatos para corregir a un toque.
+  const emparejarItems = async (leidos: { productName: string; quantity: number }[]) => {
+    try {
+      const r = await emparejar.mutateAsync({ items: leidos.map(i => ({ productName: i.productName, quantity: i.quantity })) });
+      return r.items.map((it: any) => ({
+        productName: it.sugerido || it.textoLeido,
+        quantity: it.quantity,
+        textoLeido: it.textoLeido,
+        candidatos: it.candidatos,
+        confianza: it.sugerido ? it.candidatos?.[0]?.confianza : "sin_match",
+      }));
+    } catch {
+      return leidos; // si falla el emparejado, seguimos con lo leído crudo
+    }
+  };
+
+  // Buscar en el catálogo lo escrito en UNA fila (para listas armadas a mano en la app)
+  const buscarEnCatalogo = async (idx: number) => {
+    const texto = items[idx]?.productName?.trim();
+    if (!texto || texto.length < 3) { toast.error("Escribe al menos 3 letras"); return; }
+    setBuscandoFila(idx);
+    try {
+      const r = await emparejar.mutateAsync({ items: [{ productName: texto, quantity: items[idx].quantity || 1 }] });
+      const it: any = r.items[0];
+      setItems(prev => prev.map((p, i) => i === idx ? {
+        ...p,
+        textoLeido: texto,
+        candidatos: it.candidatos,
+        confianza: it.sugerido ? it.candidatos?.[0]?.confianza : "sin_match",
+        productName: it.sugerido || p.productName,
+      } : p));
+      if (!it.candidatos?.length) toast.error("Sin coincidencias en el catálogo — revisa el nombre");
+    } finally {
+      setBuscandoFila(null);
+    }
+  };
+
+  // Elegir un candidato para una fila (corrige a un toque)
+  const elegirCandidato = (idx: number, nombre: string) => {
+    setItems(prev => prev.map((p, i) => i === idx ? { ...p, productName: nombre, confianza: "elegido", candidatos: undefined } : p));
+  };
   const createTransfer = trpc.transfers.create.useMutation();
 
   const handleFileSelect = useCallback(
@@ -89,10 +137,12 @@ export default function NuevaTransferencia() {
           mimeType: file.type,
         });
         if (result.items && result.items.length > 0) {
-          setItems(result.items);
+          const emparejados = await emparejarItems(result.items);
+          setItems(emparejados);
           setExtracted(true);
+          const conMatch = emparejados.filter((i: any) => i.confianza && i.confianza !== "sin_match").length;
           toast.success(
-            `Se extrajeron ${result.items.length} productos de la imagen`
+            `${result.items.length} productos leídos · ${conMatch} emparejados con el catálogo`
           );
         } else {
           toast.error("No se pudieron extraer productos de la imagen");
@@ -358,14 +408,50 @@ export default function NuevaTransferencia() {
                       className="grid grid-cols-12 gap-2 items-center py-1"
                     >
                       <div className="col-span-8">
-                        <Input
-                          value={item.productName}
-                          onChange={(e) =>
-                            updateItem(idx, "productName", e.target.value)
-                          }
-                          className="text-sm h-9"
-                          placeholder="Nombre del medicamento"
-                        />
+                        <div className="flex gap-1.5 items-center">
+                          <Input
+                            value={item.productName}
+                            onChange={(e) =>
+                              updateItem(idx, "productName", e.target.value)
+                            }
+                            className="text-sm h-9"
+                            placeholder="Nombre del medicamento"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => buscarEnCatalogo(idx)}
+                            disabled={buscandoFila === idx}
+                            title="Buscar en el catálogo"
+                            className="shrink-0 h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm disabled:opacity-50"
+                          >
+                            {buscandoFila === idx ? "…" : "🔍"}
+                          </button>
+                        </div>
+                        {item.confianza && (
+                          <div className="mt-1 space-y-1">
+                            <p className="text-[10px] text-muted-foreground">
+                              {item.textoLeido && item.textoLeido !== item.productName && <>Leído: "{item.textoLeido}" · </>}
+                              {item.confianza === "alta" && <span className="text-emerald-700 font-bold">✓ coincidencia alta</span>}
+                              {item.confianza === "media" && <span className="text-amber-700 font-bold">≈ coincidencia media — revisa</span>}
+                              {item.confianza === "elegido" && <span className="text-emerald-700 font-bold">✓ elegido del catálogo</span>}
+                              {item.confianza === "sin_match" && <span className="text-red-600 font-bold">✗ no está en el catálogo — corrige o busca 🔍</span>}
+                            </p>
+                            {item.candidatos && item.candidatos.length > 0 && item.confianza !== "elegido" && (
+                              <div className="flex flex-wrap gap-1">
+                                {item.candidatos.map((c, ci) => (
+                                  <button
+                                    key={ci}
+                                    type="button"
+                                    onClick={() => elegirCandidato(idx, c.nombre)}
+                                    className={`text-[10px] px-2 py-1 rounded-full border font-bold active:scale-95 ${c.nombre === item.productName ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-gray-700 border-gray-300"}`}
+                                  >
+                                    {c.nombre.length > 34 ? c.nombre.slice(0, 34) + "…" : c.nombre}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="col-span-3">
                         <Input
