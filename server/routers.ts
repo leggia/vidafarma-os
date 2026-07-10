@@ -2060,6 +2060,14 @@ const creditosRouter = router({
       const { creditos } = await import("./finanzas-personal");
       return creditos.crear(input);
     }),
+  editar: protectedProcedure
+    .input(z.object({ id: z.number(), banco: z.string().max(120).optional(), descripcion: z.string().max(250).optional(), montoTotal: z.number().optional(), cuotaMensual: z.number().optional(), plazoMeses: z.number().optional(), tasaAnual: z.number().optional(), fechaInicio: z.string().max(12).optional(), diaPago: z.number().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { creditos } = await import("./finanzas-personal");
+      const { id, ...campos } = input;
+      return creditos.editar(id, campos);
+    }),
   registrarPago: protectedProcedure
     .input(z.object({ creditoId: z.number(), monto: z.number(), fecha: z.string().max(12), nota: z.string().max(250).optional() }))
     .mutation(async ({ input, ctx }) => {

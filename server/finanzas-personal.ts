@@ -69,6 +69,7 @@ export const creditos = {
     for (const p of pagos) pagosMap[num(p.creditoId)] = { pagado: num(p.pagado), numPagos: num(p.numPagos) };
 
     let deudaTotal = 0, cuotaMensualTotal = 0, activos = 0;
+    const hoy = new Date();
     const enriquecidos = lista.map((c: any) => {
       const pg = pagosMap[num(c.id)] || { pagado: 0, numPagos: 0 };
       const totalAPagar = num(c.cuotaMensual) * num(c.plazoMeses) || num(c.montoTotal);
@@ -77,15 +78,65 @@ export const creditos = {
       const cuotasRestantes = Math.max(0, num(c.plazoMeses) - cuotasPagadas);
       const estaActivo = c.estado === "activo" && saldo > 0.5;
       if (estaActivo) { deudaTotal += saldo; cuotaMensualTotal += num(c.cuotaMensual); activos++; }
+
+      // Costo total del crédito (cuánto de más se paga sobre el monto prestado)
+      const costoFinanciero = Math.max(0, totalAPagar - num(c.montoTotal));
+      const pctCostoSobreMonto = num(c.montoTotal) > 0 ? Math.round((costoFinanciero / num(c.montoTotal)) * 1000) / 10 : null;
+
+      // % de TIEMPO transcurrido desde el inicio, sobre el plazo total (independiente
+      // de si se pagó al día) — para comparar avance de tiempo vs avance de pago real.
+      let pctTiempoTranscurrido: number | null = null;
+      let mesesTranscurridos: number | null = null;
+      if (c.fechaInicio) {
+        const inicio = new Date(c.fechaInicio);
+        mesesTranscurridos = Math.max(0, (hoy.getFullYear() - inicio.getFullYear()) * 12 + (hoy.getMonth() - inicio.getMonth()));
+        pctTiempoTranscurrido = num(c.plazoMeses) > 0 ? Math.min(100, Math.round((mesesTranscurridos / num(c.plazoMeses)) * 100)) : null;
+      }
+      const pctPagado = totalAPagar > 0 ? Math.round((pg.pagado / totalAPagar) * 100) : 0;
+      // ¿Va al día, adelantado o atrasado respecto al tiempo transcurrido?
+      let situacionPago: string | null = null;
+      if (pctTiempoTranscurrido != null && estaActivo) {
+        const diff = pctPagado - pctTiempoTranscurrido;
+        situacionPago = diff >= 5 ? "adelantado" : diff <= -5 ? "atrasado" : "al_dia";
+      }
+
       return {
         ...c,
         montoTotal: num(c.montoTotal), cuotaMensual: num(c.cuotaMensual), tasaAnual: num(c.tasaAnual),
         totalAPagar, pagado: pg.pagado, saldo, cuotasPagadas, cuotasRestantes,
-        pctPagado: totalAPagar > 0 ? Math.round((pg.pagado / totalAPagar) * 100) : 0,
-        estado: saldo <= 0.5 ? "pagado" : c.estado,
+        pctPagado, estado: saldo <= 0.5 ? "pagado" : c.estado,
+        costoFinanciero: Math.round(costoFinanciero * 100) / 100, pctCostoSobreMonto,
+        mesesTranscurridos, pctTiempoTranscurrido, situacionPago,
       };
     });
+
+    // Ranking de conveniencia: por tasa anual si todos la tienen, si no por el
+    // costo financiero relativo (% de más que se paga sobre lo prestado).
+    const activosConCosto = enriquecidos.filter((c: any) => c.estado !== "pagado" && c.pctCostoSobreMonto != null);
+    const ordenPorCosto = [...activosConCosto].sort((a: any, b: any) => a.pctCostoSobreMonto - b.pctCostoSobreMonto);
+    const masBeneficioso = ordenPorCosto[0]?.id ?? null;
+    const masCaro = ordenPorCosto.length > 1 ? ordenPorCosto[ordenPorCosto.length - 1]?.id ?? null : null;
+    for (const c of enriquecidos as any[]) {
+      c.esMasBeneficioso = c.id === masBeneficioso && ordenPorCosto.length > 1;
+      c.esMasCaro = c.id === masCaro;
+    }
+
     return { creditos: enriquecidos, resumen: { deudaTotal: Math.round(deudaTotal * 100) / 100, cuotaMensualTotal: Math.round(cuotaMensualTotal * 100) / 100, activos } };
+  },
+
+  async editar(id: number, d: { banco?: string; descripcion?: string; montoTotal?: number; cuotaMensual?: number; plazoMeses?: number; tasaAnual?: number; fechaInicio?: string; diaPago?: number }) {
+    await asegurarTablas();
+    const db = await getDb();
+    if (!db) throw new Error("Sin BD");
+    if (d.banco != null) await db.execute(sql`UPDATE creditos_farmacia SET banco = ${d.banco.slice(0, 120)} WHERE id = ${num(id)}`);
+    if (d.descripcion != null) await db.execute(sql`UPDATE creditos_farmacia SET descripcion = ${d.descripcion.slice(0, 250)} WHERE id = ${num(id)}`);
+    if (d.montoTotal != null) await db.execute(sql`UPDATE creditos_farmacia SET montoTotal = ${num(d.montoTotal)} WHERE id = ${num(id)}`);
+    if (d.cuotaMensual != null) await db.execute(sql`UPDATE creditos_farmacia SET cuotaMensual = ${num(d.cuotaMensual)} WHERE id = ${num(id)}`);
+    if (d.plazoMeses != null) await db.execute(sql`UPDATE creditos_farmacia SET plazoMeses = ${num(d.plazoMeses)} WHERE id = ${num(id)}`);
+    if (d.tasaAnual != null) await db.execute(sql`UPDATE creditos_farmacia SET tasaAnual = ${num(d.tasaAnual)} WHERE id = ${num(id)}`);
+    if (d.fechaInicio != null) await db.execute(sql`UPDATE creditos_farmacia SET fechaInicio = ${d.fechaInicio} WHERE id = ${num(id)}`);
+    if (d.diaPago != null) await db.execute(sql`UPDATE creditos_farmacia SET diaPago = ${num(d.diaPago)} WHERE id = ${num(id)}`);
+    return { ok: true };
   },
 
   async crear(d: { banco: string; descripcion?: string; montoTotal: number; cuotaMensual: number; plazoMeses: number; tasaAnual?: number; fechaInicio?: string; diaPago?: number }) {
