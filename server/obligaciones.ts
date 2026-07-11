@@ -113,6 +113,9 @@ export async function pagarObligacion(d: { tipo: "credito" | "gasto"; refId: num
   if (!db) throw new Error("Sin BD");
   const hoyStr = new Date().toISOString().slice(0, 10);
   if (d.tipo === "credito") {
+    // Misma protección que /creditos: una cuota por mes, sin duplicados
+    const ya = rows(await db.execute(sql`SELECT id, monto, fecha FROM creditos_pagos WHERE creditoId = ${num(d.refId)} AND DATE_FORMAT(fecha, '%Y-%m') = ${d.anioMes} LIMIT 1`));
+    if (ya.length > 0) throw new Error(`La cuota de este mes ya está registrada (Bs ${num(ya[0].monto)} el ${String(ya[0].fecha).slice(0, 10)}). Edítala en /creditos si hubo un detalle.`);
     await db.execute(sql`INSERT INTO creditos_pagos (creditoId, monto, fecha, nota) VALUES (${num(d.refId)}, ${num(d.monto)}, ${hoyStr}, ${"Pagado desde Obligaciones"})`);
     return { ok: true, mensaje: "Pago de cuota registrado" };
   }

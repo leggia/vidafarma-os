@@ -67,6 +67,14 @@ export const creditos = {
     const pagos = rows(await db.execute(sql.raw(`SELECT creditoId, COALESCE(SUM(monto),0) AS pagado, COUNT(*) AS numPagos FROM creditos_pagos GROUP BY creditoId`)));
     const pagosMap: Record<number, { pagado: number; numPagos: number }> = {};
     for (const p of pagos) pagosMap[num(p.creditoId)] = { pagado: num(p.pagado), numPagos: num(p.numPagos) };
+    // Pago de la cuota del MES EN CURSO (para mostrar "cancelado" y bloquear doble pago)
+    const amActual = new Date().toISOString().slice(0, 7);
+    const pagosMesActual = rows(await db.execute(sql`
+      SELECT id, creditoId, monto, fecha, nota FROM creditos_pagos
+      WHERE DATE_FORMAT(fecha, '%Y-%m') = ${amActual} ORDER BY fecha DESC, id DESC
+    `));
+    const pagoMesMap = new Map<number, any>();
+    for (const p of pagosMesActual) if (!pagoMesMap.has(num(p.creditoId))) pagoMesMap.set(num(p.creditoId), { id: num(p.id), monto: num(p.monto), fecha: String(p.fecha).slice(0, 10), nota: p.nota || "" });
 
     let deudaTotal = 0, cuotaMensualTotal = 0, activos = 0;
     const hoy = new Date();
@@ -107,6 +115,7 @@ export const creditos = {
         pctPagado, estado: saldo <= 0.5 ? "pagado" : c.estado,
         costoFinanciero: Math.round(costoFinanciero * 100) / 100, pctCostoSobreMonto,
         mesesTranscurridos, pctTiempoTranscurrido, situacionPago,
+        pagoMesActual: pagoMesMap.get(num(c.id)) || null,
       };
     });
 
@@ -155,10 +164,32 @@ export const creditos = {
     await asegurarTablas();
     const db = await getDb();
     if (!db) throw new Error("Sin BD");
+    // Protección contra DOBLE PAGO: si ya hay un pago registrado en el mismo mes
+    // de la fecha indicada, no se permite otro — se debe EDITAR el existente
+    // (regla del negocio: una cuota por mes; corrige detalles, no dupliques).
+    const am = String(d.fecha).slice(0, 7);
+    const existente = rows(await db.execute(sql`
+      SELECT id, monto, fecha FROM creditos_pagos
+      WHERE creditoId = ${num(d.creditoId)} AND DATE_FORMAT(fecha, '%Y-%m') = ${am} LIMIT 1
+    `));
+    if (existente.length > 0) {
+      throw new Error(`La cuota de este mes ya está registrada como pagada (Bs ${num(existente[0].monto)} el ${String(existente[0].fecha).slice(0, 10)}). Si hubo un detalle, edita ese pago en vez de registrar otro.`);
+    }
     await db.execute(sql`
       INSERT INTO creditos_pagos (creditoId, monto, fecha, nota)
       VALUES (${num(d.creditoId)}, ${num(d.monto)}, ${d.fecha}, ${(d.nota || "").slice(0, 250)})
     `);
+    return { ok: true };
+  },
+
+  // Editar un pago ya registrado (corregir monto/fecha/nota — NO duplicar)
+  async editarPago(d: { pagoId: number; monto?: number; fecha?: string; nota?: string }) {
+    await asegurarTablas();
+    const db = await getDb();
+    if (!db) throw new Error("Sin BD");
+    if (d.monto != null) await db.execute(sql`UPDATE creditos_pagos SET monto = ${num(d.monto)} WHERE id = ${num(d.pagoId)}`);
+    if (d.fecha != null) await db.execute(sql`UPDATE creditos_pagos SET fecha = ${d.fecha} WHERE id = ${num(d.pagoId)}`);
+    if (d.nota != null) await db.execute(sql`UPDATE creditos_pagos SET nota = ${d.nota.slice(0, 250)} WHERE id = ${num(d.pagoId)}`);
     return { ok: true };
   },
 

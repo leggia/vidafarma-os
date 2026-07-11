@@ -19,6 +19,11 @@ export default function Creditos() {
   const [pagoDe, setPagoDe] = useState<number | null>(null);
   const [pagoForm, setPagoForm] = useState({ monto: "", fecha: new Date().toISOString().slice(0, 10), nota: "" });
   const [verPagos, setVerPagos] = useState<number | null>(null);
+  const [editPago, setEditPago] = useState<{ id: number; monto: string; fecha: string; nota: string } | null>(null);
+  const editarPago = trpc.creditos.editarPago.useMutation({
+    onSuccess: () => { toast.success("Pago actualizado"); utils.creditos.listar.invalidate(); setEditPago(null); },
+    onError: (e) => toast.error(e.message),
+  });
   const pagosDe = trpc.creditos.pagosDe.useQuery({ creditoId: verPagos ?? 0 }, { enabled: verPagos != null });
 
   const crear = trpc.creditos.crear.useMutation({
@@ -164,8 +169,18 @@ export default function Creditos() {
             )}
             {c.pctTiempoTranscurrido == null && <div className="mb-3" />}
 
+            {/* Cuota del mes: cancelada (sello verde + editar) o pendiente (botón pagar) */}
+            {c.estado !== "pagado" && c.pagoMesActual && (
+              <div className="mb-2 p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-300 flex items-center justify-between gap-2">
+                <p className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
+                  <Check className="w-4 h-4" /> Cuota del mes CANCELADA — {bs(c.pagoMesActual.monto)} el {c.pagoMesActual.fecha}
+                </p>
+                <button onClick={() => { setEditPago({ id: c.pagoMesActual.id, monto: String(c.pagoMesActual.monto), fecha: c.pagoMesActual.fecha, nota: c.pagoMesActual.nota || "" }); }}
+                  className="h-7 px-2.5 rounded-lg bg-white dark:bg-card border text-[11px] font-bold shrink-0">Editar pago</button>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
-              {c.estado !== "pagado" && (
+              {c.estado !== "pagado" && !c.pagoMesActual && (
                 <button onClick={() => setPagoDe(c.id)} className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold">Registrar pago</button>
               )}
               <button onClick={() => setVerPagos(verPagos === c.id ? null : c.id)} className="h-8 px-3 rounded-lg bg-muted text-xs font-bold">Ver pagos</button>
@@ -212,6 +227,28 @@ export default function Creditos() {
             <button onClick={enviarNuevo} disabled={crear.isPending || editar.isPending} className="w-full h-11 mt-3 rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-50">
               {editandoId != null ? "Guardar cambios" : "Guardar crédito"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal editar pago del mes (corregir detalle, sin duplicar) */}
+      {editPago && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditPago(null)}>
+          <div className="bg-white dark:bg-card rounded-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="font-black flex items-center gap-1.5"><Pencil className="w-4 h-4" /> Editar pago del mes</h3>
+              <button onClick={() => setEditPago(null)}><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-3">Corrige el monto, la fecha o la nota del pago ya registrado. No crea un pago nuevo.</p>
+            <div className="space-y-2">
+              <input type="number" value={editPago.monto} onChange={e => setEditPago(p => p ? { ...p, monto: e.target.value } : p)} className="w-full h-10 px-3 rounded-xl border text-sm" placeholder="Monto (Bs)" />
+              <input type="date" value={editPago.fecha} onChange={e => setEditPago(p => p ? { ...p, fecha: e.target.value } : p)} className="w-full h-10 px-3 rounded-xl border text-sm" />
+              <input value={editPago.nota} onChange={e => setEditPago(p => p ? { ...p, nota: e.target.value } : p)} className="w-full h-10 px-3 rounded-xl border text-sm" placeholder="Nota (opcional)" />
+            </div>
+            <button
+              onClick={() => { if (!editPago.monto || parseFloat(editPago.monto) <= 0) { toast.error("Monto inválido"); return; } editarPago.mutate({ pagoId: editPago.id, monto: parseFloat(editPago.monto), fecha: editPago.fecha, nota: editPago.nota || undefined }); }}
+              disabled={editarPago.isPending}
+              className="w-full h-11 mt-3 rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-50">Guardar cambios</button>
           </div>
         </div>
       )}

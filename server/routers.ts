@@ -2171,6 +2171,13 @@ const creditosRouter = router({
       const { creditos } = await import("./finanzas-personal");
       return creditos.registrarPago(input);
     }),
+  editarPago: protectedProcedure
+    .input(z.object({ pagoId: z.number(), monto: z.number().optional(), fecha: z.string().max(12).optional(), nota: z.string().max(250).optional() }))
+    .mutation(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { creditos } = await import("./finanzas-personal");
+      return creditos.editarPago(input);
+    }),
   pagosDe: protectedProcedure
     .input(z.object({ creditoId: z.number() }))
     .query(async ({ input, ctx }) => {
