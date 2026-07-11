@@ -46,6 +46,16 @@ export default function Inventario() {
   const [cargando, setCargando] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const [busquedaHistorial, setBusquedaHistorial] = useState("");
+  const [verProgreso, setVerProgreso] = useState(false);
+  const [todosProveedores, setTodosProveedores] = useState<any[] | null>(null);
+  // Cargar la lista completa de proveedores (una vez) para calcular los FALTANTES
+  const cargarTodosProveedores = useCallback(async () => {
+    if (todosProveedores) return;
+    try {
+      const provs = await utils.confirmaciones.listarProveedores.fetch({ filtro: "" });
+      setTodosProveedores(Array.isArray(provs) ? provs : []);
+    } catch { setTodosProveedores([]); }
+  }, [todosProveedores, utils]);
   const [filtroEstadoHistorial, setFiltroEstadoHistorial] = useState<"todos" | "completado" | "en_progreso">("todos");
   const [soloDiferencias, setSoloDiferencias] = useState(false);
   const [filtroClase, setFiltroClase] = useState<string | null>(null);
@@ -710,12 +720,61 @@ export default function Inventario() {
       ) : (
         <>
           <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-foreground/10 -mx-4 px-4 py-3 space-y-3">
+            {/* Panel de progreso del inventario (desplegable): hechos y faltantes */}
+            {verProgreso && (() => {
+              const hechos = sesionActiva?.proveedores || [];
+              const nombresHechos = new Set(hechos.map((p: any) => p.proveedorNombre));
+              const faltantes = (todosProveedores || []).filter((p: any) => !nombresHechos.has(p.nombre));
+              const completados = hechos.filter((p: any) => p.estado === "completado").length;
+              const total = sesionActiva?.totalProveedores || (hechos.length + faltantes.length);
+              const pct = total > 0 ? Math.round((completados / total) * 100) : 0;
+              return (
+                <div className="rounded-xl border bg-card p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black">Progreso del inventario: {completados}/{total} proveedores ({pct}%)</p>
+                    <button onClick={() => setVerProgreso(false)} className="text-xs text-muted-foreground">✕</button>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-600" style={{ width: `${pct}%` }} /></div>
+                  {hechos.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Hechos</p>
+                      <div className="flex flex-wrap gap-1">
+                        {hechos.map((p: any) => (
+                          <span key={p.id} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${p.estado === "completado" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"} ${p.proveedorNombre === proveedorActivo?.nombre ? "ring-2 ring-emerald-500" : ""}`}>
+                            {p.estado === "completado" ? "✓" : "🕐"} {p.proveedorNombre}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Faltan {todosProveedores == null ? "(cargando…)" : `(${faltantes.length})`}</p>
+                    <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+                      {faltantes.slice(0, 40).map((p: any) => (
+                        <button key={p.id ?? p.nombre} type="button"
+                          onClick={() => { setVerProgreso(false); cargarProductos(String(p.id ?? ""), p.nombre); }}
+                          className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-foreground/80 font-medium active:scale-95"
+                          title="Tocar para contar este proveedor ahora">
+                          {p.nombre}
+                        </button>
+                      ))}
+                      {faltantes.length > 40 && <span className="text-[10px] text-muted-foreground">y {faltantes.length - 40} más…</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
                 <Button variant="ghost" size="sm" onClick={() => { setVista("proveedores"); setProveedorActivo(null); setItems([]); }} className="gap-1 text-xs h-8 shrink-0">
                   <RotateCcw className="h-3 w-3" /> Volver
                 </Button>
                 <span className="text-sm font-bold truncate">{proveedorActivo?.nombre}</span>
+                <button onClick={() => { setVerProgreso(!verProgreso); cargarTodosProveedores(); }}
+                  className="shrink-0 text-[10px] font-black px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                  title="Progreso del inventario: proveedores hechos y faltantes">
+                  📋 {(sesionActiva?.proveedores || []).filter((p: any) => p.estado === "completado").length}/{sesionActiva?.totalProveedores || "?"}
+                </button>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={imprimirHojaConteo} className="gap-1 h-8 text-xs" title="Imprimir hoja para conteo manual">

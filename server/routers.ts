@@ -1767,6 +1767,21 @@ const cacheRentabilidadSucursal = new Map<string, { data: any; expira: number }>
 const RENTABILIDAD_TTL = 10 * 60 * 1000;
 
 const ventasRouter = router({
+  // Resumen de UN mes (meses cerrados: del cache, al toque)
+  resumenMensual: protectedProcedure
+    .input(z.object({ anioMes: z.string().max(7), forzar: z.boolean().optional() }))
+    .query(async ({ input }) => {
+      const { resumenMensual } = await import("./resumen-mensual");
+      return resumenMensual(input.anioMes, input.forzar === true);
+    }),
+  // Serie histórica de N meses por sucursal (ágil: cache para cerrados)
+  resumenHistorico: protectedProcedure
+    .input(z.object({ meses: z.number().min(1).max(24).optional() }).optional())
+    .query(async ({ input }) => {
+      const { resumenHistorico } = await import("./resumen-mensual");
+      return resumenHistorico(input?.meses ?? 12);
+    }),
+
   // DIAGNÓSTICO del mes: cuántas ventas hay en la BD local, por sucursal y por
   // día, y cuántas quedaron sin detalle de productos — para detectar de un
   // vistazo si falta información del mes.
@@ -1833,6 +1848,8 @@ const ventasRouter = router({
     .mutation(async ({ input }) => {
       const { resincronizarMes } = await import("./sync-ventas");
       const r = await resincronizarMes(input.anioMes);
+      // El mes cambió: recalcular y guardar su resumen (cache al día)
+      try { const { resumenMensual } = await import("./resumen-mensual"); await resumenMensual(input.anioMes, true); } catch { /* no bloquea */ }
       return { ok: true, rescatadas: r.rescatadas, paginasRevisadas: r.paginas };
     }),
 
