@@ -1031,6 +1031,17 @@ const cacheRouter = router({
 });
 
 // ─── Inventario Router ───────────────────────────────────────────────────────
+// Migración idempotente centralizada para inventario_proveedores. IMPORTANTE:
+// se debe llamar al INICIO de CUALQUIER endpoint que lea o escriba esta tabla
+// (no solo el que la usó primero) — si no, un endpoint que corra antes de que
+// otro haya disparado el ALTER puede fallar con "Unknown column" y romper la
+// pantalla en blanco/"no hay inventario" para el usuario. (Lección real: pasó.)
+async function asegurarColumnasInventarioProveedores(db: any) {
+  const { sql: sqlRaw } = await import("drizzle-orm");
+  try { await db.execute(sqlRaw.raw("ALTER TABLE inventario_proveedores ADD COLUMN ajusteEstado VARCHAR(20)")); } catch { /* ya existe */ }
+  try { await db.execute(sqlRaw.raw("ALTER TABLE inventario_proveedores ADD COLUMN ajusteMensaje VARCHAR(500)")); } catch { /* ya existe */ }
+}
+
 const inventarioRouter = router({
   // Listar productos para conteo, por proveedor (vacío = todos)
   listar: protectedProcedure
@@ -1195,6 +1206,7 @@ Devuelve JSON:
     const { desc } = await import("drizzle-orm");
     const db = await getDb();
     if (!db) return [];
+    await asegurarColumnasInventarioProveedores(db);
     const sesiones = await db.select().from(inventarioSesiones).orderBy(desc(inventarioSesiones.creadoEn));
     if (sesiones.length === 0) return [];
 
@@ -1232,6 +1244,7 @@ Devuelve JSON:
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) return null;
+      await asegurarColumnasInventarioProveedores(db);
       const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, input.sesionId)))[0];
       if (!sesion) return null;
       const provs = await db.select().from(inventarioProveedores).where(eq(inventarioProveedores.sesionId, input.sesionId));
@@ -1261,12 +1274,9 @@ Devuelve JSON:
       const { getDb } = await import("./db");
       const { inventarioProveedores, inventarioSesiones } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
-      const { sql: sqlRaw } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new Error("Sin base de datos");
-      // Migración idempotente: columnas de estado del ajuste (contingencia real).
-      try { await db.execute(sqlRaw.raw("ALTER TABLE inventario_proveedores ADD COLUMN ajusteEstado VARCHAR(20)")); } catch { /* ya existe */ }
-      try { await db.execute(sqlRaw.raw("ALTER TABLE inventario_proveedores ADD COLUMN ajusteMensaje VARCHAR(500)")); } catch { /* ya existe */ }
+      await asegurarColumnasInventarioProveedores(db);
 
       const conDif = input.conteos.filter((c) => c.diferencia !== 0).length;
       const estado = input.completar ? "completado" : "en_progreso";
@@ -1356,6 +1366,7 @@ Devuelve JSON:
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new Error("Sin base de datos");
+      await asegurarColumnasInventarioProveedores(db);
 
       const reg = (await db.select().from(inventarioProveedores).where(eq(inventarioProveedores.id, input.registroId)))[0];
       if (!reg) throw new Error("No se encontró el registro del conteo.");

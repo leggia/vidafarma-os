@@ -156,7 +156,7 @@ export default function Inventario() {
     toast.success(`Agregado: ${prod.nombre}`);
   };
 
-  const { data: sesiones, isLoading: cargandoSesiones } = trpc.inventario.listarSesiones.useQuery(undefined, {
+  const { data: sesiones, isLoading: cargandoSesiones, error: errorSesiones } = trpc.inventario.listarSesiones.useQuery(undefined, {
     enabled: vista === "sesiones",
   });
   const crearSesion = trpc.inventario.crearSesion.useMutation();
@@ -431,6 +431,13 @@ export default function Inventario() {
 
         {cargandoSesiones ? (
           <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+        ) : errorSesiones ? (
+          <div className="text-center py-16 border border-dashed border-red-300 rounded-lg bg-red-50 dark:bg-red-950/10">
+            <AlertTriangle className="h-10 w-10 mx-auto text-red-500 mb-3" />
+            <p className="text-sm font-bold text-red-700">No se pudieron cargar tus inventarios</p>
+            <p className="text-xs text-red-600 mb-4">Esto NO significa que se hayan perdido — es un error al cargar la lista. Intenta de nuevo.</p>
+            <Button variant="outline" onClick={() => utils.inventario.listarSesiones.invalidate()} className="gap-2"><RotateCcw className="h-4 w-4" /> Reintentar</Button>
+          </div>
         ) : !sesiones || sesiones.length === 0 ? (
           <div className="text-center py-16 border border-dashed border-foreground/20 rounded-lg">
             <FolderOpen className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
