@@ -600,20 +600,45 @@ export default function Inventario() {
           </div>
         </div>
 
-        {/* Progreso global del inventario (sobre todos los proveedores del sistema) */}
+        {/* Progreso global del inventario (sobre todos los proveedores del sistema).
+            Clic en la barra → despliega discretamente los proveedores que FALTAN. */}
         {(() => {
           const totalProv = sesionActiva?.totalProveedores > 0 ? sesionActiva.totalProveedores : provsHechos.length;
           const completados = provsHechos.filter((p: any) => p.estado === "completado").length;
           const pct = totalProv > 0 ? Math.round((completados / totalProv) * 100) : 0;
+          const nombresHechos = new Set(provsHechos.map((p: any) => p.proveedorNombre));
+          const faltantes = (todosProveedores || []).filter((p: any) => !nombresHechos.has(p.nombre));
           return (
-            <div className="bg-muted/40 rounded-lg p-3 space-y-2">
+            <div className="bg-muted/40 rounded-lg p-3 space-y-2 cursor-pointer select-none"
+              onClick={() => { setVerProgreso(!verProgreso); cargarTodosProveedores(); }}
+              title="Tocar para ver los proveedores que faltan">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium">Progreso del inventario</span>
-                <span className="text-muted-foreground">{completados} de {totalProv} proveedores · <strong className="text-primary">{pct}%</strong></span>
+                <span className="text-muted-foreground">{completados} de {totalProv} proveedores · <strong className="text-primary">{pct}%</strong> {verProgreso ? "▲" : "▼"}</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
               </div>
+              {verProgreso && (
+                <div className="pt-1" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">
+                    Faltan {todosProveedores == null ? "(cargando…)" : `(${faltantes.length})`}
+                  </p>
+                  <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto">
+                    {faltantes.map((p: any) => (
+                      <button key={p.id ?? p.nombre} type="button"
+                        onClick={() => { setVerProgreso(false); cargarProductos(String(p.id ?? ""), p.nombre); }}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-background border text-foreground/80 font-medium active:scale-95"
+                        title="Tocar para contar este proveedor ahora">
+                        {p.nombre}
+                      </button>
+                    ))}
+                    {todosProveedores != null && faltantes.length === 0 && (
+                      <span className="text-[10px] text-emerald-700 font-bold">✓ Todos los proveedores están inventariados</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
