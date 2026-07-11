@@ -96,16 +96,20 @@ export default function Tareas() {
             o.estado === "alerta" ? "border-red-300 bg-red-50/50 dark:bg-red-950/10"
             : o.estado === "pagado" ? "border-emerald-200 bg-emerald-50/30 dark:bg-emerald-950/10 opacity-75"
             : "bg-white dark:bg-card"}`}>
-            <div className="flex items-center gap-3">
+            {/* Fila 1: icono + NOMBRE COMPLETO (hasta 2 líneas, todo el ancho) */}
+            <div className="flex items-start gap-3 mb-1.5">
               <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${o.tipo === "credito" ? "bg-sky-100 text-sky-700" : "bg-amber-100 text-amber-700"}`}>
                 {o.tipo === "credito" ? <Landmark className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-black truncate">{o.nombre}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{o.detalle} · vence el {o.diaLimite} de cada mes</p>
+                <p className="text-sm font-black leading-snug line-clamp-2">{o.nombre}</p>
+                <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">{o.detalle} · vence el {o.diaLimite} de cada mes</p>
               </div>
+            </div>
+            {/* Fila 2: monto + estado */}
+            <div className="flex items-center justify-between pl-12">
+              <p className="text-sm font-black">{bs(o.monto)}</p>
               <div className="text-right shrink-0">
-                <p className="text-sm font-black">{bs(o.monto)}</p>
                 {o.estado === "pagado" ? (
                   <p className="text-[10px] font-bold text-emerald-700 flex items-center gap-1 justify-end"><CheckCircle2 className="w-3 h-3" /> Pagado {o.fechaPago ? `el ${String(o.fechaPago).slice(8, 10)}` : ""}</p>
                 ) : o.estado === "alerta" ? (
