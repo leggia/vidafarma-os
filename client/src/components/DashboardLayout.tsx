@@ -56,7 +56,7 @@ const menuItems = [
   { icon: Landmark, label: "Créditos", path: "/creditos", soloAdmin: true },
   { icon: LineChart, label: "Flujo de Caja", path: "/flujo-caja", soloAdmin: true },
   { icon: Wallet2, label: "Personal", path: "/personal", soloAdmin: true },
-  { icon: ListTodo, label: "Tareas Pendientes", path: "/tareas", soloAdmin: true },
+  { icon: ListTodo, label: "Obligaciones", path: "/tareas", soloAdmin: true },
   { icon: History, label: "Historial", path: "/historial", soloAdmin: true },
 ];
 

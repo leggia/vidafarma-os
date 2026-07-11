@@ -2223,6 +2223,23 @@ const personalRouter = router({
     }),
 });
 
+const obligacionesRouter = router({
+  delMes: protectedProcedure
+    .input(z.object({ anioMes: z.string().max(7).optional() }).optional())
+    .query(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { obligacionesDelMes } = await import("./obligaciones");
+      return obligacionesDelMes(input?.anioMes);
+    }),
+  pagar: protectedProcedure
+    .input(z.object({ tipo: z.enum(["credito", "gasto"]), refId: z.number(), anioMes: z.string().max(7), monto: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { pagarObligacion } = await import("./obligaciones");
+      return pagarObligacion(input);
+    }),
+});
+
 const flujoCajaRouter = router({
   ver: protectedProcedure
     .input(z.object({ mesesHistoria: z.number().min(1).max(24).optional(), mesesProyectar: z.number().min(1).max(12).optional() }).optional())
@@ -3217,6 +3234,7 @@ export const appRouter = router({
   ventas: ventasRouter,
   gastos: gastosRouter,
   flujoCaja: flujoCajaRouter,
+  obligaciones: obligacionesRouter,
   fidelizacion: fidelizacionRouter,
   marketing: marketingRouter,
   creditos: creditosRouter,
