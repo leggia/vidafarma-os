@@ -201,8 +201,10 @@ export const accionesTools = {
     const almacen = resolverAlmacen(sucursal);
     if (!almacen) return { error: `No reconozco la sucursal "${sucursal}". Usa: Petrolera, Lanza, Cobol o Casa Matriz (Honduras/Central).` };
 
-    const { inventarios365 } = await import("./inventarios365");
-    const lista = await inventarios365.listarParaInventario(almacen.id, "");
+    // Stock FRESCO para proponer el cambio (TTL 60s, sin fallback: nunca proponer
+    // un ajuste con datos viejos). La extracción queda registrada en el snapshot.
+    const { obtenerStockAlmacen } = await import("./stock-cache");
+    const { lista } = await obtenerStockAlmacen(almacen.id, { ttlSeg: 60, fallbackCache: false });
     const palabras = nombreProducto.toLowerCase().trim().split(/\s+/).filter(Boolean);
     const matches = lista.filter((p: any) => {
       const texto = `${p.nombre} ${p.codigo || ""}`.toLowerCase();

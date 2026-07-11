@@ -385,7 +385,12 @@ export const asistenteTools = {
       let productoNombre = "";
 
       for (const al of almacenesConsultar) {
-        const lista = await inventarios365.listarParaInventario(al.id, "");
+        // Cache de stock: rápido si hay snapshot fresco; si 365 falla, responde del
+        // último snapshot con su antigüedad — el asistente nunca queda mudo.
+        const { obtenerStockAlmacen, textoAntiguedad } = await import("./stock-cache");
+        const r = await obtenerStockAlmacen(al.id, { ttlSeg: 180, fallbackCache: true });
+        const lista = r.lista;
+        const notaCache = r.desdeCache && (r.antiguedadSeg ?? 0) > 300 ? ` (dato de ${textoAntiguedad(r.antiguedadSeg)}, sin conexión fresca a 365)` : "";
         // Filtrar productos que coincidan con todas las palabras
         const matches = lista.filter((p: any) => {
           const texto = `${p.nombre} ${p.codigo || ""}`.toLowerCase();
@@ -395,7 +400,7 @@ export const asistenteTools = {
           // Si hay varios productos distintos que coinciden, tomar nota
           for (const m of matches.slice(0, 3)) {
             productoNombre = m.nombre;
-            resultadoPorAlmacen.push({ almacen: al.nombre, producto: m.nombre, stock: m.stock });
+            resultadoPorAlmacen.push({ almacen: al.nombre + notaCache, producto: m.nombre, stock: m.stock });
           }
         }
       }

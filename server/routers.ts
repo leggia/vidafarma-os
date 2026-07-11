@@ -1047,8 +1047,10 @@ const inventarioRouter = router({
   listar: protectedProcedure
     .input(z.object({ idAlmacen: z.number(), idProveedor: z.string().optional() }))
     .query(async ({ input }) => {
-      const { inventarios365 } = await import("./inventarios365");
-      const productos = await inventarios365.listarParaInventario(input.idAlmacen, input.idProveedor || "");
+      // En vivo obligatorio (el stock del sistema define las diferencias del
+      // conteo) — la extracción queda registrada en el snapshot local.
+      const { obtenerStockAlmacen } = await import("./stock-cache");
+      const { lista: productos } = await obtenerStockAlmacen(input.idAlmacen, { idProveedor: input.idProveedor || "", ttlSeg: 0, fallbackCache: false });
       // Criterio ABC: usar valor de stock (stock×costo) si hay costo; si no, usar cantidad de stock
       const hayCosto = productos.some((p) => p.costoUnit > 0);
       const criterio = (p: any) => hayCosto ? p.valorStock : p.stock;
@@ -1372,9 +1374,11 @@ Devuelve JSON:
       const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, reg.sesionId)))[0];
       if (!sesion) throw new Error("No se encontró la sesión de inventario.");
 
-      const { inventarios365 } = await import("./inventarios365");
-      // Verificar el stock ACTUAL de cada producto antes de reenviar nada.
-      const stockActualLista = await inventarios365.listarParaInventario(sesion.almacenId, "");
+      // Verificar el stock ACTUAL de cada producto antes de reenviar nada —
+      // SIEMPRE en vivo (nunca decidir un reintento con datos de cache). La
+      // extracción queda registrada en el snapshot local.
+      const { obtenerStockAlmacen: obtenerStockVivo } = await import("./stock-cache");
+      const { lista: stockActualLista } = await obtenerStockVivo(sesion.almacenId, { ttlSeg: 0, fallbackCache: false });
       const stockActualPorId = new Map(stockActualLista.map((p: any) => [p.id, Number(p.stock)]));
 
       const pendientes: typeof conDiferencia = [];
@@ -1390,6 +1394,7 @@ Devuelve JSON:
 
       let resultado: { ok: boolean; ajustados: number; mensaje: string } = { ok: true, ajustados: 0, mensaje: "Nada pendiente de reintentar." };
       if (pendientes.length > 0) {
+        const { inventarios365 } = await import("./inventarios365");
         resultado = await inventarios365.ajustarInventario({
           almacenId: sesion.almacenId,
           motivoId: 2,
