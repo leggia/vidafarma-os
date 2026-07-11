@@ -1762,6 +1762,76 @@ const cacheRentabilidadSucursal = new Map<string, { data: any; expira: number }>
 const RENTABILIDAD_TTL = 10 * 60 * 1000;
 
 const ventasRouter = router({
+  // DIAGNÓSTICO del mes: cuántas ventas hay en la BD local, por sucursal y por
+  // día, y cuántas quedaron sin detalle de productos — para detectar de un
+  // vistazo si falta información del mes.
+  diagnosticoMes: protectedProcedure
+    .input(z.object({ anioMes: z.string().max(7).optional() }).optional())
+    .query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { error: "Sin BD" };
+      const hoy = new Date();
+      const am = input?.anioMes || `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
+      const filas = (r: any) => { const x = Array.isArray(r) ? r[0] : r?.rows ?? r; return Array.isArray(x) ? x : []; };
+
+      const porSucursal = filas(await db.execute(sql`
+        SELECT nombreSucursal, COUNT(*) AS n, COALESCE(SUM(total),0) AS monto
+        FROM ventas WHERE DATE_FORMAT(fecha, '%Y-%m') = ${am}
+        GROUP BY nombreSucursal ORDER BY monto DESC
+      `));
+      const porDia = filas(await db.execute(sql`
+        SELECT fecha, COUNT(*) AS n, COALESCE(SUM(total),0) AS monto
+        FROM ventas WHERE DATE_FORMAT(fecha, '%Y-%m') = ${am}
+        GROUP BY fecha ORDER BY fecha
+      `));
+      const sinDetalle = filas(await db.execute(sql`
+        SELECT COUNT(*) AS n FROM ventas v
+        LEFT JOIN ventas_detalle d ON d.ventaId = v.id
+        WHERE DATE_FORMAT(v.fecha, '%Y-%m') = ${am} AND d.id IS NULL AND v.total > 0
+      `));
+      const totales = filas(await db.execute(sql`
+        SELECT COUNT(*) AS n, COALESCE(SUM(total),0) AS monto FROM ventas WHERE DATE_FORMAT(fecha, '%Y-%m') = ${am}
+      `));
+
+      // Días del mes transcurridos SIN ninguna venta registrada (sospechoso en una
+      // farmacia que abre a diario — probable hueco de sincronización)
+      const [anio, mes] = am.split("-").map(Number);
+      const ultimoDia = am === hoy.toISOString().slice(0, 7) ? hoy.getDate() : new Date(anio, mes, 0).getDate();
+      const diasConVenta = new Set(porDia.map((d: any) => String(d.fecha).slice(0, 10)));
+      const diasSinVenta: string[] = [];
+      for (let d = 1; d <= ultimoDia; d++) {
+        const f = `${am}-${String(d).padStart(2, "0")}`;
+        if (!diasConVenta.has(f)) diasSinVenta.push(f);
+      }
+
+      return {
+        anioMes: am,
+        totalVentas: Number(totales[0]?.n || 0),
+        montoTotal: Math.round(Number(totales[0]?.monto || 0) * 100) / 100,
+        porSucursal: porSucursal.map((s: any) => ({ sucursal: s.nombreSucursal || "Sin sucursal", ventas: Number(s.n), monto: Math.round(Number(s.monto) * 100) / 100 })),
+        ventasSinDetalle: Number(sinDetalle[0]?.n || 0),
+        diasSinVenta,
+      };
+    }),
+
+  // RESINCRONIZAR un mes: rescata de 365 toda venta del mes que falte en la BD
+  // local (cubre los huecos que dejó la lógica anterior) y repara detalles.
+  resincronizarMes: protectedProcedure
+    .input(z.object({ anioMes: z.string().max(7) }))
+    .mutation(async ({ input }) => {
+      const { resincronizarMes } = await import("./sync-ventas");
+      const r = await resincronizarMes(input.anioMes);
+      return { ok: true, rescatadas: r.rescatadas, paginasRevisadas: r.paginas };
+    }),
+
+  // Reparar ventas sin detalle de productos (lote manual más grande)
+  repararDetalles: protectedProcedure.mutation(async () => {
+    const { repararDetallesFaltantes } = await import("./sync-ventas");
+    return repararDetallesFaltantes(40);
+  }),
+
   // Botón: sincronizar ventas ahora (incremental, conservador)
   sincronizar: protectedProcedure.mutation(async () => {
     const { getDb } = await import("./db");

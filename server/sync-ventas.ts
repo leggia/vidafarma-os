@@ -100,29 +100,116 @@ export async function sincronizarVentasIncremental(maxPaginas = 60): Promise<{ n
     for (; page <= tope && !alcanzado; page++) {
       const { ventas: lista } = await inventarios365.listarVentasPagina(page);
       if (lista.length === 0) { alcanzado = true; break; } // ya no hay más: sin hueco
+      // FIX (ventas faltantes): antes se cortaba TODO al ver el primer id <=
+      // ultimoIdPrevio — pero el listado de 365 no garantiza orden estricto por id
+      // (4 sucursales, orden por fecha/hora): en la misma página podían venir
+      // ventas NUEVAS después de una vieja, y se perdían para siempre (el punto
+      // de avance ya había saltado por encima). Ahora se procesa la PÁGINA
+      // COMPLETA guardando todo lo que no exista, y se para recién cuando una
+      // página entera no aporta nada nuevo.
+      let nuevasEnPagina = 0;
       for (const v of lista) {
         const vid = Number(v.id);
-        // Si ya teníamos punto de partida, parar al alcanzar lo conocido (sin hueco)
-        if (!primeraVez && vid <= ultimoIdPrevio) { alcanzado = true; break; }
         const guardada = await guardarVenta(db, sql, v);
-        if (guardada) nuevas++;
+        if (guardada) nuevasEnPagina++;
         if (vid > maxIdVisto) maxIdVisto = vid;
       }
+      nuevas += nuevasEnPagina;
+      if (!primeraVez && nuevasEnPagina === 0) { alcanzado = true; break; }
       if (!alcanzado) await new Promise((r) => setTimeout(r, 80));
     }
-    // Si recorrimos todas las páginas permitidas SIN alcanzar el último ID conocido,
-    // significa que se acumularon demasiadas ventas y quedó un HUECO. No guardamos el
-    // maxId (para no perder el rango intermedio); avisamos para repetir.
     if (!primeraVez && !alcanzado) {
       huboHueco = true;
-      // Guardamos igual el avance para no reprocesar lo ya traído en la próxima pasada,
-      // pero marcamos el hueco para que el usuario/cron vuelva a sincronizar.
     }
     if (maxIdVisto > ultimoIdPrevio) await guardarUltimoId(db, sql, maxIdVisto, primeraVez ? `inicial +${nuevas}` : `incremental +${nuevas}${huboHueco ? " (hueco, repetir)" : ""}`);
   } catch (e) {
     console.warn("[SyncVentas] Error incremental:", e);
   }
+  // Reparar detalles faltantes en cada pasada (lote chico, no bloquea): ventas que
+  // quedaron guardadas SIN sus productos (ej. 365 rechazó la petición del detalle
+  // en su momento) — antes quedaban incompletas PARA SIEMPRE porque ventaExiste
+  // hacía saltar la venta y nunca se volvía a pedir el detalle.
+  try { await repararDetallesFaltantes(15); } catch { /* no bloquea */ }
   return { nuevas, ultimoId: maxIdVisto, primeraVez, huboHueco };
+}
+
+/**
+ * REPARACIÓN: ventas guardadas sin detalle de productos → volver a pedir el
+ * detalle a 365. Idempotente, por lotes chicos.
+ */
+export async function repararDetallesFaltantes(limite = 15): Promise<{ reparadas: number; pendientes: number }> {
+  const { getDb } = await import("./db");
+  const { sql } = await import("drizzle-orm");
+  const { inventarios365 } = await import("./inventarios365");
+  const db = await getDb();
+  if (!db) return { reparadas: 0, pendientes: 0 };
+
+  const rs: any = await db.execute(sql`
+    SELECT v.id, v.fecha, v.nombreSucursal FROM ventas v
+    LEFT JOIN ventas_detalle d ON d.ventaId = v.id
+    WHERE d.id IS NULL AND v.total > 0
+    GROUP BY v.id, v.fecha, v.nombreSucursal
+    LIMIT ${limite + 50}
+  `);
+  const sinDetalle = Array.isArray(rs) ? rs[0] : rs?.rows ?? rs;
+  const lista = Array.isArray(sinDetalle) ? sinDetalle : [];
+  let reparadas = 0;
+  for (const v of lista.slice(0, limite)) {
+    try {
+      const detalles = await inventarios365.obtenerDetallesVenta(Number(v.id));
+      if (detalles.length === 0) continue; // sin datos en 365 (p.ej. anulada): se reintentará
+      for (const d of detalles) {
+        await db.execute(sql`
+          INSERT INTO ventas_detalle (ventaId, articuloNombre, cantidad, precio, descuento, subtotal, fecha, nombreSucursal)
+           VALUES (${Number(v.id)}, ${d.articulo || "—"}, ${Number(d.cantidad) || 0}, ${Number(d.precio) || 0}, ${Number(d.descuento) || 0}, ${Number(d.subtotal) || 0}, ${String(v.fecha).slice(0, 10)}, ${v.nombreSucursal ?? null})
+        `);
+      }
+      reparadas++;
+      await new Promise((r) => setTimeout(r, 120));
+    } catch { /* siguiente */ }
+  }
+  return { reparadas, pendientes: Math.max(0, lista.length - reparadas) };
+}
+
+/**
+ * RESINCRONIZACIÓN DE UN MES: recorre el listado de 365 guardando TODA venta del
+ * mes que falte en la BD local (sin parada por id — rescata las que la lógica
+ * vieja se saltó). Se detiene cuando una página completa ya es anterior al mes.
+ */
+export async function resincronizarMes(anioMes: string, maxPaginas = 150): Promise<{ rescatadas: number; paginas: number }> {
+  const { getDb } = await import("./db");
+  const { sql } = await import("drizzle-orm");
+  const { inventarios365 } = await import("./inventarios365");
+  const db = await getDb();
+  if (!db) return { rescatadas: 0, paginas: 0 };
+
+  const inicioMes = `${anioMes}-01`;
+  let rescatadas = 0;
+  let page = 1;
+  try {
+    for (; page <= maxPaginas; page++) {
+      const { ventas: lista } = await inventarios365.listarVentasPagina(page);
+      if (lista.length === 0) break;
+      let todasAnteriores = true;
+      for (const v of lista) {
+        const fecha = String(v.fecha_hora || "").slice(0, 10);
+        if (!fecha) continue;
+        if (fecha >= inicioMes) todasAnteriores = false;
+        // Guardar cualquier venta del mes (o posterior) que no exista aún
+        if (fecha >= inicioMes) {
+          const guardada = await guardarVenta(db, sql, v);
+          if (guardada) rescatadas++;
+        }
+      }
+      if (todasAnteriores) break; // toda la página ya es de antes del mes: fin
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  } catch (e) {
+    console.warn("[SyncVentas] Error resincronizando mes:", e);
+  }
+  // Tras rescatar cabeceras, reparar detalles pendientes en un lote más grande
+  try { await repararDetallesFaltantes(40); } catch { /* no bloquea */ }
+  return { rescatadas, paginas: page };
 }
 
 /** Sincroniza clientes (~500, todos). Idempotente. */

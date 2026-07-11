@@ -71,6 +71,27 @@ export default function Reportes() {
     onError: (e) => toast.error(e.message),
   });
 
+  // Diagnóstico de completitud del mes + rescate (ventas faltantes / sin detalle)
+  const [verDiagnostico, setVerDiagnostico] = useState(false);
+  const anioMesActual = new Date().toISOString().slice(0, 7);
+  const diagnostico = trpc.ventas.diagnosticoMes.useQuery({ anioMes: anioMesActual }, { enabled: verDiagnostico });
+  const resincMes = trpc.ventas.resincronizarMes.useMutation({
+    onSuccess: (d: any) => {
+      toast.success(d.rescatadas > 0 ? `${d.rescatadas} venta(s) rescatada(s) de 365` : "No faltaba ninguna venta del mes");
+      diagnostico.refetch();
+      utils.ventas.estado.invalidate(); utils.ventas.reportes.invalidate(); utils.ventas.rentabilidad.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const repararDetalles = trpc.ventas.repararDetalles.useMutation({
+    onSuccess: (d: any) => {
+      toast.success(`${d.reparadas} venta(s) reparada(s)${d.pendientes > 0 ? ` · ${d.pendientes} pendientes (repite)` : ""}`);
+      diagnostico.refetch();
+      utils.ventas.reportes.invalidate(); utils.ventas.rentabilidad.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const [histProgreso, setHistProgreso] = useState<string>("");
   const cargarHistorico = trpc.ventas.cargarHistoricoLote.useMutation({
     onSuccess: (d: any) => {
@@ -135,6 +156,45 @@ export default function Reportes() {
             {sincronizar.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Actualizar
           </button>
+        </div>
+
+        {/* ─── Diagnóstico de completitud de datos (ventas faltantes / sin detalle) ─── */}
+        <div className="rounded-xl border bg-card p-3">
+          <button onClick={() => setVerDiagnostico(!verDiagnostico)} className="w-full flex items-center justify-between text-xs font-bold">
+            <span>🔎 Verificar datos del mes (¿está todo lo vendido?)</span>
+            <span className="text-muted-foreground">{verDiagnostico ? "▲" : "▼"}</span>
+          </button>
+          {verDiagnostico && (
+            <div className="mt-3 space-y-2 text-xs">
+              {diagnostico.isLoading ? <p className="text-muted-foreground">Analizando…</p> : diagnostico.data && !("error" in diagnostico.data) ? (
+                <>
+                  <p><b>{diagnostico.data.totalVentas}</b> ventas del mes en la base local · Bs {diagnostico.data.montoTotal.toLocaleString("es-BO")}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {diagnostico.data.porSucursal.map((s: any) => (
+                      <span key={s.sucursal} className="px-2 py-0.5 rounded-full bg-muted text-[11px]">{s.sucursal}: {s.ventas} ventas</span>
+                    ))}
+                  </div>
+                  {diagnostico.data.ventasSinDetalle > 0 && (
+                    <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 flex items-center justify-between gap-2">
+                      <span className="text-amber-800">⚠ {diagnostico.data.ventasSinDetalle} venta(s) sin el detalle de productos — los reportes por producto/proveedor quedan incompletos</span>
+                      <button onClick={() => repararDetalles.mutate()} disabled={repararDetalles.isPending}
+                        className="shrink-0 h-7 px-2.5 rounded-lg bg-amber-600 text-white font-bold disabled:opacity-50">{repararDetalles.isPending ? "Reparando…" : "Reparar"}</button>
+                    </div>
+                  )}
+                  {diagnostico.data.diasSinVenta.length > 0 && (
+                    <p className="text-red-600">⚠ Días del mes sin ninguna venta registrada: {diagnostico.data.diasSinVenta.map((d: string) => d.slice(8)).join(", ")} — posible hueco de sincronización.</p>
+                  )}
+                  <button onClick={() => resincMes.mutate({ anioMes: anioMesActual })} disabled={resincMes.isPending}
+                    className="w-full h-9 rounded-xl bg-primary text-primary-foreground font-bold disabled:opacity-50">
+                    {resincMes.isPending ? "Rescatando ventas faltantes de 365…" : "Resincronizar el mes completo desde 365"}
+                  </button>
+                  {diagnostico.data.ventasSinDetalle === 0 && diagnostico.data.diasSinVenta.length === 0 && (
+                    <p className="text-emerald-700 font-bold">✓ Sin señales de datos faltantes este mes.</p>
+                  )}
+                </>
+              ) : <p className="text-red-600">No se pudo analizar.</p>}
+            </div>
+          )}
         </div>
 
         {/* ─── Selector de periodo ─── */}
