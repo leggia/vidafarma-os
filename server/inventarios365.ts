@@ -799,6 +799,43 @@ class Inventarios365Service {
    * Contar el total de proveedores del sistema (para el progreso global del inventario).
    * Intenta el endpoint paginado de proveedores (similar a categorianewview).
    */
+  /**
+   * Lista COMPLETA de proveedores (paginada, todas las páginas). A diferencia de
+   * listarProveedores (que es un buscador y exige mínimo 2 letras), esta recorre
+   * /proveedor?page=N acumulando todo. Caché en memoria 10 min (cambian poco).
+   */
+  async listarTodosProveedores(maxPaginas = 30): Promise<Array<{ id: string; nombre: string }>> {
+    const cached = this.cacheInventario.get("todosProveedores");
+    if (cached && cached.expira > Date.now() && Array.isArray(cached.data) && cached.data.length > 0) {
+      return cached.data as any;
+    }
+    const resultado: Array<{ id: string; nombre: string }> = [];
+    const vistos = new Set<string>();
+    try {
+      for (let page = 1; page <= maxPaginas; page++) {
+        const data = await this.get<any>(`/proveedor?page=${page}&buscar=&criterio=todos`);
+        const arr = data?.personas ?? data?.proveedores?.data ?? data?.data ?? [];
+        if (!Array.isArray(arr) || arr.length === 0) break;
+        for (const p of arr) {
+          const id = String(p.id ?? "");
+          const nombre = String(p.nombre ?? p.razonSocial ?? p.razon_social ?? p.nombreProveedor ?? "").trim();
+          if (!id || !nombre || vistos.has(id)) continue;
+          vistos.add(id);
+          resultado.push({ id, nombre });
+        }
+        const total = Number(data?.pagination?.total ?? 0);
+        if (total > 0 && resultado.length >= total) break;
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    } catch (e) {
+      console.error("[Inventarios365] Error listando todos los proveedores:", e);
+    }
+    if (resultado.length > 0) {
+      this.cacheInventario.set("todosProveedores", { data: resultado as any, expira: Date.now() + 10 * 60 * 1000 });
+    }
+    return resultado;
+  }
+
   async contarProveedores(): Promise<{ total: number; endpoint: string; intentos?: any[] }> {
     const candidatos = [
       "/proveedor?page=1&buscar=&criterio=todos",

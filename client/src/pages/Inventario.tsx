@@ -52,7 +52,7 @@ export default function Inventario() {
   const cargarTodosProveedores = useCallback(async () => {
     if (todosProveedores) return;
     try {
-      const provs = await utils.confirmaciones.listarProveedores.fetch({ filtro: "" });
+      const provs = await utils.inventario.todosProveedores.fetch();
       setTodosProveedores(Array.isArray(provs) ? provs : []);
     } catch { setTodosProveedores([]); }
   }, [todosProveedores, utils]);

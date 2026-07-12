@@ -1197,6 +1197,12 @@ Devuelve JSON:
     }),
 
   // Listar sesiones (en progreso y completadas)
+  // Lista COMPLETA de proveedores (para el desplegable de faltantes en la sesión)
+  todosProveedores: protectedProcedure.query(async () => {
+    const { inventarios365 } = await import("./inventarios365");
+    return inventarios365.listarTodosProveedores();
+  }),
+
   listarSesiones: protectedProcedure.query(async () => {
     const { getDb } = await import("./db");
     const { inventarioSesiones, inventarioProveedores } = await import("../drizzle/schema");
