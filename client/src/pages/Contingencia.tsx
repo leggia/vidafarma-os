@@ -165,31 +165,44 @@ export default function Contingencia() {
         )}
       </div>
 
-      {/* Pendientes de pasar a 365 (cierre asistido) */}
+      {/* Pendientes de pasar a 365 (cierre asistido), agrupadas por sucursal */}
       {(ventas?.length || 0) > 0 && (
-        <div className="rounded-2xl border bg-card p-4 space-y-2">
+        <div className="rounded-2xl border bg-card p-4 space-y-3">
           <p className="text-xs font-black uppercase text-muted-foreground flex items-center gap-1.5">
             <ClipboardList className="w-4 h-4" /> Por pasar a 365 ({ventas!.length})
           </p>
           <p className="text-[11px] text-muted-foreground">Cuando 365 vuelva: registra cada venta allá (factura real) y márcala aquí. Así ninguna se pierde ni se duplica.</p>
-          {ventas!.map((v: any) => (
-            <div key={v.id} className="rounded-xl border p-2.5 text-xs space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-black">{v.fecha} {String(v.hora).slice(0, 5)} · {v.sucursal}</span>
-                <span className="font-black">{bs(v.total)}</span>
+          {Object.entries(
+            ventas!.reduce((acc: Record<string, any[]>, v: any) => {
+              (acc[v.sucursal] = acc[v.sucursal] || []).push(v);
+              return acc;
+            }, {})
+          ).map(([suc, lista]) => (
+            <div key={suc} className="space-y-2">
+              <div className="flex items-center justify-between bg-muted/60 rounded-lg px-2.5 py-1.5">
+                <p className="text-xs font-black">{suc} <span className="font-normal text-muted-foreground">· {lista.length} venta(s)</span></p>
+                <p className="text-xs font-black">{bs(lista.reduce((s: number, v: any) => s + v.total, 0))}</p>
               </div>
-              <p className="text-muted-foreground">
-                {(v.items || []).map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}
-              </p>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] text-muted-foreground">{v.metodoPago} · {v.usuario}{v.nota ? ` · ${v.nota}` : ""}</span>
-                {esAdmin && (
-                  <button onClick={() => marcar.mutate({ id: v.id })} disabled={marcar.isPending}
-                    className="shrink-0 h-7 px-2.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold flex items-center gap-1 disabled:opacity-50">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Ya está en 365
-                  </button>
-                )}
-              </div>
+              {lista.map((v: any) => (
+                <div key={v.id} className="rounded-xl border p-2.5 text-xs space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-black">{v.fecha} {String(v.hora).slice(0, 5)}</span>
+                    <span className="font-black">{bs(v.total)}</span>
+                  </div>
+                  <p className="text-muted-foreground">
+                    {(v.items || []).map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}
+                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-muted-foreground">{v.metodoPago} · {v.usuario}{v.nota ? ` · ${v.nota}` : ""}</span>
+                    {esAdmin && (
+                      <button onClick={() => marcar.mutate({ id: v.id })} disabled={marcar.isPending}
+                        className="shrink-0 h-7 px-2.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold flex items-center gap-1 disabled:opacity-50">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Ya está en 365
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </div>
