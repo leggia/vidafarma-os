@@ -29,6 +29,7 @@ import Personal from "./pages/Personal";
 import FlujoCaja from "./pages/FlujoCaja";
 import Contingencia from "./pages/Contingencia";
 import Dispensacion from "./pages/Dispensacion";
+import Psicotropicos from "./pages/Psicotropicos";
 import { useAuth } from "./_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { LogOut } from "lucide-react";
@@ -94,7 +95,10 @@ function Router() {
           <Route path="/transferencias/nueva" component={NuevaTransferencia} />
           <Route path="/contingencia" component={Contingencia} />
         <Route path="/dispensacion" component={Dispensacion} />
+        <Route path="/psicotropicos" component={Psicotropicos} />
           <Route path="/dispensacion" component={Dispensacion} />
+        <Route path="/psicotropicos" component={Psicotropicos} />
+          <Route path="/psicotropicos" component={Psicotropicos} />
           <Route path="/fotos" component={FotosProductos} />
           <Route path="/asistencia" component={Asistencia} />
           <Route path="/reservas" component={Reservas} />
@@ -124,7 +128,9 @@ function Router() {
           <Route path="/reservas" component={Reservas} />
           <Route path="/contingencia" component={Contingencia} />
         <Route path="/dispensacion" component={Dispensacion} />
+        <Route path="/psicotropicos" component={Psicotropicos} />
           <Route path="/dispensacion" component={Dispensacion} />
+        <Route path="/psicotropicos" component={Psicotropicos} />
           <Route component={Consulta} />
         </Switch>
       </div>
@@ -154,6 +160,7 @@ function Router() {
         <Route path="/flujo-caja" component={FlujoCaja} />
         <Route path="/contingencia" component={Contingencia} />
         <Route path="/dispensacion" component={Dispensacion} />
+        <Route path="/psicotropicos" component={Psicotropicos} />
         <Route path="/consulta" component={Consulta} />
         <Route path="/asistente" component={Asistente} />
         <Route path="/404" component={NotFound} />

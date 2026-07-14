@@ -11,6 +11,7 @@ import { mejoresCandidatos, triangularFila, numerosSospechosos } from "../domain
 import { calcularVenta, validarVenta } from "../domain/contingencia";
 import { evaluarPrecio } from "../domain/compras";
 import { compararPeriodo } from "../domain/tendencias";
+import { construirLibro, resumenPeriodo, rangoTrimestre } from "../domain/psicotropicos";
 
 let pasan = 0, fallan = 0;
 function test(nombre: string, fn: () => void) {
@@ -199,6 +200,39 @@ test("cambio chico (5%) → sin alerta (no es ruido)", () => {
 test("sin ventas el período anterior → 'sin_datos', nunca alerta falsa", () => {
   const r = compararPeriodo(500, 0);
   assert.equal(r.alerta, false);
+});
+
+// ─── 10. LIBRO DE PSICOTRÓPICOS (saldos legales) ───
+console.log("\nLibro de psicotrópicos:");
+test("arrastra el saldo: inicial 20, egreso 5, ingreso 60 → saldo final 75", () => {
+  const r = construirLibro(20, [
+    { fecha: "2026-04-10", tipo: "egreso", cantidad: 5 },
+    { fecha: "2026-06-15", tipo: "ingreso", cantidad: 60 },
+  ]);
+  assert.equal(r.saldoFinal, 75);
+  assert.equal(r.totalEgreso, 5);
+  assert.equal(r.totalIngreso, 60);
+  assert.equal(r.lineas[0].saldoActual, 15); // 20 - 5
+  assert.equal(r.lineas[1].saldoActual, 75); // 15 + 60
+});
+test("ordena por fecha aunque los movimientos vengan desordenados", () => {
+  const r = construirLibro(0, [
+    { fecha: "2026-06-15", tipo: "ingreso", cantidad: 10 },
+    { fecha: "2026-01-05", tipo: "ingreso", cantidad: 3 },
+  ]);
+  assert.equal(r.lineas[0].fecha, "2026-01-05");
+  assert.equal(r.lineas[0].saldoActual, 3);
+  assert.equal(r.lineas[1].saldoActual, 13);
+});
+test("resumen sin movimientos → sinMovimiento true, saldo se mantiene", () => {
+  const r = resumenPeriodo(20, []);
+  assert.equal(r.sinMovimiento, true);
+  assert.equal(r.saldoActual, 20);
+});
+test("rango del 2º trimestre 2026 → abr-jun (exclusivo julio)", () => {
+  const r = rangoTrimestre(2026, 2);
+  assert.equal(r.desde, "2026-04-01");
+  assert.equal(r.hasta, "2026-07-01");
 });
 
 // ─── Resultado ───

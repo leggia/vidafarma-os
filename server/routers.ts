@@ -3466,6 +3466,92 @@ const dispensacionRouter = router({
     }),
 });
 
+// ─── LIBRO DE PSICOTRÓPICOS (informes trimestral/semestral/anual a SEDES) ───
+const psicoRouter = router({
+  // Subir foto (receta o factura) y devolver su URL — para adjuntar al movimiento
+  subirFoto: protectedProcedure
+    .input(z.object({ fileBase64: z.string().max(12_000_000), mimeType: z.string(), tipo: z.enum(["receta", "factura"]) }))
+    .mutation(async ({ input }) => {
+      const { nanoid } = await import("nanoid");
+      const { storagePut } = await import("./storage");
+      const buffer = Buffer.from(input.fileBase64, "base64");
+      const ext = (input.mimeType.split("/").pop() || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
+      const { url } = await storagePut(`psico/${input.tipo}-${nanoid()}.${ext}`, buffer, input.mimeType);
+      return { url };
+    }),
+  listarProductos: protectedProcedure.query(async ({ ctx }) => {
+    soloFinanzas(ctx);
+    const { psico } = await import("./psicotropicos");
+    return psico.listarProductos();
+  }),
+  guardarProducto: protectedProcedure
+    .input(z.object({
+      id: z.number().optional(),
+      nombreComercial: z.string().min(1).max(255),
+      dci: z.string().max(255).optional(),
+      concentracion: z.string().max(120).optional(),
+      presentacion: z.string().max(120).optional(),
+      laboratorio: z.string().max(255).optional(),
+      registroSanitario: z.string().min(1).max(120),
+      origen: z.string().max(120).optional(),
+      articuloId365: z.number().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { psico } = await import("./psicotropicos");
+      return psico.guardarProducto(input);
+    }),
+  registrarMovimiento: protectedProcedure
+    .input(z.object({
+      productoId: z.number(),
+      tipo: z.enum(["ingreso", "egreso"]),
+      cantidad: z.number().min(1).max(100000),
+      fecha: z.string().max(10).optional(),
+      recetaNumero: z.string().max(80).optional(),
+      paciente: z.string().max(200).optional(),
+      medico: z.string().max(200).optional(),
+      numFactura: z.string().max(80).optional(),
+      recetaFotoUrl: z.string().max(500).optional(),
+      facturaFotoUrl: z.string().max(500).optional(),
+      nota: z.string().max(400).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { psico } = await import("./psicotropicos");
+      const registradoPor = (ctx as any)?.user?.email || (ctx as any)?.user?.name || `usuario-${(ctx as any)?.user?.id ?? "?"}`;
+      return psico.registrarMovimiento({ ...input, registradoPor });
+    }),
+  libroProducto: protectedProcedure
+    .input(z.object({ productoId: z.number(), desde: z.string().max(10), hasta: z.string().max(10) }))
+    .query(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { psico } = await import("./psicotropicos");
+      return psico.libroProducto(input.productoId, input.desde, input.hasta);
+    }),
+  informe: protectedProcedure
+    .input(z.object({ tipo: z.enum(["trimestral", "semestral", "anual"]), anio: z.number(), trimestre: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { psico } = await import("./psicotropicos");
+      return psico.informe(input.tipo, input.anio, input.trimestre);
+    }),
+  // Importar los productos del libro Excel de VidaFarma (semilla, un clic)
+  importarSemilla: protectedProcedure.mutation(async ({ ctx }) => {
+    soloFinanzas(ctx);
+    const { psico } = await import("./psicotropicos");
+    const SEMILLA = [
+      { nombreComercial: "CLONEX CD", dci: "CLONAZEPAM", concentracion: "0.5 MG", presentacion: "COMPRIMIDO DISPERSABLE", laboratorio: "FARMAVAL BOLIVIA SRL.", registroSanitario: "N.R.S II-36109/2023", origen: "CHILE" },
+      { nombreComercial: "FLUNITRAZEPAM", dci: "FLUNITRAZEPAM", concentracion: "2 MG", presentacion: "TABLETA", laboratorio: "SAE", registroSanitario: "R.S.II 17864/2024", origen: "CHILE" },
+      { nombreComercial: "HIPNOL", dci: "FENOBARBITAL SODICO", concentracion: "2%", presentacion: "GOTAS", laboratorio: "ALFA", registroSanitario: "R.S.NN-21395/2021", origen: "BOLIVIA" },
+      { nombreComercial: "IDANTINA COMPUESTA", dci: "FENITOINA SODICA", concentracion: "100 MG - 15MG", presentacion: "TABLETA", laboratorio: "INTI", registroSanitario: "R.S.NN-24145/2023", origen: "BOLIVIA" },
+      { nombreComercial: "MIDAZOLAM", dci: "MIDAZOLAM", concentracion: "5 MG/ML", presentacion: "AMPOLLA", laboratorio: "NOVAPHARMA", registroSanitario: "R. S. II-83871/2022", origen: "INDIA" },
+      { nombreComercial: "NEURYL", dci: "CLONAZEPAM", concentracion: "0.5 MG", presentacion: "TABLETA", laboratorio: "BAGO", registroSanitario: "R.S.NN 74275/2020", origen: "BOLIVIA" },
+      { nombreComercial: "NEURYL", dci: "CLONAZEPAM", concentracion: "2 MG", presentacion: "TABLETA", laboratorio: "BAGO", registroSanitario: "R.S.NN 59656/2021", origen: "BOLIVIA" },
+      { nombreComercial: "OBEXOL", dci: "FENTERMINA CLORHIDRATO", concentracion: "37,5 mg", presentacion: "CAPSULAS", laboratorio: "FARMAVAL BOLIVIA SRL.", registroSanitario: "N.R.S.II-60753/2022", origen: "CHILE" },
+    ];
+    return psico.importarProductos(SEMILLA);
+  }),
+});
+
 // Estado del sistema (modo staging, etc.) — público, para que el banner de
 // aviso se vea incluso antes de iniciar sesión.
 const sistemaRouter = router({
@@ -3506,6 +3592,7 @@ export const appRouter = router({
   contingencia: contingenciaRouter,
   sistema: sistemaRouter,
   dispensacion: dispensacionRouter,
+  psico: psicoRouter,
   fidelizacion: fidelizacionRouter,
   marketing: marketingRouter,
   creditos: creditosRouter,
