@@ -95,6 +95,36 @@ La lógica se extrajo a módulos puros para poder testearla: `server/domain/cont
 Los tests de vitest (`server/domain/*.test.ts`) siguen disponibles para la PC/CI con
 `npm test`.
 
+## Entorno de staging (antes de producción)
+
+**Protección de código YA construida** (`MODO_STAGING=true`): en `server/inventarios365.ts`,
+el método `post()` — el ÚNICO punto por donde pasan TODAS las escrituras a
+inventarios365 (compras, ajustes de stock, transferencias, precios) — intercepta
+la llamada y la SIMULA (no llega a 365 real, se loguea `[STAGING] Simulado...`).
+Las LECTURAS (`get()`) siguen yendo a 365 real sin cambios (no hay riesgo en leer).
+Por eso el staging puede usar las MISMAS credenciales de 365 sin peligro: nada se
+modifica de verdad, pase lo que pase en las pruebas.
+
+Aviso visible: un banner ámbar fijo arriba de toda la app ("🧪 MODO STAGING…"),
+visible incluso sin iniciar sesión, para que nadie confunda este entorno con
+producción. Se activa solo con la variable de entorno, sin tocar código.
+
+**Pasos en Railway (esto lo hace Luis — Claude Code no tiene acceso a Railway):**
+1. En el proyecto de Railway, crear un nuevo servicio ("New Service" → "GitHub Repo",
+   mismo repo `vidafarmacia-osManus`, rama `main`).
+2. Agregar una base de datos MySQL NUEVA para ese servicio (para que las ventas y
+   compras de prueba no se mezclen con las reales) — Railway la conecta sola vía
+   variable `DATABASE_URL` si se usa su plugin de MySQL.
+3. Copiar las demás variables de entorno del servicio de producción (credenciales
+   de 365, DEEPSEEK_API_KEY, etc. — es seguro reusarlas porque las escrituras a 365
+   quedan simuladas).
+4. Agregar la variable `MODO_STAGING` = `true` a este servicio nuevo (y NO
+   agregarla al de producción).
+5. Railway genera una URL propia para este servicio (ej.
+   `vidafarmacia-osmanus-staging.up.railway.app`) — esa es tu URL de pruebas.
+6. Antes de un cambio importante: probar ahí primero. El código es idéntico al de
+   producción (mismo repo/rama), solo cambia la base de datos y el modo staging.
+
 ## Pendiente (mejoras futuras)
 
 - Entorno de staging (rama/deploy de prueba) antes de producción.

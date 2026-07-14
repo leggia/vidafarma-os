@@ -262,6 +262,21 @@ class Inventarios365Service {
    * El header X-XSRF-TOKEN debe llevar el valor URL-decodificado del cookie.
    */
   private async post<T = any>(path: string, payload: object): Promise<T> {
+    // MODO STAGING: ningún POST (escritura real) llega a 365 — se simula una
+    // respuesta segura y se registra en el log. Las LECTURAS (get) siguen yendo
+    // a 365 real sin problema (no hay riesgo en leer). Esto permite tener un
+    // entorno de pruebas SIN arriesgar el inventario/ventas reales, incluso
+    // usando las mismas credenciales de 365 — nada se modifica de verdad.
+    if (process.env.MODO_STAGING === "true") {
+      console.log(`[STAGING] Simulado (NO se llamó a 365 real): POST ${path} | payload: ${JSON.stringify(payload).slice(0, 200)}`);
+      return {
+        id: Math.floor(Date.now() / 1000),
+        ok: true,
+        success: true,
+        error: null,
+        message: "[STAGING] Simulado — el inventario/ventas real de 365 NO fue modificado.",
+      } as any as T;
+    }
     await this.login();
     const cookie = this.buildCookieHeader();
     const xsrfDecoded = this.xsrfToken

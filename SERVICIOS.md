@@ -506,8 +506,12 @@ Company of One — siempre el mejor modelo, se paga solo lo usado, cero mantenim
 
 **🔲 Pendiente — construible ahora:**
 - Legal — registro de dispensación de controlados en mostrador.
-- Testing — entorno de staging antes de producción.
 - Migrar el lector de facturas de compras de Groq a un modelo de visión vigente.
+
+**🔲 Pendiente — requiere que Luis cree el servicio en Railway** (código listo,
+ver TESTING.md § Entorno de staging):
+- Segundo servicio en Railway (mismo repo, rama main) + base de datos MySQL
+  nueva + variable `MODO_STAGING=true`.
 
 ---
 

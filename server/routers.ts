@@ -3415,6 +3415,14 @@ const fotosRouter = router({
     }),
 });
 
+// Estado del sistema (modo staging, etc.) — público, para que el banner de
+// aviso se vea incluso antes de iniciar sesión.
+const sistemaRouter = router({
+  estado: publicProcedure.query(() => ({
+    modoStaging: process.env.MODO_STAGING === "true",
+  })),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -3445,6 +3453,7 @@ export const appRouter = router({
   flujoCaja: flujoCajaRouter,
   obligaciones: obligacionesRouter,
   contingencia: contingenciaRouter,
+  sistema: sistemaRouter,
   fidelizacion: fidelizacionRouter,
   marketing: marketingRouter,
   creditos: creditosRouter,

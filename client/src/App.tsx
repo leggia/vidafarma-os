@@ -31,6 +31,21 @@ import Contingencia from "./pages/Contingencia";
 import { useAuth } from "./_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { LogOut } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+
+// Aviso fijo cuando el entorno corre en MODO STAGING (pruebas): ningún cambio
+// (compras, ajustes de stock, transferencias) llega al inventario/ventas REAL
+// de inventarios365 — las escrituras quedan simuladas. Visible SIEMPRE, incluso
+// antes de iniciar sesión, para que nadie confunda este entorno con producción.
+function BannerStaging() {
+  const { data } = trpc.sistema.estado.useQuery();
+  if (!data?.modoStaging) return null;
+  return (
+    <div className="sticky top-0 z-[100] bg-amber-500 text-black text-center text-xs font-black py-1.5 px-2">
+      🧪 MODO STAGING — entorno de pruebas. Los cambios NO afectan el inventario ni las ventas reales.
+    </div>
+  );
+}
 
 // Botón simple de cerrar sesión, para vistas simplificadas que no usan
 // DashboardLayout (donde normalmente vive el logout).
@@ -147,6 +162,7 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
+          <BannerStaging />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
