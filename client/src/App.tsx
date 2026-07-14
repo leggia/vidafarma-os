@@ -28,6 +28,7 @@ import Creditos from "./pages/Creditos";
 import Personal from "./pages/Personal";
 import FlujoCaja from "./pages/FlujoCaja";
 import Contingencia from "./pages/Contingencia";
+import Dispensacion from "./pages/Dispensacion";
 import { useAuth } from "./_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { LogOut } from "lucide-react";
@@ -92,6 +93,8 @@ function Router() {
           <Route path="/transferencias" component={Transferencias} />
           <Route path="/transferencias/nueva" component={NuevaTransferencia} />
           <Route path="/contingencia" component={Contingencia} />
+        <Route path="/dispensacion" component={Dispensacion} />
+          <Route path="/dispensacion" component={Dispensacion} />
           <Route path="/fotos" component={FotosProductos} />
           <Route path="/asistencia" component={Asistencia} />
           <Route path="/reservas" component={Reservas} />
@@ -112,6 +115,7 @@ function Router() {
           <span className="text-sm font-bold">VidaFarma</span>
           <div className="flex items-center gap-4">
             <a href="/contingencia" className="text-xs font-bold text-red-600">Contingencia</a>
+            <a href="/dispensacion" className="text-xs font-bold text-indigo-600">Controlados</a>
             <BotonCerrarSesion />
           </div>
         </div>
@@ -119,6 +123,8 @@ function Router() {
           <Route path="/" component={Consulta} />
           <Route path="/reservas" component={Reservas} />
           <Route path="/contingencia" component={Contingencia} />
+        <Route path="/dispensacion" component={Dispensacion} />
+          <Route path="/dispensacion" component={Dispensacion} />
           <Route component={Consulta} />
         </Switch>
       </div>
@@ -147,6 +153,7 @@ function Router() {
         <Route path="/personal" component={Personal} />
         <Route path="/flujo-caja" component={FlujoCaja} />
         <Route path="/contingencia" component={Contingencia} />
+        <Route path="/dispensacion" component={Dispensacion} />
         <Route path="/consulta" component={Consulta} />
         <Route path="/asistente" component={Asistente} />
         <Route path="/404" component={NotFound} />

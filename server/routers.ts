@@ -3415,6 +3415,57 @@ const fotosRouter = router({
     }),
 });
 
+// ─── REGISTRO DE DISPENSACIÓN DE CONTROLADOS (libro de auditoría legal) ───
+const dispensacionRouter = router({
+  // Cualquier vendedora registra una dispensación (es su trabajo en mostrador)
+  registrar: protectedProcedure
+    .input(z.object({
+      sucursal: z.string().min(2).max(120),
+      producto: z.string().min(1).max(500),
+      cantidad: z.number().min(1).max(10000),
+      recetaNumero: z.string().max(80).optional(),
+      medico: z.string().max(200).optional(),
+      matriculaMedico: z.string().max(80).optional(),
+      paciente: z.string().max(200).optional(),
+      documentoPaciente: z.string().max(50).optional(),
+      nota: z.string().max(400).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { dispensacion } = await import("./dispensacion");
+      const dispensadoPor = (ctx as any)?.user?.email || (ctx as any)?.user?.name || `usuario-${(ctx as any)?.user?.id ?? "?"}`;
+      return dispensacion.registrar({ ...input, dispensadoPor });
+    }),
+  // Consulta: si un producto es controlado (para avisar en el mostrador)
+  esControlado: protectedProcedure
+    .input(z.object({ nombre: z.string(), descripcion: z.string().optional() }))
+    .query(async ({ input }) => {
+      const { dispensacion } = await import("./dispensacion");
+      return { controlado: dispensacion.esControlado(input.nombre, input.descripcion) };
+    }),
+  listar: protectedProcedure
+    .input(z.object({ desde: z.string().max(10).optional(), hasta: z.string().max(10).optional(), producto: z.string().max(120).optional() }).optional())
+    .query(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { dispensacion } = await import("./dispensacion");
+      return dispensacion.listar(input || {});
+    }),
+  anular: protectedProcedure
+    .input(z.object({ id: z.number(), motivo: z.string().min(3).max(300) }))
+    .mutation(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { dispensacion } = await import("./dispensacion");
+      const por = (ctx as any)?.user?.email || (ctx as any)?.user?.name || "admin";
+      return dispensacion.anular(input.id, input.motivo, por);
+    }),
+  resumen: protectedProcedure
+    .input(z.object({ desde: z.string().max(10), hasta: z.string().max(10) }))
+    .query(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { dispensacion } = await import("./dispensacion");
+      return dispensacion.resumen(input.desde, input.hasta);
+    }),
+});
+
 // Estado del sistema (modo staging, etc.) — público, para que el banner de
 // aviso se vea incluso antes de iniciar sesión.
 const sistemaRouter = router({
@@ -3454,6 +3505,7 @@ export const appRouter = router({
   obligaciones: obligacionesRouter,
   contingencia: contingenciaRouter,
   sistema: sistemaRouter,
+  dispensacion: dispensacionRouter,
   fidelizacion: fidelizacionRouter,
   marketing: marketingRouter,
   creditos: creditosRouter,

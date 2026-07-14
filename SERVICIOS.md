@@ -505,7 +505,6 @@ Company of One — siempre el mejor modelo, se paga solo lo usado, cero mantenim
 - Hábito de las vendedoras: registrar el teléfono del cliente en 365 al facturar.
 
 **🔲 Pendiente — construible ahora:**
-- Legal — registro de dispensación de controlados en mostrador.
 - Migrar el lector de facturas de compras de Groq a un modelo de visión vigente.
 
 **🔲 Pendiente — requiere que Luis cree el servicio en Railway** (código listo,
