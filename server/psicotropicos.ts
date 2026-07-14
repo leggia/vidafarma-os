@@ -217,4 +217,29 @@ export const psico = {
     }
     return { ok: true, creados, existentes };
   },
+
+  // Detecta cuáles items de una compra son psicotrópicos registrados (por nombre
+  // comercial o DCI). Usa el emparejado difuso ya existente. Devuelve los items
+  // que hacen match, para avisar en Compras que hay que registrarlos en el libro.
+  async detectarEnCompra(items: { productName?: string; nombre?: string; quantity?: number; cantidad?: number }[]) {
+    const db = await getDb();
+    if (!db) return [];
+    await asegurarTablas(db);
+    const productos = await this.listarProductos();
+    if (productos.length === 0) return [];
+    const { mejoresCandidatos } = await import("./domain/emparejar");
+    const catalogo = productos.map((p: any) => `${p.nombreComercial} ${p.dci || ""}`.trim());
+    const detectados: any[] = [];
+    for (const it of items) {
+      const nombre = String(it.productName ?? it.nombre ?? "").trim();
+      if (!nombre) continue;
+      const cands = mejoresCandidatos(nombre, catalogo, 1);
+      if (cands[0] && cands[0].confianza !== "baja") {
+        const idx = catalogo.indexOf(cands[0].nombre);
+        const prod = productos[idx];
+        if (prod) detectados.push({ productoId: prod.id, nombreComercial: prod.nombreComercial, dci: prod.dci, itemFactura: nombre, cantidad: Number(it.quantity ?? it.cantidad) || 0 });
+      }
+    }
+    return detectados;
+  },
 };

@@ -75,13 +75,15 @@ export default function Psicotropicos() {
 
 function CapturaMovimiento({ productos }: { productos: any[] }) {
   const utils = trpc.useUtils();
-  const [productoId, setProductoId] = useState<number | "">("");
-  const [tipo, setTipo] = useState<"ingreso" | "egreso">("egreso");
-  const [cantidad, setCantidad] = useState(1);
+  // Prellenado desde Compras: /psicotropicos?productoId=3&cantidad=20&tipo=ingreso&factura=FC-123
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const [productoId, setProductoId] = useState<number | "">(params.get("productoId") ? Number(params.get("productoId")) : "");
+  const [tipo, setTipo] = useState<"ingreso" | "egreso">(params.get("tipo") === "ingreso" ? "ingreso" : "egreso");
+  const [cantidad, setCantidad] = useState(params.get("cantidad") ? Math.max(1, Number(params.get("cantidad"))) : 1);
   const [recetaNumero, setRecetaNumero] = useState("");
   const [paciente, setPaciente] = useState("");
   const [medico, setMedico] = useState("");
-  const [numFactura, setNumFactura] = useState("");
+  const [numFactura, setNumFactura] = useState(params.get("factura") || "");
   const [fotoUrl, setFotoUrl] = useState<string>("");
   const [subiendo, setSubiendo] = useState(false);
 

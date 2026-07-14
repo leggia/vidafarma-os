@@ -3534,6 +3534,13 @@ const psicoRouter = router({
       const { psico } = await import("./psicotropicos");
       return psico.informe(input.tipo, input.anio, input.trimestre);
     }),
+  // Detecta psicotrópicos en los items de una compra (para avisar en Compras)
+  detectarEnCompra: protectedProcedure
+    .input(z.object({ items: z.array(z.object({ productName: z.string().optional(), nombre: z.string().optional(), quantity: z.number().optional(), cantidad: z.number().optional() })).max(200) }))
+    .query(async ({ input }) => {
+      const { psico } = await import("./psicotropicos");
+      return psico.detectarEnCompra(input.items);
+    }),
   // Importar los productos del libro Excel de VidaFarma (semilla, un clic)
   importarSemilla: protectedProcedure.mutation(async ({ ctx }) => {
     soloFinanzas(ctx);

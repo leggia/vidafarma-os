@@ -192,6 +192,9 @@ export default function NuevaCompra() {
   // última compra propia (o el costo del sistema), y el margen contra la venta.
   const [comparacionPrecios, setComparacionPrecios] = useState<Map<string, any>>(new Map());
   const compararPrecios = trpc.purchases.compararPrecios.useMutation();
+  // Detección de psicotrópicos en la factura (alerta para registrarlos en el libro)
+  const [psicoDetectados, setPsicoDetectados] = useState<any[]>([]);
+  const detectarPsico = trpc.psico.detectarEnCompra.useMutation();
   const [receiptType, setReceiptType] = useState<"BOLETA" | "FACTURA">("FACTURA");
   const [almacenNombre, setAlmacenNombre] = useState("ALMACEN PRINCIPAL");
   const [productosNoEncontrados, setProductosNoEncontrados] = useState<ProductoNoEncontrado[]>([]);
@@ -420,6 +423,11 @@ export default function NuevaCompra() {
               for (const it of r.items) m.set(it.productName, it);
               setComparacionPrecios(m);
             } }
+        );
+        // Alerta de psicotrópicos: ¿llegó alguno en esta factura?
+        detectarPsico.mutate(
+          { items: mappedItems.map((i: any) => ({ productName: i.productName || "", quantity: i.quantity || 0 })) },
+          { onSuccess: (r: any) => setPsicoDetectados(Array.isArray(r) ? r : []) }
         );
             if (result.supplier) {
               setSupplier(result.supplier);
@@ -1054,6 +1062,28 @@ export default function NuevaCompra() {
               </div>
             </CardHeader>
             <CardContent>
+              {/* ALERTA: llegaron psicotrópicos en esta factura → registrar en el libro legal */}
+              {psicoDetectados.length > 0 && (
+                <div className="mb-3 p-3 rounded-lg bg-violet-50 dark:bg-violet-950/20 border border-violet-300">
+                  <p className="text-xs font-black text-violet-800 dark:text-violet-300 mb-1">
+                    💊 Esta factura trae {psicoDetectados.length} psicotrópico(s) — deben registrarse en el libro legal
+                  </p>
+                  <ul className="text-[11px] text-violet-700 dark:text-violet-400 mb-2 space-y-1">
+                    {psicoDetectados.map((p: any, i: number) => (
+                      <li key={i} className="flex items-center justify-between gap-2">
+                        <span>• {p.nombreComercial} ({p.dci}) — {p.cantidad} unidad(es)</span>
+                        <a
+                          href={`/psicotropicos?productoId=${p.productoId}&cantidad=${p.cantidad}&tipo=ingreso${receiptNumber ? `&factura=${encodeURIComponent(receiptNumber)}` : ""}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="shrink-0 h-7 px-2 rounded-lg bg-violet-600 text-white text-[10px] font-bold">
+                          Registrar →
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[10px] text-violet-600 dark:text-violet-500">Se abre el libro con el producto, la cantidad y la factura ya cargados — solo adjunta la foto de la factura.</p>
+                </div>
+              )}
               {/* Resumen de inteligencia de precios: de un vistazo, si hace falta revisar algo */}
               {comparacionPrecios.size > 0 && (() => {
                 const vals = Array.from(comparacionPrecios.values());
