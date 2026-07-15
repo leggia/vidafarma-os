@@ -53,7 +53,14 @@ export default function NuevaTransferencia() {
   const utils = trpc.useUtils();
   const uploadAndExtract = trpc.transfers.uploadAndExtract.useMutation();
   const emparejar = trpc.transfers.emparejar.useMutation();
+  const dictarLista = trpc.transfers.dictarLista.useMutation();
   const [buscandoFila, setBuscandoFila] = useState<number | null>(null);
+  // Dictado por voz: grabar → Whisper → productos+cantidades → mismo emparejado
+  const [grabando, setGrabando] = useState(false);
+  const [procesandoVoz, setProcesandoVoz] = useState(false);
+  const [textoDictado, setTextoDictado] = useState("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   // Empareja una lista de items leídos contra el catálogo real y devuelve
   // items con el nombre sugerido aplicado + candidatos para corregir a un toque.
@@ -123,6 +130,47 @@ export default function NuevaTransferencia() {
     },
     []
   );
+
+  // ── Dictado por voz ──
+  const iniciarDictado = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        if (blob.size < 1000) { toast.error("Grabación muy corta"); return; }
+        setProcesandoVoz(true);
+        try {
+          const b64 = await new Promise<string>((res, rej) => {
+            const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob);
+          });
+          const r: any = await dictarLista.mutateAsync({ audioBase64: b64, mimeType: blob.type });
+          if (r.textoDictado) setTextoDictado(r.textoDictado);
+          if (r.error) { toast.error(r.error, { duration: 7000 }); return; }
+          const emparejados = await emparejarItems(r.items);
+          // El dictado SUMA a lo que ya haya en la lista (se puede dictar por tandas)
+          setItems((prev) => [...prev, ...emparejados]);
+          setExtracted(true);
+          const conMatch = emparejados.filter((i: any) => i.confianza && i.confianza !== "sin_match").length;
+          toast.success(`${r.items.length} producto(s) dictado(s) · ${conMatch} emparejado(s) con el catálogo`, { duration: 6000 });
+        } catch (e: any) {
+          toast.error("No se pudo procesar el dictado: " + (e?.message || ""));
+        } finally { setProcesandoVoz(false); }
+      };
+      mediaRecorderRef.current = rec;
+      rec.start();
+      setGrabando(true);
+    } catch {
+      toast.error("No se pudo acceder al micrófono. Revisa los permisos del navegador.");
+    }
+  };
+  const detenerDictado = () => {
+    mediaRecorderRef.current?.stop();
+    setGrabando(false);
+  };
 
   const handleExtract = useCallback(async () => {
     if (!file) return;
@@ -243,6 +291,28 @@ export default function NuevaTransferencia() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* DICTADO POR VOZ: alternativa rápida a la foto — dictar la lista */}
+              <div className="mb-4 p-3 rounded-lg border border-dashed">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">🎤 O dicta la lista por voz</p>
+                <button
+                  type="button"
+                  onClick={grabando ? detenerDictado : iniciarDictado}
+                  disabled={procesandoVoz}
+                  className={`w-full h-12 rounded-xl font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50 ${
+                    grabando ? "bg-red-600 text-white animate-pulse" : "bg-primary text-primary-foreground"
+                  }`}
+                >
+                  {procesandoVoz ? (<><Loader2 className="h-4 w-4 animate-spin" /> Entendiendo el dictado…</>)
+                    : grabando ? (<>⏹ Detener y procesar</>)
+                    : (<>🎤 Dictar lista</>)}
+                </button>
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Di la cantidad y el producto: <b>"cinco paracetamol 500, tres amoxicilina 500, dos ibuprofeno 400"</b>. Puedes dictar por tandas — se van sumando.
+                </p>
+                {textoDictado && (
+                  <p className="text-[10px] text-muted-foreground mt-1.5 italic border-t pt-1.5">Se escuchó: "{textoDictado}"</p>
+                )}
+              </div>
               {previewUrl ? (
                 <div className="space-y-3">
                   <div className="border border-foreground/10 rounded overflow-hidden">

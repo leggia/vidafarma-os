@@ -30,6 +30,7 @@ import FlujoCaja from "./pages/FlujoCaja";
 import Contingencia from "./pages/Contingencia";
 import Dispensacion from "./pages/Dispensacion";
 import Psicotropicos from "./pages/Psicotropicos";
+import Contactos from "./pages/Contactos";
 import { useAuth } from "./_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { LogOut } from "lucide-react";
@@ -96,9 +97,13 @@ function Router() {
           <Route path="/contingencia" component={Contingencia} />
         <Route path="/dispensacion" component={Dispensacion} />
         <Route path="/psicotropicos" component={Psicotropicos} />
+        <Route path="/contactos" component={Contactos} />
           <Route path="/dispensacion" component={Dispensacion} />
         <Route path="/psicotropicos" component={Psicotropicos} />
+        <Route path="/contactos" component={Contactos} />
           <Route path="/psicotropicos" component={Psicotropicos} />
+        <Route path="/contactos" component={Contactos} />
+          <Route path="/contactos" component={Contactos} />
           <Route path="/fotos" component={FotosProductos} />
           <Route path="/asistencia" component={Asistencia} />
           <Route path="/reservas" component={Reservas} />
@@ -120,6 +125,7 @@ function Router() {
           <div className="flex items-center gap-4">
             <a href="/contingencia" className="text-xs font-bold text-red-600">Contingencia</a>
             <a href="/dispensacion" className="text-xs font-bold text-indigo-600">Controlados</a>
+            <a href="/contactos" className="text-xs font-bold text-sky-600">Contactos</a>
             <BotonCerrarSesion />
           </div>
         </div>
@@ -129,8 +135,10 @@ function Router() {
           <Route path="/contingencia" component={Contingencia} />
         <Route path="/dispensacion" component={Dispensacion} />
         <Route path="/psicotropicos" component={Psicotropicos} />
+        <Route path="/contactos" component={Contactos} />
           <Route path="/dispensacion" component={Dispensacion} />
         <Route path="/psicotropicos" component={Psicotropicos} />
+        <Route path="/contactos" component={Contactos} />
           <Route component={Consulta} />
         </Switch>
       </div>
@@ -161,6 +169,7 @@ function Router() {
         <Route path="/contingencia" component={Contingencia} />
         <Route path="/dispensacion" component={Dispensacion} />
         <Route path="/psicotropicos" component={Psicotropicos} />
+        <Route path="/contactos" component={Contactos} />
         <Route path="/consulta" component={Consulta} />
         <Route path="/asistente" component={Asistente} />
         <Route path="/404" component={NotFound} />

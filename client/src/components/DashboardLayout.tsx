@@ -35,7 +35,7 @@ import {
   Users,
   Plus,
   Sparkles,
-  HeartHandshake, Megaphone, Landmark, Wallet2, LineChart, ShieldAlert, ShieldCheck, Pill } from "lucide-react";
+  HeartHandshake, Megaphone, Landmark, Wallet2, LineChart, ShieldAlert, ShieldCheck, Pill, Contact } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -50,6 +50,7 @@ const menuItems = [
   { icon: ShieldAlert, label: "Contingencia", path: "/contingencia" },
   { icon: ShieldCheck, label: "Controlados", path: "/dispensacion" },
   { icon: Pill, label: "Psicotrópicos", path: "/psicotropicos" },
+  { icon: Contact, label: "Contactos", path: "/contactos" },
   { icon: ShoppingCart, label: "Reservas", path: "/reservas" },
   { icon: Users, label: "Asistencia", path: "/asistencia" },
   { icon: TrendingUp, label: "Reportes", path: "/reportes", soloAdmin: true },

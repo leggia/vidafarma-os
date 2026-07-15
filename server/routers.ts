@@ -705,6 +705,59 @@ INSTRUCCIONES IMPORTANTES:
       };
     }),
 
+  // DICTADO POR VOZ de la lista de transferencia: audio → Whisper (español) →
+  // el modelo separa productos y cantidades → mismos {productName, quantity} que
+  // la foto, para reutilizar tal cual el flujo de emparejar/confirmar ya probado.
+  // No usa audio conversacional (caro e innecesario): dictar no es conversar.
+  dictarLista: protectedProcedure
+    .input(z.object({ audioBase64: z.string().max(20_000_000), mimeType: z.string() }))
+    .mutation(async ({ input }) => {
+      const { transcribirAudio } = await import("./_core/llm");
+      const buffer = Buffer.from(input.audioBase64, "base64");
+      let texto = "";
+      try {
+        texto = await transcribirAudio(buffer, input.mimeType, "dictado.webm");
+      } catch (e: any) {
+        return { error: "No se pudo transcribir el audio. Intenta de nuevo, hablando cerca del micrófono." };
+      }
+      if (!texto || texto.trim().length < 3) return { error: "No se escuchó nada. Acerca el micrófono y vuelve a dictar." };
+
+      const llmResult = await invokeLLM({
+        messages: [
+          { role: "system", content: "Extraes listas de productos de farmacia dictadas en voz alta (español boliviano). Respondes SOLO JSON válido." },
+          { role: "user", content: `Este texto es una lista de productos DICTADA en voz alta por el personal de una farmacia para una transferencia entre sucursales:
+
+"${texto}"
+
+Extrae cada producto con su cantidad. Reglas:
+- Las cantidades suelen decirse ANTES del producto ("cinco paracetamol") pero a veces después ("paracetamol, cinco"). Interpreta con sentido común.
+- Los números dictados en palabras van a dígitos: "cinco" → 5, "quince" → 15, "veinticinco" → 25.
+- OJO: la concentración/dosis es parte del NOMBRE, no la cantidad. En "tres amoxicilina de quinientos", la cantidad es 3 y el producto es "amoxicilina 500". En "dos ibuprofeno cuatrocientos", cantidad 2, producto "ibuprofeno 400".
+- Si de un producto no se dice cantidad, asume 1.
+- Ignora muletillas ("eh", "a ver", "también", "y") y frases que no sean productos.
+- Escribe el nombre tal como se entendió, sin inventar ni completar marcas.
+
+Devuelve SOLO este JSON:
+{"items":[{"productName":"nombre del producto","quantity": numero_entero}]}` },
+        ],
+        temperature: 0,
+      });
+
+      let extracted: any = { items: [] };
+      try {
+        const content = (llmResult.choices[0]?.message?.content || "").replace(/```json|```/g, "").trim();
+        extracted = JSON.parse(content);
+      } catch (e) {
+        return { error: "No entendí la lista dictada. Intenta decir: 'cinco paracetamol 500, tres amoxicilina 500'.", textoDictado: texto };
+      }
+      const items = (extracted.items || [])
+        .filter((i: any) => i?.productName && String(i.productName).trim())
+        .map((i: any) => ({ productName: String(i.productName).trim(), quantity: Math.max(1, Math.round(Number(i.quantity) || 1)) }));
+      if (items.length === 0) return { error: "No se reconocieron productos en el dictado.", textoDictado: texto };
+      // textoDictado se devuelve SIEMPRE para que se vea qué se entendió (transparencia)
+      return { items, textoDictado: texto };
+    }),
+
   // Emparejar los nombres extraídos de la lista MANUSCRITA contra el catálogo real.
   // Resuelve el problema de la letra variable de cada trabajadora: la visión
   // transcribe con errores y este endpoint devuelve, por ítem, los candidatos del
@@ -2912,6 +2965,7 @@ async function ejecutarHerramienta(nombre: string, args: any, usuario?: { id?: s
       case "margenProductos": return await asistenteTools.margenProductos(args.orden, args.sucursal);
       case "resumenEjecutivo": return await asistenteTools.resumenEjecutivo();
       case "usoIA": return await asistenteTools.usoIA(args.dias);
+      case "buscarContacto": return await asistenteTools.buscarContacto(args.consulta, args.tipo);
       case "cambiarPrecioVenta": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.cambiarPrecioVenta(args.nombreProducto, args.nuevoPrecio); }
       case "aumentarStock": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.aumentarStock(args.nombreProducto, args.sucursal, args.cantidad, args.nuevoTotal); }
       case "marcarGastoPagado": { const { accionesTools } = await import("./asistente-acciones"); return await accionesTools.marcarGastoPagado(args.nombreGasto, args.sucursal); }
@@ -3047,6 +3101,7 @@ SUCURSALES: Petrolera, Lanza, Cobol (nombre completo "Casa Matriz Cobol" — "Co
         { type: "function" as const, function: { name: "productosSinRotacion", description: "Capital muerto: productos con stock que NO se venden hace N meses (default 3), con valor inmovilizado. Úsala para 'qué no rota', 'plata parada', 'productos estancados', 'qué no se vende'.", parameters: { type: "object", properties: { mesesSinVenta: { type: "number" }, proveedor: { type: "string" } } } } },
         { type: "function" as const, function: { name: "vencimientosProximos", description: "Productos comprados que vencen en los próximos N meses (default 4), según fechas registradas en compras. Úsala para 'qué vence pronto', 'vencimientos', 'productos por vencer'.", parameters: { type: "object", properties: { meses: { type: "number" } } } } },
         { type: "function" as const, function: { name: "margenProductos", description: "Margen de ganancia por producto (vendidos el mes pasado): con orden 'bajo' muestra los que casi no dejan ganancia (revisar precios), con 'alto' los más rentables. Úsala para 'qué productos me dejan poco margen', 'dónde gano más', 'productos poco rentables'.", parameters: { type: "object", properties: { orden: { type: "string", description: "'bajo' o 'alto'" }, sucursal: { type: "string" } } } } },
+        { type: "function" as const, function: { name: "buscarContacto", description: "Teléfono de un cliente o proveedor del directorio por su nombre o empresa. Úsala para 'dame el número de X', 'el celular de la empresa Y', 'contacto de Z'.", parameters: { type: "object", properties: { consulta: { type: "string" }, tipo: { type: "string", enum: ["cliente", "proveedor"] } }, required: ["consulta"] } } },
         { type: "function" as const, function: { name: "usoIA", description: "Uso y costo del propio asistente de IA (llamadas, tokens, % de cache y costo estimado en USD). Úsala para 'cuánto gastamos en IA', 'costo del asistente', 'uso de DeepSeek'.", parameters: { type: "object", properties: { dias: { type: "number" } } } } },
         { type: "function" as const, function: { name: "resumenEjecutivo", description: "Parte ejecutivo del negocio en una sola consulta: ventas de HOY por sucursal, ritmo del mes (acumulado vs mes anterior al mismo día), pagos pendientes, vencimientos a 30 días y cajas abiertas. Úsala para 'cómo está el negocio', 'resumen del día', 'cómo vamos', 'dame el parte'.", parameters: { type: "object", properties: {} } } },
         { type: "function" as const, function: { name: "cambiarPrecioVenta", description: "ACCIÓN (requiere confirmación): propone cambiar el precio de venta de un producto. NO se ejecuta hasta que el usuario confirme. Úsala cuando pidan 'cambia el precio de X a Y'.", parameters: { type: "object", properties: { nombreProducto: { type: "string" }, nuevoPrecio: { type: "number" } }, required: ["nombreProducto", "nuevoPrecio"] } } },
@@ -3559,6 +3614,37 @@ const psicoRouter = router({
   }),
 });
 
+// ─── DIRECTORIO DE CONTACTOS (clientes y proveedores con su celular) ───
+const contactosRouter = router({
+  buscar: protectedProcedure
+    .input(z.object({ q: z.string().max(120).optional(), tipo: z.enum(["cliente", "proveedor"]).optional() }).optional())
+    .query(async ({ input }) => {
+      const { contactos } = await import("./contactos");
+      return contactos.buscar(input?.q || "", input?.tipo);
+    }),
+  guardar: protectedProcedure
+    .input(z.object({
+      id: z.number().optional(),
+      nombre: z.string().min(1).max(200),
+      telefono: z.string().min(6).max(30),
+      tipo: z.enum(["cliente", "proveedor"]),
+      empresa: z.string().max(200).optional(),
+      email: z.string().max(320).optional(),
+      nota: z.string().max(400).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { contactos } = await import("./contactos");
+      return contactos.guardar(input);
+    }),
+  eliminar: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      soloFinanzas(ctx);
+      const { contactos } = await import("./contactos");
+      return contactos.eliminar(input.id);
+    }),
+});
+
 // Estado del sistema (modo staging, etc.) — público, para que el banner de
 // aviso se vea incluso antes de iniciar sesión.
 const sistemaRouter = router({
@@ -3600,6 +3686,7 @@ export const appRouter = router({
   sistema: sistemaRouter,
   dispensacion: dispensacionRouter,
   psico: psicoRouter,
+  contactos: contactosRouter,
   fidelizacion: fidelizacionRouter,
   marketing: marketingRouter,
   creditos: creditosRouter,

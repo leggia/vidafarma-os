@@ -1128,6 +1128,20 @@ export const asistenteTools = {
   // 21. RESUMEN EJECUTIVO: el panorama del negocio en una sola consulta.
   // Ventas de hoy, ritmo del mes vs mes anterior al mismo día, pagos pendientes,
   // vencimientos cercanos y cajas abiertas.
+  // Directorio: teléfono de un cliente o proveedor ("el número de Bagó")
+  async buscarContacto(consulta: string, tipo?: string) {
+    const { contactos } = await import("./contactos");
+    const t = tipo === "cliente" || tipo === "proveedor" ? tipo : undefined;
+    const r = await contactos.buscar(consulta || "", t as any);
+    if (r.length === 0) return { nota: `No tengo a "${consulta}" en el directorio de contactos.` };
+    return {
+      contactos: r.slice(0, 5).map((c: any) => ({
+        nombre: c.nombre, telefono: c.telefono, tipo: c.tipo,
+        ...(c.empresa ? { empresa: c.empresa } : {}),
+      })),
+    };
+  },
+
   // Uso y costo del propio asistente (DeepSeek V4 Flash), con hit-rate del caché
   async usoIA(dias?: number) {
     const { getDb } = await import("./db");
