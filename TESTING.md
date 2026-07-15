@@ -70,6 +70,20 @@ Verificar manualmente cuando se toca la tienda o los permisos:
   de cada endpoint que toca esa tabla — nunca dejarla inline en un solo lugar.
   Cubierto parcialmente por `scripts/verificar.mjs` (ver más abajo), pero requiere
   también revisión manual al agregar columnas a una tabla existente.
+- **La misma trampa, CRUZANDO ARCHIVOS** (v2.22.1, Reservas colgada): la columna
+  `reservas_tienda.estadoPago` la agregaba un `ALTER TABLE` dentro de `pagos.ts`,
+  pero `tienda.ts` la SELECCIONABA en `listarReservas`. Al abrir /reservas antes de
+  que corriera cualquier endpoint de pagos, la query fallaba con "Unknown column",
+  react-query reintentaba, y la UI **se quedaba cargando para siempre** (no mostraba
+  error porque solo miraba `isFetching && !data`). Dos aprendizajes:
+  1. **La migración de una columna consultada por VARIOS módulos debe correr al
+     ARRANCAR** (bloque de `_core/index.ts`, junto a `crearTablasVentas` /
+     `crearTablasGastos`), no de forma perezosa dentro del `asegurarTablas` de un
+     módulo. Así ningún módulo puede ganarle la carrera.
+  2. **En el frontend, un error nunca debe verse como carga.** Toda pantalla que
+     muestre "Cargando…" debe capturar `error` de la query y mostrar un estado de
+     error con botón de reintentar (igual que se hizo en Inventario en v2.10.3).
+  Ambos casos los detecta ahora `verificar.mjs` (chequeo cruzado de archivos).
 
 ## Smoke tests (lógica crítica, sin BD)
 

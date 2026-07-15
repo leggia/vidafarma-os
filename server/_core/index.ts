@@ -450,6 +450,12 @@ async function startServer() {
           await crearTablasVentas();
           const { crearTablasGastos } = await import("../tablas-gastos");
           await crearTablasGastos();
+          // Columnas de tienda (productos_cache.descripcion/imagenUrl,
+          // reservas_tienda.emailCliente/estadoPago): las consultan varios
+          // módulos, así que deben existir sí o sí, no solo cuando alguien entra
+          // a la tienda. Ver TESTING.md (lección v2.10.3 / v2.22.1).
+          const { asegurarTablasTienda } = await import("../tienda");
+          await asegurarTablasTienda();
         } catch (e) {
           console.warn("[Startup] Error creando tablas de ventas:", e);
         }

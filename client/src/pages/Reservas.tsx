@@ -16,7 +16,7 @@ const TABS = [
 export default function Reservas() {
   const [tab, setTab] = useState<string>("pendiente");
   const utils = trpc.useUtils();
-  const { data: reservas, isFetching } = trpc.tienda.listarReservas.useQuery(
+  const { data: reservas, isFetching, error } = trpc.tienda.listarReservas.useQuery(
     { estado: tab },
     { refetchInterval: 30000 }
   );
@@ -64,8 +64,15 @@ export default function Reservas() {
         ))}
       </div>
 
-      {isFetching && !reservas && <p className="text-sm text-muted-foreground py-8 text-center">Cargando…</p>}
-      {reservas?.length === 0 && (
+      {isFetching && !reservas && !error && <p className="text-sm text-muted-foreground py-8 text-center">Cargando…</p>}
+      {error && (
+        <div className="text-center py-10 border border-dashed border-red-300 rounded-xl bg-red-50 dark:bg-red-950/10">
+          <p className="text-sm font-bold text-red-700">No se pudieron cargar las reservas</p>
+          <p className="text-xs text-red-600 mb-3">Esto NO significa que se hayan perdido — es un error al cargar la lista.</p>
+          <button onClick={() => utils.tienda.listarReservas.invalidate()} className="h-9 px-3 rounded-lg bg-white dark:bg-card border text-xs font-bold">Reintentar</button>
+        </div>
+      )}
+      {!error && reservas?.length === 0 && (
         <p className="text-sm text-muted-foreground py-10 text-center">No hay reservas {TABS.find(t => t.id === tab)?.txt.toLowerCase()}.</p>
       )}
 

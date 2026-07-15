@@ -18,6 +18,12 @@ export { esControlado, CONTROLADOS };
 
 // ─── Tablas (idempotente) ───
 let tablasListas = false;
+// Exportada para poder ejecutarla AL ARRANCAR (como crearTablasVentas/Gastos):
+// varios módulos (fotos-productos, inventarios365, routers, puntos-fidelidad)
+// consultan columnas que esta función agrega (productos_cache.descripcion /
+// .imagenUrl, reservas_tienda.emailCliente / .estadoPago). Si corrían antes que
+// cualquier endpoint de tienda, fallaban con "Unknown column". Lección v2.10.3.
+export async function asegurarTablasTienda() { return asegurarTablas(); }
 async function asegurarTablas() {
   if (tablasListas) return;
   const db = await getDb();
@@ -50,6 +56,14 @@ async function asegurarTablas() {
   } catch { /* ya existe */ }
   try {
     await db.execute(sql.raw("ALTER TABLE reservas_tienda ADD COLUMN emailCliente VARCHAR(320)"));
+  } catch { /* ya existe */ }
+  try {
+    // estadoPago la agrega también pagos.ts, pero las consultas de ESTE módulo
+    // (listarReservas, misReservas) la SELECCIONAN — si Reservas se abre antes de
+    // que corra cualquier endpoint de pagos, la columna no existe y la query falla
+    // ("Unknown column"), lo que en la UI se veía como "Cargando…" eterno.
+    // Lección v2.10.3: la migración va al inicio de TODOS los módulos que tocan la tabla.
+    await db.execute(sql.raw("ALTER TABLE reservas_tienda ADD COLUMN estadoPago VARCHAR(20) NOT NULL DEFAULT 'no_pagado'"));
   } catch { /* ya existe */ }
   try {
     await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS ofertas_tienda (

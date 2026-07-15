@@ -15,7 +15,8 @@
  *   node scripts/verificar.mjs file1 ...  → verifica archivos específicos
  */
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
 const args = process.argv.slice(2);
 let archivos = [];
@@ -148,6 +149,73 @@ function chequearMigracionCompartida(contenido) {
   return problemas;
 }
 
+// ─── 1d. Columna consultada SIN su migración en el mismo módulo (v2.22.1) ───
+// El bug real que rompió Reservas: la columna `estadoPago` se agrega con un
+// ALTER TABLE dentro de pagos.ts, pero tienda.ts la SELECCIONA. Si se abre
+// Reservas antes de que corra cualquier endpoint de pagos, la columna no existe
+// todavía → "Unknown column" → la query falla → la UI se queda cargando para
+// siempre. Este chequeo CRUZA ARCHIVOS: si un archivo consulta (tabla, columna)
+// que otro archivo agrega por ALTER, ese archivo debe tener también el ALTER.
+function mapaAlters(dirServer) {
+  // { "tabla.columna": Set<archivo que la agrega> }
+  const mapa = new Map();
+  const stack = [dirServer];
+  const archivosServer = [];
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.name.endsWith(".ts")) archivosServer.push(p);
+    }
+  }
+  // Módulos cuya migración corre al ARRANCAR el servidor (_core/index.ts): sus
+  // columnas ya existen para cuando cualquier endpoint consulta → están cubiertas
+  // y no deben generar aviso (evita ruido y que el chequeo se vuelva ignorable).
+  const cubiertosAlArrancar = new Set();
+  try {
+    const rutaIndex = join(dirServer, "_core", "index.ts");
+    const idx = readFileSync(rutaIndex, "utf8");
+    cubiertosAlArrancar.add(rutaIndex); // los ALTER escritos en el propio arranque
+    const reImport = /await\s+import\(["']\.\.\/([\w-]+)["']\)/g;
+    let mi;
+    while ((mi = reImport.exec(idx)) !== null) cubiertosAlArrancar.add(join(dirServer, `${mi[1]}.ts`));
+  } catch { /* sin index */ }
+
+  const re = /ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)/gi;
+  for (const f of archivosServer) {
+    const c = readFileSync(f, "utf8");
+    let m;
+    while ((m = re.exec(c)) !== null) {
+      const clave = `${m[1]}.${m[2]}`;
+      if (cubiertosAlArrancar.has(f)) { mapa.set(clave, "startup"); continue; }
+      if (mapa.get(clave) === "startup") continue;
+      if (!mapa.has(clave)) mapa.set(clave, new Set());
+      mapa.get(clave).add(f);
+    }
+  }
+  return mapa;
+}
+
+function chequearColumnaSinMigracion(archivo, contenido, mapa) {
+  const problemas = [];
+  if (!archivo.includes("server/")) return problemas;
+  for (const [clave, archivosQueLaAgregan] of mapa) {
+    if (archivosQueLaAgregan === "startup") continue; // migración corre al arrancar: cubierta
+    const [tabla, columna] = clave.split(".");
+    // ¿Este archivo YA tiene el ALTER? Entonces está cubierto.
+    if (archivosQueLaAgregan.has(archivo)) continue;
+    // ¿Este archivo consulta esa tabla Y menciona esa columna?
+    const usaTabla = new RegExp(`FROM\\s+${tabla}\\b|UPDATE\\s+${tabla}\\b|INTO\\s+${tabla}\\b`, "i").test(contenido);
+    if (!usaTabla) continue;
+    const usaColumna = new RegExp(`\\b${columna}\\b`).test(contenido);
+    if (!usaColumna) continue;
+    const quien = [...archivosQueLaAgregan].map((f) => f.split("/").pop()).join(", ");
+    problemas.push(`   ⚠ Usa la columna '${columna}' de '${tabla}', pero el ALTER que la crea está solo en ${quien} (migración perezosa, no corre al arrancar). Si este módulo se ejecuta primero, falla con "Unknown column" — en la UI se ve como carga eterna o lista vacía. Agrega el mismo ALTER idempotente aquí — ver TESTING.md (lección v2.10.3 / v2.22.1).`);
+  }
+  return problemas;
+}
+
 // ─── 2. Balance de llaves y paréntesis ───
 function chequearBalance(contenido) {
   let llaves = 0, parentesis = 0;
@@ -204,6 +272,9 @@ function chequearCompilacion(archivo) {
 }
 
 // ─── Ejecutar ───
+// Mapa (tabla.columna → archivos que la agregan por ALTER), para el chequeo
+// cruzado de columnas consultadas sin su migración. Se construye una sola vez.
+const ALTERS = existsSync("server") ? mapaAlters("server") : new Map();
 for (const archivo of archivos) {
   const contenido = readFileSync(archivo, "utf8");
   // Nota: el balance de llaves/paréntesis se omite como bloqueante porque da falsos
@@ -214,6 +285,7 @@ for (const archivo of archivos) {
     ...chequearUseBeforeDeclaration(archivo, contenido),
     ...chequearReexportSinBinding(archivo, contenido),
     ...chequearMigracionCompartida(contenido),
+    ...chequearColumnaSinMigracion(archivo, contenido, ALTERS),
     ...chequearCompilacion(archivo),
   ];
   if (problemas.length > 0) {
