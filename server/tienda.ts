@@ -385,6 +385,31 @@ export const tienda = {
     `);
     return `Oferta activa: ${nombreProducto} a Bs ${precioOferta}${hasta ? " hasta " + hasta : ""} (normal Bs ${precioNormal}).`;
   },
+  // Ocultar / mostrar un producto en la TIENDA ONLINE (marca ocultoTienda).
+  // Reversible y no toca 365: el producto sigue vendiéndose en mostrador y su
+  // stock/historial quedan intactos — solo deja de aparecer para los clientes.
+  async ocultarDeTienda(nombreProducto: string) {
+    await asegurarTablas();
+    const db = await getDb();
+    if (!db) throw new Error("Sin BD");
+    const like = `%${String(nombreProducto || "").trim()}%`;
+    const encontrados = rows(await db.execute(sql`SELECT nombre FROM productos_cache WHERE nombre LIKE ${like} LIMIT 6`));
+    if (encontrados.length === 0) return { ok: false, mensaje: `No encontré "${nombreProducto}" en el catálogo.` };
+    if (encontrados.length > 1) {
+      return { ok: false, mensaje: `Hay ${encontrados.length} productos que coinciden: ${encontrados.map((p: any) => p.nombre).join(", ")}. Sé más específico.` };
+    }
+    const nombre = String(encontrados[0].nombre);
+    await db.execute(sql`UPDATE productos_cache SET ocultoTienda = 1 WHERE nombre = ${nombre}`);
+    return { ok: true, mensaje: `"${nombre}" ya no aparece en la tienda online. Sigue vendiéndose normal en mostrador; para volver a mostrarlo, pídeme "mostrar en la tienda".` };
+  },
+  async mostrarEnTienda(nombreProducto: string) {
+    await asegurarTablas();
+    const db = await getDb();
+    if (!db) throw new Error("Sin BD");
+    const like = `%${String(nombreProducto || "").trim()}%`;
+    const r: any = await db.execute(sql`UPDATE productos_cache SET ocultoTienda = 0 WHERE nombre LIKE ${like}`);
+    return { ok: true, mensaje: `"${nombreProducto}" vuelve a aparecer en la tienda online.` };
+  },
   async quitarOferta(nombreProducto: string) {
     await asegurarTablas();
     const db = await getDb();

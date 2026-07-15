@@ -332,6 +332,47 @@ export const accionesTools = {
     return proponer("quitarOferta", { nombreProducto: n }, `Quitar la oferta de "${n}" de la tienda.`);
   },
 
+  // Proponer: RETIRAR un producto de circulación (stock a 0 en una sucursal).
+  // NOTA: inventarios365 NO expone API para BORRAR un producto del catálogo, y
+  // borrarlo sería peligroso (el historial de ventas lo referencia y, si fue un
+  // controlado, su registro es legalmente obligatorio). El equivalente seguro y
+  // reversible es dejar su stock en 0: deja de venderse, el historial queda intacto.
+  async retirarProducto(nombreProducto: string, sucursal: string) {
+    const n = String(nombreProducto || "").trim();
+    if (n.length < 3) return { error: "Falta el nombre del producto." };
+    if (!sucursal) return { error: "¿De qué sucursal lo retiro? (Petrolera, Lanza, Cobol o Casa Matriz)" };
+    const almacen = resolverAlmacen(sucursal);
+    if (!almacen) return { error: `No reconozco la sucursal "${sucursal}". Usa: Petrolera, Lanza, Cobol o Casa Matriz (Honduras/Central).` };
+
+    // Stock FRESCO (nunca proponer un retiro con datos viejos)
+    const { obtenerStockAlmacen } = await import("./stock-cache");
+    const { lista } = await obtenerStockAlmacen(almacen.id, { ttlSeg: 60, fallbackCache: false });
+    const palabras = n.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = lista.filter((p: any) => {
+      const texto = `${p.nombre} ${p.codigo || ""}`.toLowerCase();
+      return palabras.every((w) => texto.includes(w));
+    });
+    if (matches.length === 0) return { error: `No encontré "${n}" en ${almacen.nombre}. Verifica el nombre.` };
+    if (matches.length > 1) {
+      return { error: `Hay ${matches.length} productos que coinciden con "${n}" en ${almacen.nombre}: ${matches.slice(0, 5).map((m: any) => m.nombre).join(", ")}. Sé más específico.` };
+    }
+    const p = matches[0];
+    const stockActual = Number(p.stock) || 0;
+    if (stockActual === 0) return { nota: `"${p.nombre}" ya está en 0 en ${almacen.nombre} — no hay nada que retirar.` };
+    return proponer(
+      "retirarProducto",
+      { articuloId: p.id, nombre: p.nombre, almacenId: almacen.id, almacenNombre: almacen.nombre, stockAnterior: stockActual },
+      `RETIRAR "${p.nombre}" de ${almacen.nombre}: su stock pasa de ${stockActual} a 0 (deja de venderse). El historial y el producto NO se borran — inventarios365 no permite borrar productos, y tampoco conviene. Si además quieres sacarlo de la tienda online, pídeme "ocultar de la tienda".`
+    );
+  },
+
+  // Proponer: ocultar un producto de la TIENDA ONLINE (reversible, no toca 365)
+  async ocultarDeTienda(nombreProducto: string) {
+    const n = String(nombreProducto || "").trim();
+    if (n.length < 3) return { error: "Falta el nombre del producto." };
+    return proponer("ocultarDeTienda", { nombreProducto: n }, `Ocultar "${n}" de la tienda online (deja de aparecer para los clientes). No afecta el stock ni la venta en mostrador; es reversible.`);
+  },
+
   // Proponer: crear cupón
   async crearCupon(codigo: string, tipo: string, valor: number, minimo?: number, usosMax?: number, hastaFecha?: string) {
     const cod = String(codigo || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -405,6 +446,23 @@ export const accionesTools = {
         const { tienda } = await import("./tienda");
         resultado = await tienda.quitarOferta(params.nombreProducto);
         await auditar("quitarOferta", a.resumen, "activa", "inactiva", "OK", quien);
+      } else if (a.tipo === "retirarProducto") {
+        // Retirar = stock a 0 en 365 (mismo mecanismo que un ajuste de inventario).
+        // Reversible: se puede volver a cargar stock cuando llegue mercadería.
+        const { inventarios365 } = await import("./inventarios365");
+        const r = await inventarios365.ajustarInventario({
+          almacenId: num(params.almacenId),
+          motivoId: 2, // Ajuste periódico
+          ajustes: [{ productoId: num(params.articuloId), inventarioId: null, stockAnterior: num(params.stockAnterior), stockReal: 0, fechaVencimiento: null }],
+        });
+        resultado = r.ok
+          ? { ok: true, mensaje: `"${params.nombre}" retirado de ${params.almacenNombre}: stock ${params.stockAnterior} → 0.` }
+          : { ok: false, mensaje: `No se pudo retirar: ${r.mensaje}` };
+        await auditar("retirarProducto", a.resumen, String(params.stockAnterior), "0", r.ok ? "OK" : "ERROR", quien);
+      } else if (a.tipo === "ocultarDeTienda") {
+        const { tienda } = await import("./tienda");
+        resultado = await tienda.ocultarDeTienda(params.nombreProducto);
+        await auditar("ocultarDeTienda", a.resumen, "visible", "oculto", "OK", quien);
       } else if (a.tipo === "crearCupon") {
         const { promociones } = await import("./promociones");
         resultado = await promociones.crearCupon(params.codigo, params.tipo, num(params.valor), num(params.minimo), num(params.usosMax), params.hastaFecha);
