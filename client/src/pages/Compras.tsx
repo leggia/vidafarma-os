@@ -283,7 +283,7 @@ export default function Compras() {
                     </div>
                     <Button
                       onClick={() => corregirAuditados.mutate({
-                        productos: auditoria.data!.incorrectos.map((x: any) => ({ nombreEn365: x.nombreEn365, precioEsperado: x.precioEsperado })),
+                        productos: auditoria.data!.incorrectos.map((x: any) => ({ nombreEn365: x.nombreEn365, precioEsperado: x.precioEsperado, articuloId: x.articuloId ?? null })),
                       })}
                       disabled={corregirAuditados.isPending}
                       className="w-full gap-2 font-bold"

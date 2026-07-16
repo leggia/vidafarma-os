@@ -8,7 +8,7 @@
 // y similitud de BIGRAMAS (coeficiente de Dice) — robusta a errores de ortografía,
 // abreviaciones y orden distinto de palabras.
 
-const normalizar = (s: string) =>
+export const normalizar = (s: string) =>
   String(s || "")
     .toLowerCase()
     .normalize("NFD")

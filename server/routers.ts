@@ -83,28 +83,32 @@ const purchasesRouter = router({
         return { error: "No se pudo leer el catálogo de inventarios365 para comparar. Intenta de nuevo en un momento." };
       }
 
-      // 4. Emparejar por nombre (difuso, tolera diferencias) y comparar precios
-      const { mejoresCandidatos } = await import("./domain/emparejar");
-      const nombres365 = catalogo.map((a: any) => String(a.nombre || ""));
-      const porNombre365 = new Map(catalogo.map((a: any) => [String(a.nombre || ""), a]));
+      // 4. Emparejar por nombre y comparar precios.
+      // RENDIMIENTO (v2.28.1): antes se comparaba CADA producto contra TODO el
+      // catálogo con el motor difuso — con ~200 productos y ~5.000 artículos son
+      // 1.000.000 de comparaciones caras (normalizar + bigramas en cada una) y la
+      // auditoría se colgaba 20+ min. Ahora: índice normalizado → búsqueda O(1)
+      // para la enorme mayoría, y difuso SOLO para los pocos que no calcen, con
+      // tope estricto para no volver a colgarse.
+      const { mejoresCandidatos, normalizar } = await import("./domain/emparejar");
+      const indice = new Map<string, any>();
+      for (const a of catalogo) {
+        const clave = normalizar(String(a.nombre || ""));
+        if (clave && !indice.has(clave)) indice.set(clave, a);
+      }
       const incorrectos: any[] = [];
       const noEncontrados: any[] = [];
       let correctos = 0;
 
-      for (const u of ultimos) {
-        const cands = mejoresCandidatos(u.productName, nombres365, 1);
-        const mejor = cands[0];
-        if (!mejor || mejor.confianza === "baja") {
-          noEncontrados.push({ producto: u.productName, precioEsperado: u.precioVenta });
-          continue;
-        }
-        const art: any = porNombre365.get(mejor.nombre);
+      const sinCalce: typeof ultimos = [];
+      const evaluar = (u: any, art: any, nombreEn365: string) => {
         const precio365 = parseFloat(String(art?.precio_uno || 0)) || 0;
-        if (Math.abs(precio365 - u.precioVenta) <= 0.01) { correctos++; continue; }
+        if (Math.abs(precio365 - u.precioVenta) <= 0.01) { correctos++; return; }
         const info = datosPorClave.get(u.productName.trim().toLowerCase()) || {};
         incorrectos.push({
           producto: u.productName,
-          nombreEn365: mejor.nombre,
+          nombreEn365,
+          articuloId: Number(art?.id) || null, // permite corregir sin volver a buscar
           precioEsperado: u.precioVenta,
           precioEn365: precio365,
           fecha: u.fecha,
@@ -112,6 +116,27 @@ const purchasesRouter = router({
           proveedor: info.supplier || null,
           factura: info.receiptNumber || null,
         });
+      };
+
+      for (const u of ultimos) {
+        const art = indice.get(normalizar(u.productName));
+        if (art) evaluar(u, art, String(art.nombre));
+        else sinCalce.push(u);
+      }
+
+      // Difuso solo para los que no calzaron exacto, y acotado: si son demasiados,
+      // no arriesgamos otro cuelgue — se listan para revisar a mano.
+      const TOPE_DIFUSO = 60;
+      const nombres365 = sinCalce.length > 0 ? catalogo.map((a: any) => String(a.nombre || "")) : [];
+      const porNombre365 = new Map(catalogo.map((a: any) => [String(a.nombre || ""), a]));
+      for (const u of sinCalce.slice(0, TOPE_DIFUSO)) {
+        const cands = mejoresCandidatos(u.productName, nombres365, 1);
+        const mejor = cands[0];
+        if (!mejor || mejor.confianza === "baja") { noEncontrados.push({ producto: u.productName, precioEsperado: u.precioVenta }); continue; }
+        evaluar(u, porNombre365.get(mejor.nombre), mejor.nombre);
+      }
+      for (const u of sinCalce.slice(TOPE_DIFUSO)) {
+        noEncontrados.push({ producto: u.productName, precioEsperado: u.precioVenta });
       }
       incorrectos.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
       return {
@@ -127,16 +152,30 @@ const purchasesRouter = router({
   // (no crea ingresos), verifica releyendo y reintenta — mismo motor que las
   // compras.
   corregirPreciosAuditados: protectedProcedure
-    .input(z.object({ productos: z.array(z.object({ nombreEn365: z.string(), precioEsperado: z.number() })).min(1).max(300) }))
+    .input(z.object({ productos: z.array(z.object({ nombreEn365: z.string(), precioEsperado: z.number(), articuloId: z.number().nullable().optional() })).min(1).max(300) }))
     .mutation(async ({ input }) => {
       const { inventarios365 } = await import("./inventarios365");
-      const items = input.productos.map((p) => ({ nombre: p.nombreEn365, precioVenta: p.precioEsperado }));
-      const r = await inventarios365.aplicarPreciosVenta(items);
+      // Con el id de 365 (que la auditoría ya trae) se corrige DIRECTO, sin una
+      // búsqueda de red por producto — eso hacía eterna la corrección en lote.
+      const conId = input.productos.filter((p) => p.articuloId && p.articuloId > 0);
+      const sinId = input.productos.filter((p) => !p.articuloId || p.articuloId <= 0);
+      const aplicados: string[] = [], fallidos: string[] = [], noEncontrados: string[] = [];
+
+      if (conId.length > 0) {
+        const r = await inventarios365.aplicarPreciosPorId(
+          conId.map((p) => ({ id: p.articuloId!, precio: p.precioEsperado, nombre: p.nombreEn365 }))
+        );
+        aplicados.push(...r.aplicados); fallidos.push(...r.fallidos);
+      }
+      if (sinId.length > 0) {
+        const r = await inventarios365.aplicarPreciosVenta(sinId.map((p) => ({ nombre: p.nombreEn365, precioVenta: p.precioEsperado })));
+        aplicados.push(...r.aplicados); fallidos.push(...r.fallidos); noEncontrados.push(...r.noEncontrados);
+      }
       const partes: string[] = [];
-      if (r.aplicados.length > 0) partes.push(`✅ ${r.aplicados.length} corregido(s)`);
-      if (r.fallidos.length > 0) partes.push(`❌ ${r.fallidos.length} no se pudo: ${r.fallidos.slice(0, 8).join(", ")}${r.fallidos.length > 8 ? "…" : ""}`);
-      if (r.noEncontrados.length > 0) partes.push(`⚠ ${r.noEncontrados.length} no encontrado(s) en 365`);
-      return { ok: r.fallidos.length === 0, mensaje: partes.join(" · ") || "Sin cambios.", ...r };
+      if (aplicados.length > 0) partes.push(`✅ ${aplicados.length} corregido(s)`);
+      if (fallidos.length > 0) partes.push(`❌ ${fallidos.length} no se pudo: ${fallidos.slice(0, 8).join(", ")}${fallidos.length > 8 ? "…" : ""}`);
+      if (noEncontrados.length > 0) partes.push(`⚠ ${noEncontrados.length} no encontrado(s) en 365`);
+      return { ok: fallidos.length === 0, mensaje: partes.join(" · ") || "Sin cambios.", aplicados, fallidos, noEncontrados };
     }),
 
   // BUSCAR compras por proveedor, número de factura o NOMBRE DE PRODUCTO. Lo

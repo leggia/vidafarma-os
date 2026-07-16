@@ -595,6 +595,21 @@ class Inventarios365Service {
   }
 
   /**
+   * Aplicar precios de venta cuando YA se conoce el id del artículo en 365 (por
+   * ejemplo, desde la auditoría). Evita una búsqueda de red por producto — que
+   * era lo que hacía eterna la corrección en lote. Verifica y reintenta igual.
+   */
+  async aplicarPreciosPorId(objetivos: { id: number; precio: number; nombre: string }[]): Promise<{ aplicados: string[]; fallidos: string[] }> {
+    const validos = objetivos.filter((o) => o.id > 0 && o.precio > 0);
+    if (validos.length === 0) return { aplicados: [], fallidos: [] };
+    for (const o of validos) {
+      try { await this.actualizarPrecioVenta(o.id, o.precio); } catch { /* la verificación lo dirá */ }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    return this.verificarYReintentarPrecios(validos);
+  }
+
+  /**
    * Aplicar SOLO precios de venta a una lista de productos, SIN registrar ningún
    * ingreso. Sirve para corregir los precios que 365 no aplicó en una compra ya
    * sincronizada — reintentar la compra completa crearía un ingreso DUPLICADO
