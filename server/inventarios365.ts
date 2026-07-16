@@ -556,16 +556,25 @@ class Inventarios365Service {
    *   { id, precio_costo_paquete, precio_costo_unidad, precio_uno, precio_dos, precio_tres, precio_cuatro }
    * (Confirmado capturando la petición real del sistema 365.)
    */
-  async actualizarPrecioCosto(idarticulo: number, costoUnitario: number, unidadEnvase = 1): Promise<boolean> {
+  async actualizarPrecioCosto(idarticulo: number, costoUnitario: number, unidadEnvase = 1, precioVentaNuevo?: number | null): Promise<boolean> {
     const costoPaquete = costoUnitario * (unidadEnvase || 1);
     // Traer los precios de venta actuales para no perderlos al actualizar
     let articulo: any = null;
     try { articulo = await this.obtenerArticuloPorId(idarticulo); } catch { /* seguimos con defaults */ }
+    // CRÍTICO: este endpoint REESCRIBE todos los precios. Si en esta misma compra
+    // se definió un precio de venta nuevo, hay que mandar ESE — no el que devuelve
+    // 365, que puede venir viejo (su listado no refleja el cambio al instante) y
+    // REVERTIRÍA el precio recién puesto. Ese era el bug de "la mitad de los
+    // productos no cambió de precio": afectaba justo a los que tenían cambio de
+    // costo Y de precio de venta a la vez.
+    const precioUnoFinal = (precioVentaNuevo != null && precioVentaNuevo > 0)
+      ? precioVentaNuevo
+      : (articulo?.precio_uno ?? "0");
     const payload = {
       id: idarticulo,
       precio_costo_paquete: costoPaquete,
       precio_costo_unidad: costoUnitario,
-      precio_uno: articulo?.precio_uno ?? "0",
+      precio_uno: precioUnoFinal,
       precio_dos: articulo?.precio_dos ?? "0",
       precio_tres: articulo?.precio_tres ?? 0,
       precio_cuatro: articulo?.precio_cuatro ?? 0,
@@ -595,38 +604,76 @@ class Inventarios365Service {
   async aplicarPreciosVenta(items: Array<{ nombre: string; precioVenta: number }>, proveedor?: string): Promise<{
     aplicados: string[]; fallidos: string[]; noEncontrados: string[];
   }> {
-    const aplicados: string[] = [], fallidos: string[] = [], noEncontrados: string[] = [];
-    const paraVerificar: { id: number; precio: number; nombre: string }[] = [];
+    const noEncontrados: string[] = [];
+    const objetivos: { id: number; precio: number; nombre: string }[] = [];
     for (const it of items) {
       if (!it.nombre || !(it.precioVenta > 0)) continue;
       const articulo = await this.buscarArticulo(it.nombre, undefined, proveedor);
       if (!articulo) { noEncontrados.push(it.nombre); continue; }
-      const actual = parseFloat(String(articulo.precio_uno || 0)) || 0;
-      if (Math.abs(actual - it.precioVenta) <= 0.01) { aplicados.push(articulo.nombre); continue; } // ya está bien
-      const ok = await this.actualizarPrecioVenta(articulo.id, it.precioVenta);
-      if (ok) paraVerificar.push({ id: articulo.id, precio: it.precioVenta, nombre: articulo.nombre });
-      else fallidos.push(articulo.nombre);
-      await new Promise((r) => setTimeout(r, 150)); // no saturar 365
+      objetivos.push({ id: articulo.id, precio: it.precioVenta, nombre: articulo.nombre });
     }
-    // Verificar de verdad (releer), no confiar en la respuesta
-    if (paraVerificar.length > 0) {
+    if (objetivos.length === 0) return { aplicados: [], fallidos: [], noEncontrados };
+    // Primera pasada de escritura
+    for (const o of objetivos) {
+      try { await this.actualizarPrecioVenta(o.id, o.precio); } catch { /* la verificación lo dirá */ }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    // Mismo motor que las compras: verifica releyendo y reintenta lo que no quedó
+    const r = await this.verificarYReintentarPrecios(objetivos);
+    return { aplicados: r.aplicados, fallidos: r.fallidos, noEncontrados };
+  }
+
+  /**
+   * VERIFICA releyendo de 365 que cada precio de venta quedó REALMENTE aplicado y
+   * REINTENTA los que no. El precio es un dato delicado: nunca se da por bueno
+   * porque 365 respondió OK — se comprueba contra el valor real.
+   * Hace hasta `rondas` pasadas (verificar → reintentar los que fallan → verificar).
+   * Acotado a propósito: un reintento infinito colgaría la petición (Railway corta
+   * a los 30s) y dejaría al usuario sin respuesta ni saber qué pasó.
+   */
+  async verificarYReintentarPrecios(
+    objetivos: { id: number; precio: number; nombre: string }[],
+    rondas = 3
+  ): Promise<{ aplicados: string[]; fallidos: string[] }> {
+    let pendientes = [...objetivos];
+    const aplicados: string[] = [];
+    for (let ronda = 1; ronda <= rondas && pendientes.length > 0; ronda++) {
+      // 1. Leer el estado REAL de 365 (una sola llamada para todos)
+      let porId = new Map<number, any>();
       try {
         const data = await this.get<any>(`/articulo/listarArticulo?buscar=&criterio=todos&idProveedor=`);
         const lista = data?.articulos?.data ?? data?.articulos ?? data?.data ?? [];
-        const porId = new Map((Array.isArray(lista) ? lista : []).map((a: any) => [Number(a.id), a]));
-        for (const p of paraVerificar) {
-          const a = porId.get(Number(p.id));
-          const precioEn365 = a ? parseFloat(String(a.precio_uno || 0)) || 0 : NaN;
-          if (!a || Math.abs(precioEn365 - p.precio) > 0.01) fallidos.push(p.nombre);
-          else aplicados.push(p.nombre);
-        }
-      } catch {
-        // Sin verificación no afirmamos éxito ni fracaso: se listan como aplicados
-        // "sin confirmar" para no mentir en ninguna dirección.
-        for (const p of paraVerificar) aplicados.push(p.nombre);
+        porId = new Map((Array.isArray(lista) ? lista : []).map((a: any) => [Number(a.id), a]));
+      } catch (e: any) {
+        console.warn(`[Inventarios365] Ronda ${ronda}: no se pudo leer para verificar:`, e?.message);
+        break; // sin lectura no se puede verificar: no afirmar nada
       }
+      // 2. Separar los que YA quedaron bien de los que siguen mal
+      const siguenMal: typeof pendientes = [];
+      for (const p of pendientes) {
+        const a = porId.get(Number(p.id));
+        if (!a) { siguenMal.push(p); continue; }
+        const real = parseFloat(String(a.precio_uno || 0)) || 0;
+        if (Math.abs(real - p.precio) <= 0.01) aplicados.push(p.nombre);
+        else {
+          siguenMal.push(p);
+          console.warn(`[Inventarios365] Ronda ${ronda}: "${p.nombre}" debía quedar en ${p.precio} y está en ${real}`);
+        }
+      }
+      pendientes = siguenMal;
+      if (pendientes.length === 0) break;
+      // 3. Reintentar SOLO los que siguen mal
+      console.log(`[Inventarios365] Ronda ${ronda}: reintentando ${pendientes.length} precio(s) que no quedaron`);
+      for (const p of pendientes) {
+        try { await this.actualizarPrecioVenta(p.id, p.precio); } catch { /* la próxima verificación lo dirá */ }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      await new Promise((r) => setTimeout(r, 400)); // dar tiempo a que 365 refleje el cambio
     }
-    return { aplicados, fallidos, noEncontrados };
+    if (pendientes.length > 0) {
+      console.error(`[Inventarios365] PRECIOS QUE NO QUEDARON tras ${rondas} rondas: ${pendientes.map((p) => p.nombre).join(", ")}`);
+    }
+    return { aplicados, fallidos: pendientes.map((p) => p.nombre) };
   }
 
   /** Obtener un artículo por su id (busca en el listado). */
@@ -1519,54 +1566,43 @@ class Inventarios365Service {
         console.log(`[Inventarios365] PASO 3: Actualizando ${preciosActualizar.length} precio(s) de venta`);
         for (const p of preciosActualizar) {
           try {
-            const ok = await this.actualizarPrecioVenta(p.id, p.precio);
-            if (!ok) {
-              preciosVentaFallidos.push(p.nombre);
-              console.warn(`[Inventarios365] actualizarPrecioVenta devolvió false para "${p.nombre}"`);
-            }
+            await this.actualizarPrecioVenta(p.id, p.precio);
           } catch (e: any) {
-            preciosVentaFallidos.push(p.nombre);
             console.warn(`[Inventarios365] No se pudo actualizar precio de "${p.nombre}":`, e?.message);
           }
           // Pequeña pausa entre peticiones para no saturar 365 (evita rechazos en compras grandes)
           await new Promise(r => setTimeout(r, 150));
         }
-        if (preciosVentaFallidos.length > 0) {
-          console.warn(`[Inventarios365] PRECIOS DE VENTA NO ACTUALIZADOS: ${preciosVentaFallidos.join(", ")}`);
-        }
-        // VERIFICACIÓN REAL (mismo criterio que el reintento de ajustes de
-        // inventario): no confiamos en la respuesta de 365 — releemos los precios
-        // y comprobamos cuáles quedaron de verdad. Así un fallo silencioso deja de
-        // ser invisible: el que no cambió se reporta con su precio actual.
-        try {
-          const data = await this.get<any>(`/articulo/listarArticulo?buscar=&criterio=todos&idProveedor=`);
-          const lista = data?.articulos?.data ?? data?.articulos ?? data?.data ?? [];
-          const porId = new Map((Array.isArray(lista) ? lista : []).map((a: any) => [Number(a.id), a]));
-          for (const p of preciosActualizar) {
-            if (preciosVentaFallidos.includes(p.nombre)) continue; // ya reportado
-            const actual = porId.get(Number(p.id));
-            if (!actual) continue; // no se pudo verificar: no afirmar que falló
-            const precioEn365 = parseFloat(String(actual.precio_uno || 0)) || 0;
-            if (Math.abs(precioEn365 - p.precio) > 0.01) {
-              preciosVentaFallidos.push(p.nombre);
-              console.warn(`[Inventarios365] VERIFICACIÓN: "${p.nombre}" debía quedar en ${p.precio} pero en 365 está en ${precioEn365}`);
-            }
-          }
-        } catch (e: any) {
-          console.warn("[Inventarios365] No se pudo verificar los precios actualizados:", e?.message);
-        }
+        // La verificación real (y el reintento de los que no quedaron) ocurre en el
+        // PASO 3c, DESPUÉS de actualizar los costos — porque ese endpoint reescribe
+        // los precios y podría revertir lo que se acaba de poner aquí.
       }
 
-      // Paso 3b: Actualizar precios de COSTO que cambiaron con la compra
+      // Paso 3b: Actualizar precios de COSTO que cambiaron con la compra.
+      // Ojo: este endpoint reescribe TODOS los precios del artículo, así que se le
+      // pasa el precio de venta NUEVO (si esta compra definió uno) para que no
+      // revierta lo que hizo el paso 3.
       if (costosActualizar.length > 0) {
         console.log(`[Inventarios365] PASO 3b: Actualizando ${costosActualizar.length} precio(s) de costo`);
+        const precioVentaPorId = new Map(preciosActualizar.map((p) => [p.id, p.precio]));
         for (const c of costosActualizar) {
           try {
-            await this.actualizarPrecioCosto(c.id, c.costo, c.unidadEnvase);
+            await this.actualizarPrecioCosto(c.id, c.costo, c.unidadEnvase, precioVentaPorId.get(c.id) ?? null);
           } catch (e: any) {
             console.warn(`[Inventarios365] No se pudo actualizar costo de "${c.nombre}":`, e?.message);
           }
+          await new Promise(r => setTimeout(r, 120)); // no saturar 365
         }
+      }
+
+      // Paso 3c: VERIFICACIÓN FINAL + REINTENTO hasta que el precio quede de
+      // verdad. Va DESPUÉS de los costos (que reescriben precios), así el precio
+      // de venta es siempre lo último en aplicarse. El precio es dato delicado:
+      // no se da por bueno sin comprobarlo releyendo de 365.
+      if (preciosActualizar.length > 0) {
+        const rv = await this.verificarYReintentarPrecios(preciosActualizar);
+        preciosVentaFallidos.length = 0;
+        preciosVentaFallidos.push(...rv.fallidos);
       }
 
       // Paso 4: Guardar historial de precios de compra (para alertas y consultas futuras)

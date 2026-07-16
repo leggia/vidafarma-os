@@ -84,6 +84,21 @@ Verificar manualmente cuando se toca la tienda o los permisos:
      muestre "Cargando…" debe capturar `error` de la query y mostrar un estado de
      error con botón de reintentar (igual que se hizo en Inventario en v2.10.3).
   Ambos casos los detecta ahora `verificar.mjs` (chequeo cruzado de archivos).
+- **Un endpoint que "actualiza" puede REESCRIBIR campos que no le pediste**
+  (v2.25.2, precios de venta que volvían solos al valor viejo): en 365,
+  `/articulo/actualizarPrecios` (usado para el COSTO) reescribe **todos** los
+  precios del artículo, incluido `precio_uno` (venta). Como el paso de costos
+  corría DESPUÉS del de precios de venta y rellenaba `precio_uno` con lo que
+  devolvía 365 (que no refleja el cambio al instante), **revertía el precio recién
+  puesto**. Solo afectaba a los productos con cambio de costo Y de venta a la vez
+  — de ahí el desconcertante "solo cambió la mitad". Reglas que quedan:
+  1. Si un endpoint recibe un payload con varios campos, asumir que **reescribe
+     todos**: hay que mandarle los valores que queremos que queden, nunca releer y
+     reenviar (eso reintroduce datos viejos).
+  2. **Verificar releyendo** después de escribir (patrón ya usado en ajustes de
+     inventario): 365 puede responder 200 OK sin haber aplicado nada.
+  3. El orden importa: lo más delicado (el precio) se aplica y verifica **al
+     final**, después de cualquier operación que pueda tocarlo.
 
 ## Smoke tests (lógica crítica, sin BD)
 
