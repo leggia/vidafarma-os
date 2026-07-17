@@ -93,12 +93,37 @@ async function generarQR_OpenBCB(monto: number, referencia: string): Promise<{ q
 }
 
 // ─── API pública ───
+/**
+ * SEGURIDAD — Verifica que quien opera sobre una reserva sea su dueño.
+ * Sin esto, los endpoints públicos de pago sufren IDOR: cualquiera podría pasar
+ * un reservaId ajeno (son correlativos: 1, 2, 3…) y ver el estado de pago de
+ * otro cliente, generar su QR o —lo más grave— subir un "comprobante" a la
+ * reserva de otro para que el personal la dé por pagada.
+ *
+ * Se acepta como prueba de propiedad:
+ *  a) el email del usuario logueado coincide con el de la reserva, o
+ *  b) el CÓDIGO de la reserva (lo tiene el cliente en pantalla y en su mensaje).
+ * El código es corto (VF-XXXX) y por sí solo sería adivinable, pero exige
+ * acertar código Y id a la vez, y no reemplaza al email cuando este existe.
+ */
+async function esDuenoDeReserva(db: any, reservaId: number, email?: string | null, codigo?: string | null): Promise<boolean> {
+  const r = rows(await db.execute(sql`SELECT emailCliente, codigo FROM reservas_tienda WHERE id = ${num(reservaId)} LIMIT 1`))[0];
+  if (!r) return false;
+  const { esDueno } = await import("../shared/propiedad");
+  return esDueno({ emailCliente: r.emailCliente, codigo: r.codigo }, { email, codigo });
+}
+
 export const pagos = {
   // Iniciar el pago de una reserva: genera QR (si hay proveedor) o devuelve modo manual.
-  async iniciarPagoReserva(reservaId: number) {
+  async iniciarPagoReserva(reservaId: number, auth?: { email?: string | null; codigo?: string | null }) {
     await asegurarTablas();
     const db = await getDb();
     if (!db) return { error: "Servicio no disponible." };
+    // Generar el QR de pago de una reserva ajena no roba dinero, pero filtra que
+    // la reserva existe y su monto: se exige la misma prueba de propiedad.
+    if (!(await esDuenoDeReserva(db, reservaId, auth?.email, auth?.codigo))) {
+      return { error: "No se pudo verificar que esta reserva sea tuya." };
+    }
     const res = rows(await db.execute(sql`
       SELECT id, codigo, precio, estadoPago FROM reservas_tienda WHERE id = ${num(reservaId)} LIMIT 1
     `))[0];
@@ -147,10 +172,15 @@ export const pagos = {
   },
 
   // Cliente sube el comprobante (modo manual). Queda para que el staff verifique.
-  async subirComprobante(reservaId: number, comprobanteUrl: string) {
+  async subirComprobante(reservaId: number, comprobanteUrl: string, auth?: { email?: string | null; codigo?: string | null }) {
     await asegurarTablas();
     const db = await getDb();
     if (!db) return { error: "Sin BD" };
+    // Sin esta verificación, cualquiera podría subir un comprobante a la reserva
+    // de otro cliente y lograr que el personal la dé por pagada.
+    if (!(await esDuenoDeReserva(db, reservaId, auth?.email, auth?.codigo))) {
+      return { error: "No se pudo verificar que esta reserva sea tuya." };
+    }
     await db.execute(sql`
       UPDATE pagos_qr SET comprobanteUrl = ${String(comprobanteUrl).slice(0, 600)}, estado = 'por_verificar'
       WHERE reservaId = ${num(reservaId)} AND estado = 'pendiente'
@@ -189,10 +219,15 @@ export const pagos = {
   },
 
   // Estado de pago de una reserva (para la tienda)
-  async estadoPago(reservaId: number) {
+  async estadoPago(reservaId: number, auth?: { email?: string | null; codigo?: string | null }) {
     await asegurarTablas();
     const db = await getDb();
     if (!db) return { estado: "no_pagado" };
+    // El estado de pago de una reserva es dato del cliente: no se expone a
+    // cualquiera que adivine un id correlativo.
+    if (!(await esDuenoDeReserva(db, reservaId, auth?.email, auth?.codigo))) {
+      return { estado: "no_pagado", error: "No se pudo verificar que esta reserva sea tuya." };
+    }
     const r = rows(await db.execute(sql`SELECT estadoPago FROM reservas_tienda WHERE id = ${num(reservaId)} LIMIT 1`))[0];
     return { estado: r?.estadoPago || "no_pagado", pagoAutomatico: pagoAutomaticoDisponible() };
   },

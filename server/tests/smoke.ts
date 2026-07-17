@@ -12,6 +12,7 @@ import { calcularVenta, validarVenta } from "../domain/contingencia";
 import { evaluarPrecio, ultimoPrecioPorProducto } from "../domain/compras";
 import { sugerenciaCuadre } from "../../shared/cuadre";
 import { descuentoTipico, evaluarDescuento } from "../../shared/descuentos";
+import { esDueno } from "../../shared/propiedad";
 import { compararPeriodo } from "../domain/tendencias";
 import { construirLibro, resumenPeriodo, rangoTrimestre } from "../domain/psicotropicos";
 
@@ -222,6 +223,29 @@ test("cuadre: tolera 2 centavos de redondeo del proveedor", () => {
 test("cuadre: sin total de factura (producto agregado a mano) → sin sugerencia", () => {
   assert.equal(sugerenciaCuadre(5, 10, null), null);
 });
+// ─── SEGURIDAD: propiedad de reservas (protege endpoints PÚBLICOS de pago) ───
+console.log("\nSeguridad — propiedad de reservas:");
+test("el email del dueño autoriza", () => {
+  assert.equal(esDueno({ emailCliente: "Ana@Mail.com", codigo: "VF-1234" }, { email: "ana@mail.com" }), true);
+});
+test("el código de la reserva autoriza (invitado sin cuenta)", () => {
+  assert.equal(esDueno({ emailCliente: null, codigo: "VF-1234" }, { codigo: "vf-1234" }), true);
+});
+test("email de OTRO cliente NO autoriza", () => {
+  assert.equal(esDueno({ emailCliente: "ana@mail.com", codigo: "VF-1234" }, { email: "otro@mail.com" }), false);
+});
+test("código equivocado NO autoriza", () => {
+  assert.equal(esDueno({ emailCliente: null, codigo: "VF-1234" }, { codigo: "VF-9999" }), false);
+});
+test("CRÍTICO: sin prueba alguna NO autoriza (el ataque IDOR)", () => {
+  assert.equal(esDueno({ emailCliente: "ana@mail.com", codigo: "VF-1234" }, {}), false);
+});
+test("CRÍTICO: los vacíos no cuentan como coincidencia", () => {
+  // Reserva sin email + petición sin email: "" === "" NO debe autorizar
+  assert.equal(esDueno({ emailCliente: null, codigo: "VF-1234" }, { email: "" }), false);
+  assert.equal(esDueno({ emailCliente: "", codigo: "" }, { email: "", codigo: "" }), false);
+});
+
 // ─── Descuentos por proveedor ───
 test("descuento típico usa MEDIANA, no promedio (una promo puntual no lo distorsiona)", () => {
   // 20,20,20 habitual + una promo del 50% → la mediana sigue siendo 20

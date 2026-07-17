@@ -3765,23 +3765,27 @@ const tiendaRouter = router({
     return tienda.misPuntos(email);
   }),
   // ─── Pagos QR ───
+  // Los 3 endpoints de pago son públicos (un invitado puede reservar sin cuenta),
+  // así que exigen PRUEBA DE PROPIEDAD: el email del usuario logueado o el código
+  // de la reserva. Sin esto habría IDOR — los ids son correlativos y cualquiera
+  // podría operar sobre la reserva de otro cliente.
   iniciarPago: publicProcedure
-    .input(z.object({ reservaId: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ reservaId: z.number(), codigo: z.string().max(20).optional() }))
+    .mutation(async ({ input, ctx }) => {
       const { pagos } = await import("./pagos");
-      return pagos.iniciarPagoReserva(input.reservaId);
+      return pagos.iniciarPagoReserva(input.reservaId, { email: (ctx as any)?.user?.email, codigo: input.codigo });
     }),
   subirComprobante: publicProcedure
-    .input(z.object({ reservaId: z.number(), comprobanteUrl: z.string().max(600) }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ reservaId: z.number(), comprobanteUrl: z.string().max(600), codigo: z.string().max(20).optional() }))
+    .mutation(async ({ input, ctx }) => {
       const { pagos } = await import("./pagos");
-      return pagos.subirComprobante(input.reservaId, input.comprobanteUrl);
+      return pagos.subirComprobante(input.reservaId, input.comprobanteUrl, { email: (ctx as any)?.user?.email, codigo: input.codigo });
     }),
   estadoPago: publicProcedure
-    .input(z.object({ reservaId: z.number() }))
-    .query(async ({ input }) => {
+    .input(z.object({ reservaId: z.number(), codigo: z.string().max(20).optional() }))
+    .query(async ({ input, ctx }) => {
       const { pagos } = await import("./pagos");
-      return pagos.estadoPago(input.reservaId);
+      return pagos.estadoPago(input.reservaId, { email: (ctx as any)?.user?.email, codigo: input.codigo });
     }),
   // Staff: confirmar pago manual tras revisar comprobante
   confirmarPagoManual: protectedProcedure

@@ -399,7 +399,7 @@ export default function TiendaClientes() {
                 <p className="text-xs text-gray-400">{r.sucursal?.replace("Sucursal ", "")} · Bs {r.total.toFixed(2)} · {r.fecha}</p>
                 {r.estado === "pendiente" && (
                   <button
-                    onClick={async () => { const p = await iniciarPago.mutateAsync({ reservaId: r.id }); setPagoActivo({ ...p, total: r.total, codigo: r.codigo }); }}
+                    onClick={async () => { const p = await iniciarPago.mutateAsync({ reservaId: r.id, codigo: r.codigo }); setPagoActivo({ ...p, total: r.total, codigo: r.codigo }); }}
                     className="mt-2 h-9 px-4 rounded-lg bg-emerald-600 text-white text-xs font-bold active:scale-95">
                     💳 Pagar en línea
                   </button>
