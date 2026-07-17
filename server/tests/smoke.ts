@@ -10,6 +10,7 @@ import { calcularDescuentosCascada } from "../domain/descuentos";
 import { mejoresCandidatos, triangularFila, numerosSospechosos } from "../domain/emparejar";
 import { calcularVenta, validarVenta } from "../domain/contingencia";
 import { evaluarPrecio, ultimoPrecioPorProducto } from "../domain/compras";
+import { sugerenciaCuadre } from "../../shared/cuadre";
 import { compararPeriodo } from "../domain/tendencias";
 import { construirLibro, resumenPeriodo, rangoTrimestre } from "../domain/psicotropicos";
 
@@ -199,6 +200,26 @@ test("auditoría: mismo día → gana la carga más reciente (id mayor)", () => 
     { productName: "IBUPROFENO 400", precioVenta: 9, fecha: "2026-07-10", purchaseId: 2, itemId: 20 },
   ]);
   assert.equal(r[0].precioVenta, 9);
+});
+test("cuadre: si la línea ya da el total de la factura → sin sugerencia", () => {
+  assert.equal(sugerenciaCuadre(10, 12, 120), null);
+});
+test("cuadre: corrijo la cantidad → sugiere el PRECIO que cuadra con la factura", () => {
+  const r = sugerenciaCuadre(12, 12, 120); // la factura cobra 120, no 144
+  assert.equal(r?.calculado, 144);
+  assert.equal(r?.precioSugerido, 10);
+});
+test("cuadre: corrijo el precio → sugiere la CANTIDAD solo si da entero exacto", () => {
+  const r = sugerenciaCuadre(5, 10, 120); // 120/10 = 12 exacto
+  assert.equal(r?.cantidadSugerida, 12);
+  const r2 = sugerenciaCuadre(5, 7, 120); // 120/7 = 17.14… no exacto
+  assert.equal(r2?.cantidadSugerida, null);
+});
+test("cuadre: tolera 2 centavos de redondeo del proveedor", () => {
+  assert.equal(sugerenciaCuadre(3, 10, 30.02), null);
+});
+test("cuadre: sin total de factura (producto agregado a mano) → sin sugerencia", () => {
+  assert.equal(sugerenciaCuadre(5, 10, null), null);
 });
 test("auditoría: ignora los que no tienen precio de venta editado", () => {
   const r = ultimoPrecioPorProducto([

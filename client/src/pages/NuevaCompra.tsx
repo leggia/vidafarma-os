@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { sugerenciaCuadre } from "@shared/cuadre";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,12 @@ interface ExtractedItem {
   quantity: number;
   unitCost: number;
   subtotal: number;
+  // Total de la línea TAL COMO VINO EN LA FACTURA (ya con descuentos aplicados).
+  // Se conserva aparte porque `subtotal` se recalcula al editar cantidad/precio:
+  // guardar el original permite sugerir el precio (o la cantidad) que hace cuadrar
+  // la línea con lo que realmente dice —y cobra— el proveedor.
+  subtotalFactura?: number | null;
+  descuentoLinea?: number | null; // descuento comercial de la línea (Bs), informativo
   expiryDate?: string | null;
   precioVentaSistema?: number | null; // precio_uno del sistema, para evaluar margen
   nuevoPrecioVenta?: number | null; // precio de venta editable (si se quiere actualizar)
@@ -406,6 +413,11 @@ export default function NuevaCompra() {
                 unitCost: costoConDesc,
                 costoSinDescuento: costoBase, // referencia
                 subtotal: subtotalConDesc,
+                // Total de la línea CON todos los descuentos ya aplicados (línea +
+                // global): es lo que realmente cobra el proveedor por esa fila.
+                // Se conserva para poder sugerir el precio/cantidad que cuadra.
+                subtotalFactura: subtotalConDesc,
+                descuentoLinea: i.descuento ?? null,
                 nombreFacturaOriginal: i.productName,
                 expiryDate: convertExpiryDate(i.expiryDate) || null,
               };
@@ -1129,6 +1141,31 @@ export default function NuevaCompra() {
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-green-500 text-sm font-bold">✓</span>
                       )}
                     </div>
+                    {/* CUADRE CON LA FACTURA: si cantidad × precio ya no da el
+                        total que cobra el proveedor (porque se corrigió la
+                        cantidad o el precio), se sugiere el valor que hace cuadrar
+                        la línea. Se SUGIERE, no se impone: el criterio es tuyo. */}
+                    {(() => {
+                      const s = sugerenciaCuadre(item.quantity, item.unitCost, item.subtotalFactura);
+                      if (!s) return null;
+                      return (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 flex flex-wrap items-center gap-1.5">
+                          ⚠ La línea da Bs {s.calculado.toFixed(2)} pero la factura cobra <b>Bs {s.totalFactura.toFixed(2)}</b>
+                          {s.precioSugerido != null && (
+                            <button type="button" onClick={() => updateItem(idx, "unitCost", s.precioSugerido)}
+                              className="underline font-bold">
+                              → precio Bs {String(s.precioSugerido)} c/u
+                            </button>
+                          )}
+                          {s.cantidadSugerida != null && (
+                            <button type="button" onClick={() => updateItem(idx, "quantity", s.cantidadSugerida)}
+                              className="underline font-bold">
+                              → cantidad {s.cantidadSugerida}u
+                            </button>
+                          )}
+                        </p>
+                      );
+                    })()}
                     {/* Inteligencia de precios: ✓ mismo precio (no revisar) / ▲▼ cambió / ● nuevo, + alerta de margen */}
                     {(() => {
                       const c = comparacionPrecios.get(item.productName);

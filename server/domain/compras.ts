@@ -32,13 +32,6 @@ export function evaluarPrecio(costoNuevo: number, referencia: number | null, pre
   return { estado, diffPct, margenPct, alertaMargen };
 }
 
-/**
- * De todos los precios de venta editados en el historial de compras, deja SOLO el
- * MÁS RECIENTE por producto. Es imprescindible para auditar: si un producto se
- * compró en enero a Bs 5 y en julio a Bs 6, el precio correcto en 365 es Bs 6 —
- * comparar contra el de enero daría una falsa alarma.
- * Empate de fecha: gana el de id mayor (la carga más reciente).
- */
 export type PrecioEditado = { productName: string; precioVenta: number; fecha: string; purchaseId: number; itemId?: number };
 export function ultimoPrecioPorProducto(items: PrecioEditado[]): PrecioEditado[] {
   const porProducto = new Map<string, PrecioEditado>();
