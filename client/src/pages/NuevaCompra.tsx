@@ -44,6 +44,9 @@ interface ExtractedItem {
   // la línea con lo que realmente dice —y cobra— el proveedor.
   subtotalFactura?: number | null;
   descuentoLinea?: number | null; // descuento comercial de la línea (Bs), informativo
+  // true si el precio unitario lo recalculó el sistema al corregir la cantidad
+  // (para avisarlo en pantalla: nunca cambiar un importe en silencio).
+  precioAutoajustado?: boolean;
   expiryDate?: string | null;
   precioVentaSistema?: number | null; // precio_uno del sistema, para evaluar margen
   nuevoPrecioVenta?: number | null; // precio de venta editable (si se quiere actualizar)
@@ -725,10 +728,27 @@ export default function NuevaCompra() {
   const updateItem = (index: number, field: keyof ExtractedItem, value: any) => {
     setItems((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
+      const item = { ...updated[index], [field]: value };
       if (field === "quantity" || field === "unitCost") {
-        updated[index].subtotal = updated[index].quantity * updated[index].unitCost;
+        const totalFactura = item.subtotalFactura;
+        // Al corregir la CANTIDAD, el precio unitario se autocompleta para que la
+        // línea siga dando el total que REALMENTE cobra la factura (ese total es
+        // el dato autoritativo: es lo que se paga). Así no hay que tocar una
+        // sugerencia aparte — el valor cae directo en la caja del precio.
+        // Solo aplica si la factura trajo un total para esa línea (un producto
+        // agregado a mano no tiene con qué cuadrar) y la cantidad es válida.
+        if (field === "quantity" && totalFactura != null && totalFactura > 0 && Number(value) > 0) {
+          item.unitCost = Math.round((totalFactura / Number(value)) * 10000) / 10000;
+          item.subtotal = totalFactura;
+          item.precioAutoajustado = true; // para avisarlo: es un campo de dinero
+        } else {
+          // Al editar el PRECIO a mano se respeta lo que se escribe: se recalcula
+          // el subtotal, y si deja de cuadrar con la factura el aviso lo dirá.
+          item.subtotal = Math.round((item.quantity || 0) * (item.unitCost || 0) * 100) / 100;
+          if (field === "unitCost") item.precioAutoajustado = false; // lo decidió el usuario
+        }
       }
+      updated[index] = item;
       return updated;
     });
   };
@@ -1192,6 +1212,15 @@ export default function NuevaCompra() {
                         la línea. Se SUGIERE, no se impone: el criterio es tuyo. */}
                     {(() => {
                       const s = sugerenciaCuadre(item.quantity, item.unitCost, item.subtotalFactura);
+                      // Cuadra y el precio lo puso el sistema: avisarlo (dinero
+                      // que cambió solo debe verse, nunca en silencio).
+                      if (!s && item.precioAutoajustado) {
+                        return (
+                          <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                            ✓ Precio ajustado a Bs {Number(item.unitCost).toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} c/u para cuadrar con el total de la factura (Bs {Number(item.subtotalFactura).toFixed(2)}). Puedes escribir otro si corresponde.
+                          </p>
+                        );
+                      }
                       if (!s) return null;
                       return (
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 flex flex-wrap items-center gap-1.5">
