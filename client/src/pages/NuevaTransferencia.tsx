@@ -133,11 +133,16 @@ export default function NuevaTransferencia() {
       return s < necesita ? { nombre: it.productName, hay: s, necesita, falta: necesita - s } : null;
     })
     .filter(Boolean) as any[];
+  // Stock REAL que se declara por producto al ajustar (por defecto, lo necesario
+  // para la transferencia; editable, porque si físicamente hay más hay que
+  // declararlo — si no, el origen quedaría en 0 con mercadería en el estante).
+  const [stockDeclarado, setStockDeclarado] = useState<Record<string, number>>({});
   const ajustarOrigen = trpc.transfers.ajustarStockOrigen.useMutation({
     onSuccess: (r: any) => {
       if (r.ok) toast.success(r.mensaje, { duration: 9000 });
-      else toast.error(r.mensaje, { duration: 10000 });
+      else toast.error(r.mensaje, { duration: 12000 });
       stockOrigen.refetch();
+      setStockDeclarado({});
     },
     onError: (e) => toast.error(e.message),
   });
@@ -645,30 +650,47 @@ export default function NuevaTransferencia() {
               <p className="text-xs font-black text-red-800 dark:text-red-300 mb-1">
                 ⚠ {faltantes.length} producto(s) sin stock suficiente en {sucursalOrigenNombre}
               </p>
-              <ul className="text-[11px] text-red-700 dark:text-red-400 space-y-0.5 mb-2">
+              <p className="text-[10px] text-red-700 dark:text-red-400 mb-2">
+                Declara cuánto hay <b>realmente</b> en la sucursal. Por defecto se propone lo justo para transferir, pero si en el estante hay más, ponlo — así el inventario queda con el dato verdadero y no en 0.
+              </p>
+              <div className="space-y-1.5 mb-2">
                 {faltantes.map((f: any, i: number) => (
-                  <li key={i}>
-                    • <b>{f.nombre}</b>: hay {f.hay}, necesitas {f.necesita} <b>(faltan {f.falta})</b>
-                  </li>
+                  <div key={i} className="flex items-center justify-between gap-2 text-[11px] text-red-700 dark:text-red-400">
+                    <span className="min-w-0 truncate">
+                      <b>{f.nombre}</b> · sistema: {f.hay} · necesitas: {f.necesita}
+                    </span>
+                    <span className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px]">hay realmente:</span>
+                      <input
+                        type="number"
+                        min={f.necesita}
+                        value={stockDeclarado[f.nombre] ?? f.necesita}
+                        onChange={(e) => setStockDeclarado((prev) => ({ ...prev, [f.nombre]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                        className="w-16 h-7 px-1 text-center rounded border border-red-300 bg-white dark:bg-background font-bold"
+                      />
+                    </span>
+                  </div>
                 ))}
-              </ul>
+              </div>
               <Button
                 onClick={() => {
-                  const detalle = faltantes.map((f: any) => `${f.nombre}: ${f.hay} → ${f.necesita}`).join("\n");
-                  if (!window.confirm(`Se ajustará el stock de ${sucursalOrigenNombre} en inventarios365 para poder transferir:\n\n${detalle}\n\nHazlo solo si el producto SÍ está físicamente en la sucursal y el sistema está desactualizado.\n\n¿Confirmas?`)) return;
-                  ajustarOrigen.mutate({
-                    sucursalOrigen: sucursalOrigenNombre,
-                    productos: faltantes.map((f: any) => ({ nombre: f.nombre, cantidadNecesaria: f.necesita })),
-                  });
+                  const productos = faltantes.map((f: any) => ({
+                    nombre: f.nombre,
+                    stockReal: stockDeclarado[f.nombre] ?? f.necesita,
+                    cantidadNecesaria: f.necesita,
+                  }));
+                  const detalle = productos.map((p: any) => `${p.nombre}: → ${p.stockReal}`).join("\n");
+                  if (!window.confirm(`Se ajustará el inventario de ${sucursalOrigenNombre} en inventarios365:\n\n${detalle}\n\nHazlo solo si el producto SÍ está físicamente en la sucursal y el sistema está desactualizado.\n\n¿Confirmas?`)) return;
+                  ajustarOrigen.mutate({ sucursalOrigen: sucursalOrigenNombre, productos });
                 }}
                 disabled={ajustarOrigen.isPending}
                 className="w-full gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider"
               >
                 {ajustarOrigen.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                {ajustarOrigen.isPending ? "Ajustando stock…" : `Ajustar stock en ${sucursalOrigenNombre} para poder transferir`}
+                {ajustarOrigen.isPending ? "Ajustando inventario…" : `Ajustar inventario de ${sucursalOrigenNombre}`}
               </Button>
               <p className="text-[10px] text-red-600 dark:text-red-500 mt-1.5">
-                Sube el stock del origen a lo necesario y queda registrado como ajuste de inventario. Si el producto NO está físicamente, corrige la cantidad a transferir.
+                Queda registrado como ajuste de inventario en 365. Si el producto NO está físicamente, corrige la cantidad a transferir en vez de ajustar.
               </p>
             </div>
           )}

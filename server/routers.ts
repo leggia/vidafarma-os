@@ -1194,14 +1194,16 @@ Devuelve SOLO este JSON:
 
   // AJUSTAR EL STOCK DEL ORIGEN cuando no alcanza para la transferencia.
   // Caso real: el stock físico está en el estante, pero el sistema dice menos —
-  // sin corregirlo, 365 rechaza la transferencia. Esto sube el stock del origen
-  // al valor necesario (mismo mecanismo que un ajuste de inventario, motivo
-  // "Ajuste periódico"), VERIFICANDO antes contra el stock real y dejando
-  // registro. No inventa nada: solo cubre la diferencia que falta.
+  // sin corregirlo, 365 rechaza la transferencia.
+  // IMPORTANTE: se envía el stock REAL que hay en la sucursal, no "lo que hace
+  // falta para transferir". Poner solo el mínimo dejaría el origen en 0 tras la
+  // transferencia aunque físicamente quedaran unidades: sería meter un dato falso
+  // al inventario para salir del paso. Por eso el valor es editable en pantalla y
+  // por defecto propone lo necesario.
   ajustarStockOrigen: protectedProcedure
     .input(z.object({
       sucursalOrigen: z.string().max(150),
-      productos: z.array(z.object({ nombre: z.string().max(500), cantidadNecesaria: z.number().min(1) })).min(1).max(60),
+      productos: z.array(z.object({ nombre: z.string().max(500), stockReal: z.number().min(0), cantidadNecesaria: z.number().min(1) })).min(1).max(60),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx?.user?.role !== "admin" && ctx?.user?.role !== "regente") {
@@ -1217,20 +1219,26 @@ Devuelve SOLO este JSON:
 
       const ajustes: any[] = [];
       const noEncontrados: string[] = [];
-      const yaAlcanzaban: string[] = [];
+      const insuficientes: string[] = [];
       for (const p of input.productos) {
         const art: any = porNombre.get(p.nombre);
         if (!art) { noEncontrados.push(p.nombre); continue; }
+        // El stock declarado debe alcanzar para lo que se quiere transferir; si no,
+        // el ajuste no resolvería nada y 365 rechazaría igual.
+        if (p.stockReal < p.cantidadNecesaria) { insuficientes.push(`${p.nombre} (declaraste ${p.stockReal}, necesitas ${p.cantidadNecesaria})`); continue; }
         const actual = Number(art.stock) || 0;
-        if (actual >= p.cantidadNecesaria) { yaAlcanzaban.push(p.nombre); continue; }
+        if (actual === p.stockReal) continue; // ya está así: nada que hacer
         ajustes.push({
           productoId: art.id, inventarioId: art.inventarioId ?? null,
-          stockAnterior: actual, stockReal: p.cantidadNecesaria, fechaVencimiento: null,
-          _nombre: p.nombre, _falta: p.cantidadNecesaria - actual,
+          stockAnterior: actual, stockReal: p.stockReal, fechaVencimiento: null,
+          _nombre: p.nombre,
         });
       }
+      if (insuficientes.length > 0) {
+        return { ok: false, ajustados: 0, noEncontrados, mensaje: `El stock declarado no alcanza para transferir: ${insuficientes.join(" · ")}. Corrige la cantidad a transferir o declara el stock real.` };
+      }
       if (ajustes.length === 0) {
-        return { ok: true, ajustados: 0, yaAlcanzaban, noEncontrados, mensaje: noEncontrados.length > 0 ? `No encontré en el origen: ${noEncontrados.join(", ")}` : "Todos los productos ya tienen stock suficiente." };
+        return { ok: true, ajustados: 0, noEncontrados, mensaje: noEncontrados.length > 0 ? `No encontré en el origen: ${noEncontrados.join(", ")}` : "No hubo cambios que aplicar." };
       }
       const { inventarios365 } = await import("./inventarios365");
       const r = await inventarios365.ajustarInventario({
@@ -1238,11 +1246,11 @@ Devuelve SOLO este JSON:
         motivoId: 2,
         ajustes: ajustes.map(({ productoId, inventarioId, stockAnterior, stockReal, fechaVencimiento }) => ({ productoId, inventarioId, stockAnterior, stockReal, fechaVencimiento })),
       });
-      const detalle = ajustes.map((a) => `${a._nombre}: ${a.stockAnterior} → ${a.stockReal} (+${a._falta})`).join(" · ");
+      const detalle = ajustes.map((a) => `${a._nombre}: ${a.stockAnterior} → ${a.stockReal}`).join(" · ");
       return {
         ok: r.ok,
         ajustados: r.ok ? ajustes.length : 0,
-        yaAlcanzaban, noEncontrados,
+        noEncontrados,
         mensaje: r.ok
           ? `Stock del origen ajustado en ${ajustes.length} producto(s): ${detalle}. Ya puedes transferir.`
           : `No se pudo ajustar: ${r.mensaje}`,
