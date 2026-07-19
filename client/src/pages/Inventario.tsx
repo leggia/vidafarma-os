@@ -335,7 +335,12 @@ export default function Inventario() {
         completar, ajustarStock: completar && ajustarStock, conteos,
       });
       if (completar && ajustarStock && res.ajuste) {
-        if (res.ajuste.ok) {
+        if (res.ajuste.ok && res.ajuste.eliminados?.length) {
+          toast.warning(
+            `Proveedor completado. ${res.ajuste.ajustados} producto(s) ajustados, pero ${res.ajuste.eliminados.length} NO se pudieron ajustar porque ya no existen en el sistema (fueron eliminados de 365). Revisa esos productos manualmente.`,
+            { duration: 12000 },
+          );
+        } else if (res.ajuste.ok) {
           toast.success(`Proveedor completado. ${res.ajuste.ajustados} producto(s) ajustados en el sistema.`, { duration: 6000 });
         } else {
           toast.error(`Tu conteo quedó guardado a salvo, pero el ajuste en 365 falló: ${res.ajuste.mensaje}. Puedes reintentar desde la lista de proveedores sin volver a contar.`, { duration: 10000 });

@@ -1904,7 +1904,7 @@ Devuelve JSON:
 
       // PASO 2: intentar el ajuste REAL en 365 (puede fallar por conexión — nunca
       // hace perder el conteo del paso 1, que ya quedó guardado).
-      let ajusteResultado: { ok: boolean; ajustados: number; mensaje: string } | null = null;
+      let ajusteResultado: { ok: boolean; ajustados: number; mensaje: string; eliminados?: string[] } | null = null;
       if (input.completar && input.ajustarStock && conDif > 0) {
         const sesion = (await db.select().from(inventarioSesiones).where(eq(inventarioSesiones.id, input.sesionId)))[0];
         if (sesion) {

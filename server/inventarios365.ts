@@ -898,7 +898,7 @@ class Inventarios365Service {
       stockReal: number;       // físico contado
       fechaVencimiento?: string | null;
     }>;
-  }): Promise<{ ok: boolean; ajustados: number; mensaje: string }> {
+  }): Promise<{ ok: boolean; ajustados: number; mensaje: string; eliminados?: string[] }> {
     try {
       // Solo productos con diferencia real
       const conDiferencia = params.ajustes.filter(a => a.stockReal !== a.stockAnterior);
@@ -906,7 +906,26 @@ class Inventarios365Service {
         return { ok: true, ajustados: 0, mensaje: "No hay diferencias para ajustar" };
       }
 
-      const productos = conDiferencia.map(a => {
+      // VALIDACIÓN EN VIVO: la lista de productos que se cuenta puede venir de un
+      // caché de hasta 5 min, y el conteo físico de una sesión puede tardar bastante
+      // más. Si un producto fue eliminado de 365 en ese lapso, mandarlo al endpoint
+      // de ajuste puede devolver éxito "de fachada" sin tocar nada real. Por eso se
+      // pide la lista ACTUAL (sin caché) de ese almacén y solo se ajustan los
+      // productos que siguen existiendo ahí.
+      const vivos = await this.articuloAjusteInven(params.almacenId, "");
+      const idsVivos = new Set(vivos.map((a: any) => Number(a.id)));
+      const existentes = conDiferencia.filter(a => idsVivos.has(Number(a.productoId)));
+      const eliminados = conDiferencia.filter(a => !idsVivos.has(Number(a.productoId)));
+
+      if (existentes.length === 0) {
+        return {
+          ok: false, ajustados: 0,
+          mensaje: `Ningún producto pudo ajustarse: ${eliminados.length === conDiferencia.length ? "todos" : "los que quedaban"} ya no existen en el sistema (probablemente eliminados). Revisa: ${eliminados.map(e => e.productoId).join(", ")}.`,
+          eliminados: eliminados.map(e => String(e.productoId)),
+        };
+      }
+
+      const productos = existentes.map(a => {
         const diferencia = Math.abs(a.stockReal - a.stockAnterior);
         // físico menor que sistema → salida (baja); físico mayor → entrada (alta)
         const tipoMovimiento = a.stockReal < a.stockAnterior ? "salida" : "entrada";
@@ -931,11 +950,18 @@ class Inventarios365Service {
         productos,
       };
 
-      console.log(`[Inventarios365] Ajuste de inventario: ${productos.length} productos con diferencia`);
+      console.log(`[Inventarios365] Ajuste de inventario: ${productos.length} productos con diferencia${eliminados.length > 0 ? ` (${eliminados.length} omitidos por no existir ya en 365)` : ""}`);
       const resp = await this.post<any>("/ajuste/registrar-multiple", payload);
       console.log(`[Inventarios365] Ajuste response:`, JSON.stringify(resp).substring(0, 200));
       this.invalidarCacheInventario(params.almacenId); // el stock cambió, refrescar caché
-      return { ok: true, ajustados: productos.length, mensaje: `${productos.length} productos ajustados` };
+      const baseMsg = `${productos.length} producto(s) ajustados`;
+      const msgEliminados = eliminados.length > 0
+        ? ` · ${eliminados.length} NO se ajustaron porque ya no existen en el sistema (fueron eliminados): ${eliminados.map(e => e.productoId).join(", ")}`
+        : "";
+      return {
+        ok: true, ajustados: productos.length, mensaje: baseMsg + msgEliminados,
+        eliminados: eliminados.length > 0 ? eliminados.map(e => String(e.productoId)) : undefined,
+      };
     } catch (error: any) {
       console.error(`[Inventarios365] Error ajustando inventario:`, error?.message);
       return { ok: false, ajustados: 0, mensaje: error?.message || "Error al ajustar" };
