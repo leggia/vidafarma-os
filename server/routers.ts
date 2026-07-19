@@ -1867,11 +1867,22 @@ Devuelve JSON:
       // manuscrito del personal ya quedó a salvo y NUNCA hay que volver a contar.
       let idRegistro: number;
       if (existente) {
+        // "Conteo puntual" es acumulativo: cada conteo se SUMA al historial de la
+        // sesión (por producto, el más reciente reemplaza al anterior). Antes se
+        // sobrescribía todo el registro y solo quedaba el último conteo.
+        let conteosFinales = input.conteos;
+        if (input.proveedorNombre === "Conteo puntual" && Array.isArray(existente.conteos)) {
+          const porArticulo = new Map<number, any>();
+          for (const c of existente.conteos as any[]) porArticulo.set(c.articuloId, c);
+          for (const c of input.conteos) porArticulo.set(c.articuloId, c);
+          conteosFinales = Array.from(porArticulo.values());
+        }
+        const difFinal = conteosFinales.filter((c: any) => c.diferencia !== 0).length;
         await db.update(inventarioProveedores).set({
-          totalProductos: input.totalProductos,
-          productosContados: input.conteos.length,
-          conDiferencia: conDif,
-          conteos: input.conteos,
+          totalProductos: input.proveedorNombre === "Conteo puntual" ? conteosFinales.length : input.totalProductos,
+          productosContados: conteosFinales.length,
+          conDiferencia: difFinal,
+          conteos: conteosFinales,
           estado,
           completadoEn: input.completar ? new Date() : null,
         }).where(eq(inventarioProveedores.id, existente.id));

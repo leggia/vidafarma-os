@@ -1194,42 +1194,6 @@ class Inventarios365Service {
   }
 
   /**
-   * Listar TODOS los proveedores del sistema (paginando).
-   * Estructura: { pagination, personas:[...], idrol }
-   */
-  async listarTodosProveedores(): Promise<Array<{ id: number; nombre: string }>> {
-    const todos: Array<{ id: number; nombre: string }> = [];
-    let page = 1;
-    const maxPages = 100;
-    try {
-      while (page <= maxPages) {
-        const data = await this.get<any>(`/proveedor?page=${page}&buscar=&criterio=todos`);
-        // personas puede ser un array directo o un objeto paginado {data:[...]}
-        const personasRaw = data?.personas;
-        if (page === 1) {
-          console.log(`[Inventarios365] personas tipo:`, Array.isArray(personasRaw) ? `array[${personasRaw.length}]` : typeof personasRaw,
-            `| ejemplo:`, JSON.stringify(Array.isArray(personasRaw) ? personasRaw[0] : personasRaw).substring(0, 200));
-        }
-        const arr = Array.isArray(personasRaw) ? personasRaw
-          : (Array.isArray(personasRaw?.data) ? personasRaw.data : []);
-        if (!Array.isArray(arr) || arr.length === 0) break;
-        for (const p of arr) {
-          const id = p.id ?? p.idpersona ?? p.id_proveedor ?? p.idProveedor;
-          const nombre = p.nombre ?? p.razon_social ?? p.nombre_completo ?? p.persona ?? "";
-          if (id) todos.push({ id: Number(id), nombre });
-        }
-        const pag = data?.pagination ?? {};
-        const lastPage = pag.last_page ?? pag.lastPage ?? 1;
-        if (page >= lastPage) break;
-        page++;
-      }
-    } catch (e) {
-      console.error("[Inventarios365] Error listando todos los proveedores:", e);
-    }
-    return todos;
-  }
-
-  /**
    * Método público SOLO para diagnóstico: obtiene la respuesta cruda de un path.
    */
   async diagRaw(path: string): Promise<any> {

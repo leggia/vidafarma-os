@@ -603,11 +603,18 @@ export default function Inventario() {
         {/* Progreso global del inventario (sobre todos los proveedores del sistema).
             Clic en la barra → despliega discretamente los proveedores que FALTAN. */}
         {(() => {
-          const totalProv = sesionActiva?.totalProveedores > 0 ? sesionActiva.totalProveedores : provsHechos.length;
-          const completados = provsHechos.filter((p: any) => p.estado === "completado").length;
+          // "Conteo puntual" es un pseudo-proveedor: no cuenta para el avance real.
+          const provsReales = provsHechos.filter((p: any) => p.proveedorNombre !== "Conteo puntual");
+          const totalProv = sesionActiva?.totalProveedores > 0 ? sesionActiva.totalProveedores : provsReales.length;
+          const completados = provsReales.filter((p: any) => p.estado === "completado").length;
           const pct = totalProv > 0 ? Math.round((completados / totalProv) * 100) : 0;
-          const nombresHechos = new Set(provsHechos.map((p: any) => p.proveedorNombre));
-          const faltantes = (todosProveedores || []).filter((p: any) => !nombresHechos.has(p.nombre));
+          // Comparar por ID cuando existe y por nombre NORMALIZADO (365 a veces
+          // devuelve nombres con espacios o mayúsculas distintas: sin esto, un
+          // proveedor ya contado seguía apareciendo como faltante).
+          const normPr = (x: any) => String(x || "").trim().toLowerCase();
+          const nombresHechos = new Set(provsReales.map((p: any) => normPr(p.proveedorNombre)));
+          const idsHechos = new Set(provsReales.map((p: any) => String(p.proveedorId || "")).filter(Boolean));
+          const faltantes = (todosProveedores || []).filter((p: any) => !idsHechos.has(String(p.id)) && !nombresHechos.has(normPr(p.nombre)));
           return (
             <div className="bg-muted/40 rounded-lg p-3 space-y-2 cursor-pointer select-none"
               onClick={() => { setVerProgreso(!verProgreso); cargarTodosProveedores(); }}
@@ -747,9 +754,11 @@ export default function Inventario() {
           <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-foreground/10 -mx-4 px-4 py-3 space-y-3">
             {/* Panel de progreso del inventario (desplegable): hechos y faltantes */}
             {verProgreso && (() => {
-              const hechos = sesionActiva?.proveedores || [];
-              const nombresHechos = new Set(hechos.map((p: any) => p.proveedorNombre));
-              const faltantes = (todosProveedores || []).filter((p: any) => !nombresHechos.has(p.nombre));
+              const hechos = (sesionActiva?.proveedores || []).filter((p: any) => p.proveedorNombre !== "Conteo puntual");
+              const normPr = (x: any) => String(x || "").trim().toLowerCase();
+              const nombresHechos = new Set(hechos.map((p: any) => normPr(p.proveedorNombre)));
+              const idsHechos = new Set(hechos.map((p: any) => String(p.proveedorId || "")).filter(Boolean));
+              const faltantes = (todosProveedores || []).filter((p: any) => !idsHechos.has(String(p.id)) && !nombresHechos.has(normPr(p.nombre)));
               const completados = hechos.filter((p: any) => p.estado === "completado").length;
               const total = sesionActiva?.totalProveedores || (hechos.length + faltantes.length);
               const pct = total > 0 ? Math.round((completados / total) * 100) : 0;
