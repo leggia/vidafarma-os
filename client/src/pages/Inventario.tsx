@@ -191,7 +191,6 @@ export default function Inventario() {
       setReintentandoId(null);
     }
   };
-  const completarSesion = trpc.inventario.completarSesion.useMutation();
 
   const almacenes = [
     { id: 1, nombre: "ALMACEN PRINCIPAL" },
@@ -730,16 +729,11 @@ export default function Inventario() {
           )}
         </div>
 
-        {provsHechos.length > 0 && sesionActiva?.estado !== "completado" && (
-          <Button variant="outline" className="w-full gap-2" onClick={async () => {
-            await completarSesion.mutateAsync({ sesionId: sesionActiva.id });
-            toast.success("Inventario marcado como completado");
-            await utils.inventario.listarSesiones.invalidate();
-            setVista("sesiones"); setSesionActiva(null);
-          }}>
-            <CheckCircle2 className="h-4 w-4" /> Marcar inventario como completado
-          </Button>
-        )}
+        {/* El inventario se da por completado PROVEEDOR POR PROVEEDOR (botón
+            "Completar" en cada uno). Antes existía un botón para marcar TODA la
+            sesión como completada de un solo clic, aunque quedaran proveedores
+            sin contar — se retiró por riesgo de toque accidental durante un
+            inventario real en curso. */}
       </div>
     );
   }
