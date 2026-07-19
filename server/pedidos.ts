@@ -15,12 +15,15 @@ const num = (v: any) => (typeof v === "number" ? v : parseFloat(String(v ?? 0)) 
 const rows = (r: any): any[] => (Array.isArray(r) ? r[0] ?? [] : r?.rows ?? []);
 const norm = (s: string) => String(s || "").trim().toLowerCase();
 
-// Mapeo almacén (365) ↔ nombre de sucursal en ventas_detalle.
+// Mapeo almacén (365) ↔ nombre EXACTO de sucursal en ventas_detalle.
+// OJO: los nombres reales llevan prefijo ("Sucursal Petrolera", "Casa Matriz Cobol").
+// Se compara con igualdad exacta porque "Casa Matriz" con LIKE también
+// arrastraría las ventas de "Casa Matriz Cobol".
 export const ALMACENES_PEDIDO = [
   { id: 1, nombre: "Casa Matriz", sucursalVentas: "Casa Matriz" },
-  { id: 2, nombre: "Petrolera", sucursalVentas: "Petrolera" },
-  { id: 3, nombre: "Lanza", sucursalVentas: "Lanza" },
-  { id: 4, nombre: "Cobol", sucursalVentas: "Cobol" },
+  { id: 2, nombre: "Petrolera", sucursalVentas: "Sucursal Petrolera" },
+  { id: 3, nombre: "Lanza", sucursalVentas: "Sucursal Lanza" },
+  { id: 4, nombre: "Cobol", sucursalVentas: "Casa Matriz Cobol" },
 ] as const;
 
 export interface ItemPedido {

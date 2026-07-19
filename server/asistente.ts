@@ -714,8 +714,18 @@ export const asistenteTools = {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const desde = iso(ini3Meses), hasta = iso(finMesAnterior);
 
-    const filtroSuc = filtroLike("nombreSucursal", sucursal);
-    // Venta total en 3 meses → promedio mensual = total / 3
+    // Nombre EXACTO de la sucursal en ventas: "matriz" con LIKE también arrastraría
+    // "Casa Matriz Cobol", así que se mapea la palabra del usuario al nombre real.
+    const sucExacta = (() => {
+      if (!sucursal) return null;
+      const s = sucursal.toLowerCase();
+      if (s.includes("petrolera")) return "Sucursal Petrolera";
+      if (s.includes("lanza")) return "Sucursal Lanza";
+      if (s.includes("cobol")) return "Casa Matriz Cobol";
+      if (s.includes("matriz") || s.includes("honduras") || s.includes("central") || s.includes("principal")) return "Casa Matriz";
+      return sucursal; // desconocido: se intenta tal cual
+    })();
+    const filtroSuc = sucExacta ? sql` AND nombreSucursal = ${sucExacta}` : sql``;
     const ventas = rows(await db.execute(sql`
       SELECT articuloNombre, SUM(cantidad) as total3m, COUNT(DISTINCT DATE_FORMAT(fecha, '%Y-%m')) as mesesConVenta
        FROM ventas_detalle WHERE fecha >= ${desde} AND fecha <= ${hasta} ${filtroSuc}
