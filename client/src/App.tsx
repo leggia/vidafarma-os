@@ -8,6 +8,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import Asistente from "./pages/Asistente";
 import Compras from "./pages/Compras";
+import Pedidos from "./pages/Pedidos";
 import NuevaCompra from "./pages/NuevaCompra";
 import Transferencias from "./pages/Transferencias";
 import NuevaTransferencia from "./pages/NuevaTransferencia";
@@ -144,6 +145,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/compras" component={Compras} />
+        <Route path="/pedidos" component={Pedidos} />
         <Route path="/compras/nueva" component={NuevaCompra} />
         <Route path="/transferencias" component={Transferencias} />
         <Route path="/transferencias/nueva" component={NuevaTransferencia} />

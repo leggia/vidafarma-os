@@ -35,7 +35,7 @@ import {
   Users,
   Plus,
   Sparkles,
-  HeartHandshake, Megaphone, Landmark, Wallet2, LineChart, ShieldAlert, ShieldCheck, Pill, Contact } from "lucide-react";
+  HeartHandshake, Megaphone, Landmark, Wallet2, LineChart, ShieldAlert, ShieldCheck, Pill, Contact , ClipboardList } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -45,6 +45,7 @@ const menuItems = [
   { icon: LayoutDashboard, label: "Panel de Control", path: "/" },
   { icon: Sparkles, label: "Asistente", path: "/asistente" },
   { icon: ShoppingCart, label: "Compras", path: "/compras", soloAdmin: true },
+  { icon: ClipboardList, label: "Pedidos", path: "/pedidos", soloAdmin: true },
   { icon: ArrowLeftRight, label: "Transferencias", path: "/transferencias" },
   { icon: ClipboardCheck, label: "Inventario", path: "/inventario" },
   { icon: ShieldAlert, label: "Contingencia", path: "/contingencia" },
