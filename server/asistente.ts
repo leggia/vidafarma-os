@@ -701,9 +701,11 @@ export const asistenteTools = {
   // 16. PEDIDO de una sucursal según proveedor: usa índice de cobertura.
   // Rotación = promedio de últimos 3 meses concluidos. Entra al pedido si el stock
   // no cubre 1 mes de venta. Cantidad sugerida = rotación mensual - stock actual.
-  async pedidoSucursal(sucursal?: string, proveedor?: string) {
+  async pedidoSucursal(sucursal?: string, proveedor?: string, dias?: number) {
     const db = await getDb();
     if (!db) return { error: "Sin BD" };
+    // Cobertura objetivo en DÍAS (default 10: la farmacia repone cada ~10 días).
+    const diasCobertura = Math.min(90, Math.max(1, Math.round(num(dias) || 10)));
 
     // Rango: últimos 3 meses CONCLUIDOS (no el mes actual)
     const hoy = ahoraBolivia();
@@ -761,47 +763,49 @@ export const asistenteTools = {
       return { error: `No pude consultar stock en 365: ${e?.message || "error"}` };
     }
 
-    // Construir el pedido: índice de cobertura = stock / rotación mensual.
-    // Entra si cobertura < 1 mes (stock < rotación mensual).
-    const COBERTURA_OBJETIVO = 1; // meses
+    // Construir el pedido con rotación DIARIA: venta mensual promedio ÷ 30.
+    // Entra si el stock no cubre los días de cobertura pedidos.
     const pedido: any[] = [];
     for (const a of articulos) {
       const rot = rotMensual[norm(a.nombre)];
       if (!rot || rot <= 0) continue; // solo productos que rotan
+      const rotDiaria = rot / 30;
       const stockReal = num(a.stock);
       // Stock negativo = descuadre de inventario en 365. Para calcular cuánto pedir
       // lo tratamos como 0 (no inflar el pedido con un dato dudoso), pero avisamos.
       const stock = Math.max(0, stockReal);
-      const objetivo = rot * COBERTURA_OBJETIVO;
+      const objetivo = rotDiaria * diasCobertura;
       if (stock < objetivo) {
         const aPedir = Math.ceil(objetivo - stock);
-        const cobertura = rot > 0 ? stock / rot : 0;
+        const coberturaDias = rotDiaria > 0 ? stock / rotDiaria : 0;
         pedido.push({
           producto: a.nombre,
+          ventaDiariaProm: Math.round((rot / 30) * 100) / 100,
           ventaMensualProm: Math.round(rot * 10) / 10,
           stockActual: stockReal,
           descuadreInventario: stockReal < 0 ? "Stock negativo en 365: revisar inventario de este producto" : undefined,
-          coberturaMeses: Math.round(cobertura * 100) / 100,
+          coberturaDias: Math.round(coberturaDias * 10) / 10,
           cantidadSugerida: aPedir,
           proveedor: a.proveedor || undefined,
         });
       }
     }
     // Ordenar por menor cobertura (más crítico primero)
-    pedido.sort((a, b) => a.coberturaMeses - b.coberturaMeses);
+    pedido.sort((a, b) => a.coberturaDias - b.coberturaDias);
 
     if (pedido.length === 0) {
-      return { mensaje: `No hay productos que requieran pedido${proveedor ? " del proveedor " + proveedor : ""}${sucursal ? " en " + sucursal : ""}. El stock cubre la rotación del mes.` };
+      return { mensaje: `No hay productos que requieran pedido${proveedor ? " del proveedor " + proveedor : ""}${sucursal ? " en " + sucursal : ""}. El stock cubre ${diasCobertura} días de venta.` };
     }
     const MOSTRAR = 15;
     return {
       sucursal: sucursal || "todas",
       proveedor: proveedor || "todos",
+      diasCobertura,
       totalProductosEnPedido: pedido.length,
       mostrando: Math.min(MOSTRAR, pedido.length),
       pedido: pedido.slice(0, MOSTRAR),
       instruccionEstricta: `Muestra EXACTAMENTE estos ${Math.min(MOSTRAR, pedido.length)} productos de la lista 'pedido'. NO agregues ningún producto que no esté en esta lista. NO inventes una segunda tabla. Si hay más de ${MOSTRAR}, solo menciona que hay ${pedido.length} en total y que se puede ver el resto en el módulo de pedidos.`,
-      nota: "Índice de cobertura = stock ÷ venta mensual promedio (3 meses).",
+      nota: `Pedido para cubrir ${diasCobertura} días de venta. Cobertura (días) = stock ÷ venta diaria promedio (últimos 3 meses concluidos). cantidadSugerida = lo que falta para llegar a ${diasCobertura} días.`,
     };
   },
 
