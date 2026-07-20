@@ -142,6 +142,14 @@ async function comprimirImagen(file: File, maxLado = 1600, calidad = 0.8): Promi
 // Convierte fecha MM/YYYY o DD/MM/YYYY a formato YYYY-MM-DD para input date
 function convertExpiryDate(date: string | null | undefined): string | null {
   if (!date) return null;
+  // Formato MM/AA (año 2 dígitos, ej: 11/27) → último día del mes 20AA-MM-DD
+  const mmYY = date.match(/^(\d{1,2})\/(\d{2})$/);
+  if (mmYY) {
+    const mes = mmYY[1].padStart(2, "0");
+    const anio = `20${mmYY[2]}`;
+    const ultimoDia = new Date(Number(anio), Number(mes), 0).getDate();
+    return `${anio}-${mes}-${ultimoDia}`;
+  }
   // Formato MM/YYYY → último día del mes YYYY-MM-DD
   const mmYYYY = date.match(/^(\d{1,2})\/(\d{4})$/);
   if (mmYYYY) {
@@ -160,7 +168,27 @@ function convertExpiryDate(date: string | null | undefined): string | null {
   if (ddMMYYYY) {
     return `${ddMMYYYY[3]}-${ddMMYYYY[2].padStart(2, "0")}-${ddMMYYYY[1].padStart(2, "0")}`;
   }
+  // Ya viene en YYYY-MM-DD (de la extracción o del escaneo)
   return date;
+}
+
+// Muestra el vencimiento en formato editable DD/MM/AAAA. Si viene en YYYY-MM-DD
+// (de la extracción o el escaneo), lo convierte; si ya es texto libre lo deja.
+function mostrarVencimiento(valor: string | null | undefined): string {
+  if (!valor) return "";
+  const iso = valor.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return valor;
+}
+
+// Da formato al vencimiento MIENTRAS se escribe: solo dígitos, agrega las "/"
+// automáticamente. Acepta MM/AA (5 chars) o DD/MM/AAAA (10 chars). El usuario
+// solo teclea números; las barras aparecen solas.
+function formatearVencimiento(valor: string): string {
+  const d = valor.replace(/\D/g, ""); // solo dígitos
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;       // MM/AA o MM/AAAA en progreso
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4, 8)}`;       // DD/MM/AAAA
 }
 
 export default function NuevaCompra() {
@@ -197,6 +225,7 @@ export default function NuevaCompra() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [extracted, setExtracted] = useState(false);
+  const [fuenteXml, setFuenteXml] = useState(false); // la compra vino de un XML (solo faltan vencimientos)
   const [compraGuardada, setCompraGuardada] = useState(false); // ya se registró o guardó como borrador
   const [borradorGuardadoId, setBorradorGuardadoId] = useState<number | null>(null);
   // Ventanas de resultado al sincronizar
@@ -491,8 +520,10 @@ export default function NuevaCompra() {
             setTotalFacturaReal(result.totalFactura || 0);
             setExtracted(true);
             if ((result as any).fuente === "xml") {
+              setFuenteXml(true);
               toast.success(`✓ ${result.items.length} productos leídos del XML (precios y descuentos exactos)`, { duration: 6000 });
             } else {
+              setFuenteXml(false);
               toast.success(`Se extrajeron ${result.items.length} productos de la imagen`);
             }
             // Si el backend detectó que la suma no cuadra con la factura, avisar
@@ -573,7 +604,7 @@ export default function NuevaCompra() {
         receiptNumber, receiptType, supplier, almacenNombre, totalAmount,
         items: items.map(i => ({
           productName: i.productName, quantity: i.quantity, unitCost: i.unitCost,
-          subtotal: i.subtotal, expiryDate: i.expiryDate || null,
+          subtotal: i.subtotal, expiryDate: convertExpiryDate(i.expiryDate) || null,
           nombreFactura: (i as any).nombreFacturaOriginal || productosEmparejados[i.productName] || i.productName,
           nuevoPrecioVenta: (i.nuevoPrecioVenta != null && i.nuevoPrecioVenta !== i.precioVentaSistema) ? i.nuevoPrecioVenta : null,
           precioVenta: i.nuevoPrecioVenta ?? i.precioVentaSistema ?? null,
@@ -641,7 +672,7 @@ export default function NuevaCompra() {
             quantity: Number(i.quantity) || 0,
             unitCost: Number(i.unitCost) || 0,
             subtotal: Number(i.subtotal) || (Number(i.quantity) || 0) * (Number(i.unitCost) || 0),
-            expiryDate: i.expiryDate || null,
+            expiryDate: convertExpiryDate(i.expiryDate) || null,
             nuevoPrecioVenta: (i.nuevoPrecioVenta != null && i.nuevoPrecioVenta !== i.precioVentaSistema) ? i.nuevoPrecioVenta : null,
           precioVenta: i.nuevoPrecioVenta ?? i.precioVentaSistema ?? null,
             pctDescuento: (i as any).pctDescuento ?? null,
@@ -922,6 +953,7 @@ export default function NuevaCompra() {
                       size="icon"
                       onClick={() => {
                         setFile(null);
+                        setFuenteXml(false);
                         setPreviewUrl(null);
                         setExtracted(false);
                         setItems([]);
@@ -1184,6 +1216,24 @@ export default function NuevaCompra() {
               </div>
             </CardHeader>
             <CardContent>
+              {/* VENCIMIENTOS: cuando faltan, guiar a completarlos. En compras por
+                  XML esto es lo ÚNICO pendiente (el resto ya viene exacto). */}
+              {extracted && items.length > 0 && (() => {
+                const faltan = items.filter((it) => !it.expiryDate).length;
+                if (faltan === 0) return null;
+                return (
+                  <div className={`mb-3 p-3 rounded-lg border ${fuenteXml ? "bg-emerald-50 border-emerald-300" : "bg-amber-50 border-amber-300"}`}>
+                    <p className="text-xs font-black mb-0.5">
+                      {fuenteXml
+                        ? `✓ Compra lista desde el XML (precios y descuentos exactos). Solo faltan ${faltan} vencimiento(s).`
+                        : `📅 ${faltan} producto(s) sin fecha de vencimiento.`}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Usa el botón de cámara <Camera className="inline h-3 w-3" /> en cada producto para escanear la fecha de la caja, o escríbela a mano (ej: 11/27 o 31/12/2027). Los que faltan están marcados en ámbar.
+                    </p>
+                  </div>
+                );
+              })()}
               {/* APRENDIZAJE: ¿este proveedor está dando el descuento de siempre? */}
               {alertasDescuento.length > 0 && (
                 <div className="mb-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-300">
@@ -1345,10 +1395,13 @@ export default function NuevaCompra() {
                         </label>
                         <div className="flex gap-1">
                           <Input
-                            type="date"
-                            value={item.expiryDate || ""}
-                            onChange={(e) => updateItem(idx, "expiryDate", e.target.value || null)}
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="MM/AA o DD/MM/AAAA"
+                            value={mostrarVencimiento(item.expiryDate)}
+                            onChange={(e) => updateItem(idx, "expiryDate", formatearVencimiento(e.target.value))}
                             className={`text-sm h-9 ${!item.expiryDate ? "border-amber-400 bg-amber-50/50" : ""}`}
+                            maxLength={10}
                           />
                           <button
                             type="button"
