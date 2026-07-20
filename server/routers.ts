@@ -4284,6 +4284,65 @@ const sistemaRouter = router({
 });
 
 export const appRouter = router({
+  bandeja: router({
+    // Ingresar una factura XML a la bandeja (sube el archivo y lo parsea).
+    ingresar: protectedProcedure
+      .input(z.object({ fileBase64: z.string(), fileName: z.string() }))
+      .mutation(async ({ input }) => {
+        const contenido = Buffer.from(input.fileBase64, "base64").toString("utf-8");
+        const { esFacturaXml, parsearFacturaXml } = await import("./factura-xml");
+        if (!esFacturaXml(contenido, input.fileName)) {
+          throw new Error("El archivo no es una factura XML del SIN válida.");
+        }
+        const f = parsearFacturaXml(contenido);
+        if (f.items.length === 0) throw new Error("El XML no contiene productos.");
+        const { bandejaService } = await import("./bandeja");
+        const r = await bandejaService.ingresar(f, "manual");
+        return {
+          id: r.id,
+          duplicada: r.duplicada,
+          proveedor: f.razonSocialEmisor,
+          numeroFactura: f.numeroFactura,
+          totalItems: f.items.length,
+        };
+      }),
+    // Listar la bandeja (pendientes por defecto).
+    listar: protectedProcedure
+      .input(z.object({ incluirValidadas: z.boolean().default(false) }).optional())
+      .query(async ({ input }) => {
+        const { bandejaService } = await import("./bandeja");
+        return bandejaService.listar(input?.incluirValidadas ?? false);
+      }),
+    // Detalle de una factura de la bandeja.
+    detalle: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const { bandejaService } = await import("./bandeja");
+        return bandejaService.detalle(input.id);
+      }),
+    // Reconocer una factura por número/proveedor (cámara inteligente, Paso B).
+    reconocer: protectedProcedure
+      .input(z.object({ numeroFactura: z.string().optional(), proveedor: z.string().optional() }))
+      .query(async ({ input }) => {
+        const { bandejaService } = await import("./bandeja");
+        return bandejaService.reconocer(input.numeroFactura, input.proveedor);
+      }),
+    // Actualizar items (emparejamiento/vencimientos) de una factura.
+    actualizarItems: protectedProcedure
+      .input(z.object({ id: z.number(), items: z.array(z.any()) }))
+      .mutation(async ({ input }) => {
+        const { bandejaService } = await import("./bandeja");
+        return bandejaService.actualizarItems(input.id, input.items as any);
+      }),
+    // Descartar una factura de la bandeja.
+    eliminar: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { bandejaService } = await import("./bandeja");
+        await bandejaService.eliminar(input.id);
+        return { success: true };
+      }),
+  }),
   pedidos: router({
     // Buscar proveedores REALES en 365 (para el autocompletado de la página Pedidos).
     buscarProveedores: protectedProcedure

@@ -173,6 +173,42 @@ export const operationHistory = mysqlTable("operation_history", {
 export type OperationHistoryItem = typeof operationHistory.$inferSelect;
 export type InsertOperationHistoryItem = typeof operationHistory.$inferInsert;
 
+// ─── Bandeja de Facturas XML ─────────────────────────────────────────────────
+// Cada factura XML (subida manual o, más adelante, llegada por correo) queda
+// GUARDADA aquí en espera, con su estado. Es la base de la cámara-inteligente
+// (que reconoce la factura física contra esta bandeja) y de la ingesta por
+// correo. El detalle de productos + progreso (emparejamiento, vencimientos) se
+// guarda en 'items' como JSON para poder retomar la factura donde se dejó.
+export const bandejaFacturas = mysqlTable("bandeja_facturas", {
+  id: int("id").autoincrement().primaryKey(),
+  // Cabecera fiscal (del XML, exacta)
+  nitEmisor: varchar("nitEmisor", { length: 30 }),
+  proveedor: varchar("proveedor", { length: 255 }),
+  numeroFactura: varchar("numeroFactura", { length: 60 }),
+  cuf: varchar("cuf", { length: 100 }),
+  fechaEmision: varchar("fechaEmision", { length: 40 }),
+  montoTotal: decimal("montoTotal", { precision: 12, scale: 2 }).default("0"),
+  // Estado del ciclo de vida en la bandeja
+  estado: mysqlEnum("estado", ["recibida", "emparejada", "vencimientos_pendientes", "validada"]).default("recibida").notNull(),
+  // Origen: como se cargó (manual arrastrando XML, o correo automatico)
+  origen: varchar("origen", { length: 20 }).default("manual").notNull(),
+  // Detalle de productos + progreso: [{ productName, quantity, unitCost, subtotal,
+  //   descuento, expiryDate, articuloId, articuloNombre }]. Se actualiza al
+  //   emparejar y al cargar vencimientos.
+  items: json("items"),
+  totalItems: int("totalItems").default(0),
+  itemsEmparejados: int("itemsEmparejados").default(0),
+  itemsConVencimiento: int("itemsConVencimiento").default(0),
+  // Vínculo con la compra real una vez validada/sincronizada
+  purchaseId: int("purchaseId"),
+  // Evita duplicados: un CUF identifica únicamente una factura del SIN
+  recibidaEn: timestamp("recibidaEn").defaultNow().notNull(),
+  actualizadaEn: timestamp("actualizadaEn").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BandejaFactura = typeof bandejaFacturas.$inferSelect;
+export type InsertBandejaFactura = typeof bandejaFacturas.$inferInsert;
+
 // ─── Confirmaciones (Emparejamientos aprendidos) ─────────────────────────────
 export const confirmaciones = mysqlTable("confirmaciones", {
   id: int("id").autoincrement().primaryKey(),

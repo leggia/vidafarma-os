@@ -9,6 +9,8 @@ import Home from "./pages/Home";
 import Asistente from "./pages/Asistente";
 import Compras from "./pages/Compras";
 import Pedidos from "./pages/Pedidos";
+import Bandeja from "./pages/Bandeja";
+import BandejaDetalle from "./pages/BandejaDetalle";
 import NuevaCompra from "./pages/NuevaCompra";
 import Transferencias from "./pages/Transferencias";
 import NuevaTransferencia from "./pages/NuevaTransferencia";
@@ -146,6 +148,8 @@ function Router() {
         <Route path="/" component={Home} />
         <Route path="/compras" component={Compras} />
         <Route path="/pedidos" component={Pedidos} />
+        <Route path="/bandeja" component={Bandeja} />
+        <Route path="/bandeja/:id" component={BandejaDetalle} />
         <Route path="/compras/nueva" component={NuevaCompra} />
         <Route path="/transferencias" component={Transferencias} />
         <Route path="/transferencias/nueva" component={NuevaTransferencia} />

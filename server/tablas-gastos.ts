@@ -70,6 +70,27 @@ export async function crearTablasGastos(): Promise<void> {
     "ALTER TABLE transfers ADD COLUMN revertedAt TIMESTAMP NULL",
     "ALTER TABLE transfers ADD COLUMN revertedBy INT NULL",
     "ALTER TABLE transfers ADD COLUMN revertReason TEXT NULL",
+    // Bandeja de facturas XML: tabla que guarda cada factura en espera con su estado.
+    `CREATE TABLE IF NOT EXISTS bandeja_facturas (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      nitEmisor VARCHAR(30),
+      proveedor VARCHAR(255),
+      numeroFactura VARCHAR(60),
+      cuf VARCHAR(100),
+      fechaEmision VARCHAR(40),
+      montoTotal DECIMAL(12,2) DEFAULT 0,
+      estado ENUM('recibida','emparejada','vencimientos_pendientes','validada') NOT NULL DEFAULT 'recibida',
+      origen VARCHAR(20) NOT NULL DEFAULT 'manual',
+      items JSON,
+      totalItems INT DEFAULT 0,
+      itemsEmparejados INT DEFAULT 0,
+      itemsConVencimiento INT DEFAULT 0,
+      purchaseId INT,
+      recibidaEn TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actualizadaEn TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )`,
+    // Un CUF identifica únicamente una factura del SIN: evita duplicados en la bandeja.
+    "ALTER TABLE bandeja_facturas ADD UNIQUE INDEX idx_bandeja_cuf (cuf)",
   ];
   for (const m of migraciones) {
     try { await db.execute(sql.raw(m)); } catch { /* ya existe */ }
