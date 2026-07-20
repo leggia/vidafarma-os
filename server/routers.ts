@@ -4327,6 +4327,47 @@ export const appRouter = router({
         const { bandejaService } = await import("./bandeja");
         return bandejaService.reconocer(input.numeroFactura, input.proveedor);
       }),
+    // CÁMARA INTELIGENTE: recibe una foto de la factura física, lee su número y
+    // proveedor con visión, y lo cruza con la bandeja. Devuelve qué factura XML
+    // reconoció (si alguna) para dirigir el flujo: si está en la bandeja → capturar
+    // vencimientos; si no → foto normal para extracción.
+    reconocerFoto: protectedProcedure
+      .input(z.object({ fileBase64: z.string(), mimeType: z.string() }))
+      .mutation(async ({ input }) => {
+        const dataUrl = `data:${input.mimeType};base64,${input.fileBase64}`;
+        const llmResult = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: "Eres experto en leer facturas bolivianas. Extraes SOLO el número de factura y el nombre del proveedor/emisor. Responde SOLO JSON.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: 'Lee el NÚMERO DE FACTURA y el PROVEEDOR (emisor) de esta factura. Responde JSON: {"numeroFactura":"...","proveedor":"..."}. Si algo no se ve, usa null.' },
+                { type: "image_url", image_url: { url: dataUrl } },
+              ] as any,
+            },
+          ],
+          response_format: { type: "json_object" },
+        });
+        let numeroFactura: string | null = null;
+        let proveedor: string | null = null;
+        try {
+          const c = llmResult.choices[0]?.message?.content;
+          const parsed = typeof c === "string" ? JSON.parse(c.replace(/```json|```/g, "").trim()) : {};
+          numeroFactura = parsed?.numeroFactura || null;
+          proveedor = parsed?.proveedor || null;
+        } catch { /* sin datos */ }
+
+        const { bandejaService } = await import("./bandeja");
+        const coincidencias = await bandejaService.reconocer(numeroFactura || undefined, proveedor || undefined);
+        return {
+          leido: { numeroFactura, proveedor },
+          coincidencias, // ordenadas por score; la mejor primero
+          reconocida: coincidencias.length > 0 ? coincidencias[0] : null,
+        };
+      }),
     // Actualizar items (emparejamiento/vencimientos) de una factura.
     actualizarItems: protectedProcedure
       .input(z.object({ id: z.number(), items: z.array(z.any()) }))
