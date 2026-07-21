@@ -63,6 +63,54 @@ async function startServer() {
   // Endpoint admin para limpiar cache (solo en producción)
   // Diagnóstico: qué valores de 'estado' existen en las ventas (para confirmar
   // cómo 365 marca las anuladas) + fuerza el refresco de estados recientes.
+  // Compara el estado LOCAL vs el estado REAL en 365 para las ventas de un día.
+  // Revela ventas que localmente están "1" pero en 365 fueron canceladas.
+  // Uso: /api/admin/diag-comparar-365?fecha=2026-07-19&sucursal=Lanza
+  app.get("/api/admin/diag-comparar-365", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "DB no disponible" });
+      const fecha = String(req.query.fecha || "");
+      const sucursal = String(req.query.sucursal || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: "fecha YYYY-MM-DD" });
+      const filtroSuc = sucursal ? sql` AND nombreSucursal LIKE ${"%" + sucursal + "%"}` : sql``;
+      // Ventas locales de ese día
+      const r: any = await db.execute(sql`
+        SELECT id, total, estado FROM ventas WHERE fecha = ${fecha}${filtroSuc} ORDER BY id
+      `);
+      const locales = (Array.isArray(r) ? r[0] : r?.rows ?? r) as any[];
+      // Traer los estados actuales de 365 (varias páginas recientes)
+      const { inventarios365 } = await import("../inventarios365");
+      const estado365 = new Map<number, string>();
+      for (let page = 1; page <= 10; page++) {
+        const { ventas } = await inventarios365.listarVentasPagina(page);
+        if (!ventas || ventas.length === 0) break;
+        for (const v of ventas) estado365.set(Number(v.id), String(v.estado ?? ""));
+        await new Promise((r) => setTimeout(r, 80));
+      }
+      // Comparar
+      const discrepancias = [];
+      let localValidas = 0, localValidasMonto = 0;
+      for (const v of locales) {
+        const eLocal = String(v.estado);
+        const e365 = estado365.has(Number(v.id)) ? estado365.get(Number(v.id)) : "(no está en páginas recientes)";
+        if (eLocal === "1") { localValidas++; localValidasMonto += Number(v.total); }
+        if (eLocal !== e365 && e365 !== "(no está en páginas recientes)") {
+          discrepancias.push({ id: v.id, total: v.total, estadoLocal: eLocal, estado365: e365 });
+        }
+      }
+      res.json({
+        fecha, sucursal: sucursal || "(todas)",
+        totalLocales: locales.length,
+        localValidas, localValidasMonto: localValidasMonto.toFixed(2),
+        discrepancias,
+        nota: "discrepancias = ventas cuyo estado local difiere del actual en 365 (deberían actualizarse)",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+    }
+  });
+
   // Diagnóstico por fecha+sucursal: desglose por estado para comparar con 365.
   // Uso: /api/admin/diag-ventas-dia?fecha=2026-07-20&sucursal=Lanza
   app.get("/api/admin/diag-ventas-dia", async (req: any, res) => {
