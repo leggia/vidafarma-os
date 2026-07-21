@@ -97,7 +97,8 @@ async function startServer() {
       let noExisten = 0, distintoEstado = 0;
       for (const v of locales) {
         const cab = await inventarios365.obtenerCabeceraVenta(Number(v.id));
-        const estado365 = cab ? String(cab.estado ?? "?") : "NO EXISTE";
+        const filaV = cab?.venta?.[0] ?? cab?.[0] ?? cab;
+        const estado365 = filaV?.estado != null ? String(filaV.estado) : (cab ? "?" : "NO EXISTE");
         if (!cab) noExisten++;
         else if (String(v.estado) !== estado365) distintoEstado++;
         detalle.push({ id: v.id, total: v.total, comp: v.numComprobante, local: String(v.estado), en365: estado365 });
@@ -219,7 +220,18 @@ async function startServer() {
   app.post("/api/admin/refrescar-estados-ventas", async (_req, res) => {
     try {
       const { refrescarEstadoVentasRecientes } = await import("../sync-ventas");
-      const r = await refrescarEstadoVentasRecientes(10);
+      const r = await refrescarEstadoVentasRecientes(3);
+      res.json({ success: true, ...r });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e?.message });
+    }
+  });
+
+  // Versión GET para dispararlo fácil desde el navegador (refresca 5 días).
+  app.get("/api/admin/refrescar-estados-ventas", async (_req, res) => {
+    try {
+      const { refrescarEstadoVentasRecientes } = await import("../sync-ventas");
+      const r = await refrescarEstadoVentasRecientes(5);
       res.json({ success: true, ...r });
     } catch (e: any) {
       res.status(500).json({ success: false, error: e?.message });
@@ -502,7 +514,7 @@ async function startServer() {
       }
       // Refrescar estados recientes: captura ANULACIONES de ventas ya sincronizadas
       // (la incremental no las ve porque no son ventas nuevas).
-      const est = await refrescarEstadoVentasRecientes();
+      const est = await refrescarEstadoVentasRecientes(2);
       if (est.actualizadas > 0) console.log(`[CronVentas] ${est.actualizadas} estados actualizados (anulaciones)`);
     } catch (e) {
       console.warn("[CronVentas] Error en sincronización automática:", e);

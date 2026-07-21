@@ -2598,7 +2598,7 @@ const ventasRouter = router({
       if (huboHueco) await new Promise((res) => setTimeout(res, 800));
     }
     // Refrescar estados recientes para capturar anulaciones de ventas ya sincronizadas.
-    await refrescarEstadoVentasRecientes(8);
+    await refrescarEstadoVentasRecientes(3);
     // Tras sincronizar ventas, otorgar puntos de fidelidad a las ventas de mostrador
     // con cliente identificado (idempotente). No bloquea si falla.
     try {

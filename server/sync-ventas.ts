@@ -88,38 +88,47 @@ async function guardarVenta(db: any, sql: any, venta: any): Promise<boolean> {
  * actualiza el estado local de cada una si cambió. Con eso las anulaciones del día
  * se reflejan y los reportes (que ya filtran anuladas) dan el número correcto.
  */
-export async function refrescarEstadoVentasRecientes(paginas = 5): Promise<{ actualizadas: number }> {
+export async function refrescarEstadoVentasRecientes(dias = 7): Promise<{ actualizadas: number; revisadas: number }> {
   const { getDb } = await import("./db");
   const { sql } = await import("drizzle-orm");
   const { inventarios365 } = await import("./inventarios365");
   const db = await getDb();
-  if (!db) return { actualizadas: 0 };
+  if (!db) return { actualizadas: 0, revisadas: 0 };
 
   let actualizadas = 0;
+  let revisadas = 0;
   try {
-    for (let page = 1; page <= paginas; page++) {
-      const { ventas: lista } = await inventarios365.listarVentasPagina(page);
-      if (!lista || lista.length === 0) break;
-      for (const v of lista) {
-        const vid = Number(v.id);
-        if (!vid) continue;
-        const estadoNuevo = String(v.estado ?? "");
-        // Actualizar solo si el estado local difiere del de 365 (evita escrituras inútiles)
-        const r: any = await db.execute(sql`SELECT estado FROM ventas WHERE id = ${vid} LIMIT 1`);
-        const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
-        const estadoLocal = filas?.[0]?.estado;
-        if (estadoLocal !== undefined && estadoLocal !== estadoNuevo) {
-          await db.execute(sql`UPDATE ventas SET estado = ${estadoNuevo} WHERE id = ${vid}`);
-          actualizadas++;
-          console.log(`[SyncVentas] Venta ${vid}: estado "${estadoLocal}" → "${estadoNuevo}"`);
-        }
+    // Tomar las ventas locales de los últimos N días (por su fecha). Una anulación
+    // en 365 cambia el estado de una venta ya existente, y esa venta puede haber
+    // quedado fuera de las páginas recientes del listado — por eso se consulta la
+    // CABECERA INDIVIDUAL de cada una (el estado real vive en cabecera.venta[0].estado).
+    const desde = new Date();
+    desde.setUTCDate(desde.getUTCDate() - dias);
+    const desdeStr = desde.toISOString().slice(0, 10);
+    const r: any = await db.execute(sql`
+      SELECT id, estado FROM ventas WHERE fecha >= ${desdeStr} ORDER BY id DESC LIMIT 600
+    `);
+    const locales = (Array.isArray(r) ? r[0] : r?.rows ?? r) as any[];
+
+    for (const v of locales) {
+      const vid = Number(v.id);
+      if (!vid) continue;
+      revisadas++;
+      const cab = await inventarios365.obtenerCabeceraVenta(vid);
+      // La cabecera devuelve { venta: [ { ... estado ... } ] }
+      const filaVenta = cab?.venta?.[0] ?? cab?.[0] ?? cab;
+      const estadoNuevo = filaVenta?.estado != null ? String(filaVenta.estado) : null;
+      if (estadoNuevo != null && String(v.estado) !== estadoNuevo) {
+        await db.execute(sql`UPDATE ventas SET estado = ${estadoNuevo} WHERE id = ${vid}`);
+        actualizadas++;
+        console.log(`[SyncVentas] Venta ${vid}: estado "${v.estado}" → "${estadoNuevo}"`);
       }
-      await new Promise((r) => setTimeout(r, 100)); // no saturar 365
+      await new Promise((res) => setTimeout(res, 50)); // no saturar 365
     }
   } catch (e) {
     console.warn("[SyncVentas] Error refrescando estados:", e);
   }
-  return { actualizadas };
+  return { actualizadas, revisadas };
 }
 
 /**
