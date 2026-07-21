@@ -44,9 +44,21 @@ function rangoFechas(periodo: string): { desde: string; hasta: string; etiqueta:
     const t = iso(hoy);
     return { desde: t, hasta: t, etiqueta: "hoy" };
   }
-  if (p.includes("ayer")) {
+  if (p.includes("ayer") && !p.includes("antier") && !p.includes("anteayer")) {
     const a = mk(y, m, d - 1);
     return { desde: iso(a), hasta: iso(a), etiqueta: "ayer" };
+  }
+  // Antier / anteayer = hace 2 días
+  if (p.includes("antier") || p.includes("anteayer") || p.includes("ante ayer")) {
+    const a = mk(y, m, d - 2);
+    return { desde: iso(a), hasta: iso(a), etiqueta: "antier" };
+  }
+  // "hace N días"
+  const haceDias = p.match(/hace\s+(\d+)\s*d[ií]as?/);
+  if (haceDias) {
+    const n = parseInt(haceDias[1], 10);
+    const a = mk(y, m, d - n);
+    return { desde: iso(a), hasta: iso(a), etiqueta: `hace ${n} días` };
   }
   if (p.includes("semana")) {
     const ini = mk(y, m, d - 6);
@@ -61,6 +73,32 @@ function rangoFechas(periodo: string): { desde: string; hasta: string; etiqueta:
     }
     const ini = mk(y, m, 1);
     return { desde: iso(ini), hasta: iso(hoy), etiqueta: "este mes" };
+  }
+  // Fecha exacta YYYY-MM-DD (un solo día)
+  const fechaISO = p.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (fechaISO) {
+    const t = `${fechaISO[1]}-${fechaISO[2]}-${fechaISO[3]}`;
+    return { desde: t, hasta: t, etiqueta: t };
+  }
+  // Fecha DD/MM/YYYY o DD-MM-YYYY (un solo día)
+  const fechaDMY = p.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (fechaDMY) {
+    const dd = fechaDMY[1].padStart(2, "0"), mm = fechaDMY[2].padStart(2, "0");
+    const t = `${fechaDMY[3]}-${mm}-${dd}`;
+    return { desde: t, hasta: t, etiqueta: `${dd}/${mm}/${fechaDMY[3]}` };
+  }
+  // "DD de <mes>" (ej: "15 de junio", "3 de julio de 2026")
+  const meses: Record<string, number> = {
+    enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+    julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+  };
+  const fechaTexto = p.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)(?:\s+de\s+(\d{4}))?/);
+  if (fechaTexto && meses[fechaTexto[2]]) {
+    const dd = parseInt(fechaTexto[1], 10);
+    const mmes = meses[fechaTexto[2]];
+    const anio = fechaTexto[3] ? parseInt(fechaTexto[3], 10) : y;
+    const t = iso(mk(anio, mmes - 1, dd));
+    return { desde: t, hasta: t, etiqueta: `${dd} de ${fechaTexto[2]}` };
   }
   // Si viene formato YYYY-MM
   const match = p.match(/(\d{4})-(\d{2})/);

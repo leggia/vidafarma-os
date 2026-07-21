@@ -3403,7 +3403,11 @@ const MODELO_ASISTENTE = "llama-3.1-8b-instant"; // mucho más liviano que el 70
 // la herramienta correspondiente (cuando el modelo falla al generar la función).
 async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nombre: string; resultado: any } | null> {
   const q = pregunta.toLowerCase();
-  const periodo = q.includes("hoy") ? "hoy" : q.includes("ayer") ? "ayer" : q.includes("semana") ? "semana"
+  // Período: si la pregunta trae una fecha específica, antier o "hace N días",
+  // se pasa el texto crudo (rangoFechas lo interpreta); si no, la clasificación simple.
+  const tieneFechaEspecifica = /antier|anteayer|ante ayer|hace\s+\d+\s*d[ií]a|\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{1,2}\s+de\s+[a-záéíóú]+/.test(q);
+  const periodo = tieneFechaEspecifica ? q
+    : q.includes("hoy") ? "hoy" : q.includes("ayer") ? "ayer" : q.includes("semana") ? "semana"
     : (q.includes("mes anterior") || q.includes("mes pasado")) ? "mes anterior" : "mes";
   // Detectar sucursal mencionada en la pregunta
   let sucursal: string | undefined;
@@ -3707,7 +3711,7 @@ Para comparar sucursales usa una sola llamada. Nunca escribas funciones como tex
 SUCURSALES: Petrolera, Lanza, Cobol (nombre completo "Casa Matriz Cobol" — "Cobol" o "Sucursal Cobol" es la misma) y Casa Matriz (también conocida como "Honduras" o "Central" — son la misma sucursal; si el usuario dice "Honduras" o "Central" trátalo como Casa Matriz).`;
 
       const tools = [
-        { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período (hoy/ayer/semana/mes/YYYY-MM), opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período, opcional por sucursal. El período acepta: hoy, ayer, antier/anteayer, 'hace N días', semana, mes, mes anterior, un mes YYYY-MM, o una FECHA ESPECÍFICA (YYYY-MM-DD, DD/MM/YYYY, o 'DD de <mes>' como '15 de junio'). Pasa la fecha tal como la dijo el usuario.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "comprasProveedor", description: "Compras a un proveedor en un período.", parameters: { type: "object", properties: { proveedor: { type: "string" }, periodo: { type: "string" } }, required: ["proveedor", "periodo"] } } },
         { type: "function" as const, function: { name: "productoMasVendido", description: "Productos más vendidos en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, porValor: { type: "boolean" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "gananciaPeriodo", description: "Ganancia de un período: bruta y NETA (descontando gastos del mes). Opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
