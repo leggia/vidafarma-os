@@ -63,6 +63,20 @@ async function startServer() {
   // Endpoint admin para limpiar cache (solo en producción)
   // Diagnóstico: qué valores de 'estado' existen en las ventas (para confirmar
   // cómo 365 marca las anuladas) + fuerza el refresco de estados recientes.
+  // Muestra el objeto CRUDO de la cabecera de una venta en 365, para ver los
+  // nombres reales de los campos (estado, etc.). Uso: /api/admin/diag-cabecera-cruda?id=69112
+  app.get("/api/admin/diag-cabecera-cruda", async (req: any, res) => {
+    try {
+      const id = Number(req.query.id);
+      if (!id) return res.status(400).json({ error: "id requerido" });
+      const { inventarios365 } = await import("../inventarios365");
+      const cab = await inventarios365.obtenerCabeceraVenta(id);
+      res.json({ id, cabecera: cab });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+    }
+  });
+
   // Consulta la CABECERA individual en 365 de cada venta local del día. Revela el
   // estado REAL en 365 (no el del listado) y si la venta existe allá.
   // Uso: /api/admin/diag-cabeceras?fecha=2026-07-19&sucursal=Lanza
