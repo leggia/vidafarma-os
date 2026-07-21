@@ -63,6 +63,33 @@ async function startServer() {
   // Endpoint admin para limpiar cache (solo en producción)
   // Diagnóstico: qué valores de 'estado' existen en las ventas (para confirmar
   // cómo 365 marca las anuladas) + fuerza el refresco de estados recientes.
+  // Diagnóstico por fecha+sucursal: desglose por estado para comparar con 365.
+  // Uso: /api/admin/diag-ventas-dia?fecha=2026-07-20&sucursal=Lanza
+  app.get("/api/admin/diag-ventas-dia", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "DB no disponible" });
+      const fecha = String(req.query.fecha || "");
+      const sucursal = String(req.query.sucursal || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: "fecha debe ser YYYY-MM-DD" });
+      const filtroSuc = sucursal ? sql` AND nombreSucursal LIKE ${"%" + sucursal + "%"}` : sql``;
+      const r: any = await db.execute(sql`
+        SELECT estado, COUNT(*) AS n, COALESCE(SUM(total),0) AS total
+        FROM ventas WHERE fecha = ${fecha}${filtroSuc}
+        GROUP BY estado ORDER BY estado
+      `);
+      const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
+      // También el desglose de sucursales exactas ese día (para ver el nombre real)
+      const s: any = await db.execute(sql`
+        SELECT DISTINCT nombreSucursal FROM ventas WHERE fecha = ${fecha}
+      `);
+      const sucs = Array.isArray(s) ? s[0] : s?.rows ?? s;
+      res.json({ fecha, sucursal: sucursal || "(todas)", porEstado: filas, sucursalesDelDia: sucs });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+    }
+  });
+
   app.get("/api/admin/diag-estados-ventas", async (_req, res) => {
     try {
       const db = await getDb();
