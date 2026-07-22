@@ -180,6 +180,48 @@ async function startServer() {
     }
   });
 
+  // Últimas transferencias con su estado, productos y lo que respondió 365.
+  // Responde por qué una transferencia no se reflejó.
+  app.get("/api/admin/diag-transferencias", async (_req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "DB no disponible" });
+      const t: any = await db.execute(sql`
+        SELECT t.id, t.status, t.referenceNumber, t.createdAt, t.userId,
+               bo.name AS origen, bd.name AS destino
+        FROM transfers t
+        LEFT JOIN branches bo ON bo.id = t.fromBranchId
+        LEFT JOIN branches bd ON bd.id = t.toBranchId
+        ORDER BY t.id DESC LIMIT 10
+      `);
+      const transferencias = (Array.isArray(t) ? t[0] : t?.rows ?? t) as any[];
+      const ids = transferencias.map((x) => x.id);
+      let items: any[] = [], historial: any[] = [];
+      if (ids.length > 0) {
+        const it: any = await db.execute(sql`
+          SELECT transferId, productName, quantity FROM transfer_items
+          WHERE transferId IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+        `);
+        items = (Array.isArray(it) ? it[0] : it?.rows ?? it) as any[];
+        const h: any = await db.execute(sql`
+          SELECT referenceId, action, status, details, createdAt FROM operation_history
+          WHERE type = 'transfer' AND referenceId IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+          ORDER BY id DESC
+        `);
+        historial = (Array.isArray(h) ? h[0] : h?.rows ?? h) as any[];
+      }
+      res.json({
+        transferencias: transferencias.map((x) => ({
+          ...x,
+          productos: items.filter((i) => Number(i.transferId) === Number(x.id)).map((i) => `${i.productName} x${i.quantity}`),
+          respuesta365: historial.filter((h) => Number(h.referenceId) === Number(x.id)).map((h) => `[${h.status}] ${h.action}: ${h.details}`),
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+    }
+  });
+
   // Compara los nombres de sucursal de VidaFarma con los almacenes reales de 365.
   // Sirve para detectar por qué una transferencia no se refleja (nombre que no
   // coincide o que es ambiguo, ej. "Casa Matriz" vs "Casa Matriz Cobol").
