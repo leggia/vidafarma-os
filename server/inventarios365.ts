@@ -1808,6 +1808,17 @@ class Inventarios365Service {
         };
       }
 
+      // TODO O NADA: si algún producto no existe en 365, NO se transfiere nada.
+      // Antes se enviaban los encontrados y se omitían los demás, dejando la
+      // transferencia a medias (unos productos movidos y otros no), que es
+      // justo lo que hay que evitar para no descuadrar el inventario.
+      if (omitidos.length > 0) {
+        return {
+          success: false,
+          message: `Transferencia CANCELADA (no se movió nada): ${omitidos.length} producto(s) no existen en 365 → ${omitidos.join(", ")}. Corrige el nombre o quítalos de la lista y vuelve a intentar; así la transferencia se registra completa.`,
+        };
+      }
+
       // Foto del stock del DESTINO antes de traspasar, para verificar después.
       const nombresArt = arrayDetalle.map((d: any) => String(d.articulo));
       const stockAntes = await this.stockDeArticulos(almacenDestino.id, nombresArt);
@@ -1868,9 +1879,7 @@ class Inventarios365Service {
 
       return {
         success: true,
-        message: (omitidos.length === 0
-          ? `Transferencia registrada en 365 (${arrayDetalle.length} productos).`
-          : `Transferencia registrada en 365 con ${arrayDetalle.length} productos. ⚠ OMITIDOS (no encontrados en 365): ${omitidos.join(", ")} — transfiérelos manualmente o corrige el nombre.`) + avisoVerificacion,
+        message: `Transferencia registrada en 365 (${arrayDetalle.length} productos).${avisoVerificacion}`,
       };
     } catch (error: any) {
       console.error(
