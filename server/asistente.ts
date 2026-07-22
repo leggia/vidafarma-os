@@ -111,6 +111,52 @@ function rangoFechas(periodo: string): { desde: string; hasta: string; etiqueta:
   return { desde: t, hasta: t, etiqueta: "hoy" };
 }
 
+/**
+ * Resumen de diferencias de caja (faltantes/sobrantes) en un rango de fechas.
+ * Se alimenta de los cierres de caja de 365 capturados en `diferencias_caja`.
+ * Solo se guardan los cierres CON diferencia, así que si no hay filas es que
+ * todas las cajas cuadraron. Tolerante: si la tabla aún no existe, devuelve null.
+ */
+async function diferenciasCajaPeriodo(desde: string, hasta: string, sucursal?: string) {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const filtroSuc = sucursal ? sql` AND sucursal LIKE ${"%" + sucursal + "%"}` : sql``;
+    const r = rows(await db.execute(sql`
+      SELECT COALESCE(SUM(saldoFaltante),0) AS falt, COALESCE(SUM(saldoSobrante),0) AS sobr, COUNT(*) AS n
+      FROM diferencias_caja
+      WHERE DATE(fechaCierre) >= ${desde} AND DATE(fechaCierre) <= ${hasta}${filtroSuc}
+    `));
+    const d = r[0] || {};
+    const falt = num(d.falt), sobr = num(d.sobr), n = num(d.n);
+    if (n === 0) {
+      return { mensaje: "Todas las cajas cuadraron (sin faltantes ni sobrantes).", faltante: "Bs 0.00", sobrante: "Bs 0.00", cierresConDiferencia: 0 };
+    }
+    // Detalle por caja para poder señalar dónde ocurrió
+    const det = rows(await db.execute(sql`
+      SELECT sucursal, usuario, fechaCierre, saldoFaltante, saldoSobrante
+      FROM diferencias_caja
+      WHERE DATE(fechaCierre) >= ${desde} AND DATE(fechaCierre) <= ${hasta}${filtroSuc}
+      ORDER BY fechaCierre DESC LIMIT 20
+    `));
+    return {
+      faltante: `Bs ${fmtBs(falt)}`,
+      sobrante: `Bs ${fmtBs(sobr)}`,
+      neto: `Bs ${fmtBs(sobr - falt)}`, // + sobró / − faltó
+      cierresConDiferencia: n,
+      detalle: det.map((c: any) => ({
+        sucursal: c.sucursal,
+        vendedor: c.usuario,
+        cierre: String(c.fechaCierre).slice(0, 16),
+        faltó: `Bs ${fmtBs(c.saldoFaltante)}`,
+        sobró: `Bs ${fmtBs(c.saldoSobrante)}`,
+      })),
+    };
+  } catch {
+    return null; // la tabla puede no existir todavía
+  }
+}
+
 export const asistenteTools = {
   // 1. Cuánto vendí en un período
   async ventasPeriodo(periodo: string, sucursal?: string) {
@@ -143,7 +189,19 @@ export const asistenteTools = {
         total: `Bs ${fmtBs(s.total)}`,
       }));
     }
+    // Diferencias de caja del mismo período (faltantes/sobrantes de los cierres).
+    // Complementan la venta: el sistema dice X, pero el efectivo real pudo diferir.
+    const dif = await diferenciasCajaPeriodo(desde, hasta, sucursal);
+    if (dif) resultado.diferenciasCaja = dif;
     return resultado;
+  },
+
+  // 1b. Faltantes y sobrantes de caja en un período (cierres de turno)
+  async diferenciasCaja(periodo: string, sucursal?: string) {
+    const { desde, hasta, etiqueta } = rangoFechas(periodo || "mes");
+    const dif = await diferenciasCajaPeriodo(desde, hasta, sucursal);
+    if (!dif) return { error: "No hay datos de cierres de caja todavía." };
+    return { periodo: etiqueta, sucursal: sucursal || "todas las sucursales", ...dif };
   },
 
   // 2. Productos por agotarse (stock bajo)

@@ -3519,6 +3519,13 @@ async function intentarHerramientaPorIntencion(pregunta: string): Promise<{ nomb
   if (q.includes("mejor vendedor") || q.includes("mejor vendedora") || q.includes("quién vende") || q.includes("quien vende")) {
     return { nombre: "mejoresVendedores", resultado: await asistenteTools.mejoresVendedores(periodo, sucursal) };
   }
+  // Faltantes / sobrantes de caja (va ANTES de ventas: "sobró de las ventas"
+  // menciona 'venta' pero pregunta por la diferencia de caja)
+  if (q.includes("faltante") || q.includes("sobrante") || q.includes("faltó") || q.includes("falto") ||
+      q.includes("sobró") || q.includes("sobro") || q.includes("cuadr") ||
+      (q.includes("caja") && (q.includes("diferencia") || q.includes("descuadr")))) {
+    return { nombre: "diferenciasCaja", resultado: await asistenteTools.diferenciasCaja(periodo, sucursal) };
+  }
   // Cuánto vendí (con sucursal si se mencionó)
   if (q.includes("vend") || q.includes("venta")) {
     return { nombre: "ventasPeriodo", resultado: await asistenteTools.ventasPeriodo(periodo, sucursal) };
@@ -3552,7 +3559,7 @@ function herramientaPermitida(nombre: string, rol?: string): boolean {
 // Compatibilidad: sigue existiendo para el filtro del fallback
 const HERRAMIENTAS_SOLO_ADMIN = new Set([
   "gananciaPeriodo", "rentabilidadSucursales", "margenProductos", "compararPeriodos",
-  "estadoPagosGastos", "resumenEjecutivo", "verAuditoria", "ventasPeriodo",
+  "estadoPagosGastos", "resumenEjecutivo", "verAuditoria", "ventasPeriodo", "diferenciasCaja",
   "mejoresVendedores", "ventasCliente",
   "comprasProveedor", "historialCompraProducto",
 ]);
@@ -3606,6 +3613,7 @@ async function ejecutarHerramienta(nombre: string, args: any, usuario?: { id?: s
   try {
     switch (nombre) {
       case "ventasPeriodo": return await asistenteTools.ventasPeriodo(args.periodo, args.sucursal);
+      case "diferenciasCaja": return await asistenteTools.diferenciasCaja(args.periodo, args.sucursal);
       case "comprasProveedor": return await asistenteTools.comprasProveedor(args.proveedor, args.periodo);
       case "productoMasVendido": return await asistenteTools.productoMasVendido(args.periodo, args.porValor);
       case "gananciaPeriodo": return await asistenteTools.gananciaPeriodo(args.periodo, args.sucursal);
@@ -3744,6 +3752,7 @@ SUCURSALES: Petrolera, Lanza, Cobol (nombre completo "Casa Matriz Cobol" — "Co
 
       const tools = [
         { type: "function" as const, function: { name: "ventasPeriodo", description: "Ventas en un período, opcional por sucursal. El período acepta: hoy, ayer, antier/anteayer, 'hace N días', semana, mes, mes anterior, un mes YYYY-MM, o una FECHA ESPECÍFICA (YYYY-MM-DD, DD/MM/YYYY, o 'DD de <mes>' como '15 de junio'). Pasa la fecha tal como la dijo el usuario.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
+        { type: "function" as const, function: { name: "diferenciasCaja", description: "Faltantes y sobrantes de caja (dinero que no cuadró en los cierres de turno) en un período, opcional por sucursal. Úsala cuando pregunten por faltantes, sobrantes, si cuadró la caja, o diferencias de dinero.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "comprasProveedor", description: "Compras a un proveedor en un período.", parameters: { type: "object", properties: { proveedor: { type: "string" }, periodo: { type: "string" } }, required: ["proveedor", "periodo"] } } },
         { type: "function" as const, function: { name: "productoMasVendido", description: "Productos más vendidos en un período.", parameters: { type: "object", properties: { periodo: { type: "string" }, porValor: { type: "boolean" } }, required: ["periodo"] } } },
         { type: "function" as const, function: { name: "gananciaPeriodo", description: "Ganancia de un período: bruta y NETA (descontando gastos del mes). Opcional por sucursal.", parameters: { type: "object", properties: { periodo: { type: "string" }, sucursal: { type: "string" } }, required: ["periodo"] } } },
