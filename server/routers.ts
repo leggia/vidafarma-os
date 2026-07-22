@@ -2402,6 +2402,16 @@ const asistenciaRouter = router({
       const pagos = await db.select().from(pagosSueldo).where(eq(pagosSueldo.anioMes, input.anioMes));
       const pagoPorTrab = new Map(pagos.map((p: any) => [p.trabajadorId, p]));
 
+      // Ajustes del mes de TODOS los trabajadores en UNA sola consulta (antes era
+      // una consulta por trabajador dentro del bucle).
+      const ajustesMes = await db.select().from(ajustesDia).where(like(ajustesDia.fecha, `${input.anioMes}%`));
+      const ajustesPorTrab = new Map<number, any[]>();
+      for (const a of ajustesMes as any[]) {
+        const arr = ajustesPorTrab.get(a.trabajadorId) || [];
+        arr.push(a);
+        ajustesPorTrab.set(a.trabajadorId, arr);
+      }
+
       // Alerta de pendientes: activa después del día 15 del mes en curso
       const hoy = new Date();
       const [anioActual, mesActual] = [hoy.getFullYear(), hoy.getMonth() + 1];
@@ -2416,8 +2426,7 @@ const asistenciaRouter = router({
         try {
           if (trab.usuarioSistemaId) {
             const aperturas = await inventarios365.aperturasCajaDelMes(trab.usuarioSistemaId, input.anioMes);
-            const ajustesRows = await db.select().from(ajustesDia)
-              .where(and(eq(ajustesDia.trabajadorId, trab.id), like(ajustesDia.fecha, `${input.anioMes}%`)));
+            const ajustesRows = ajustesPorTrab.get(trab.id) || [];
             const ajustes = ajustesRows.map((a: any) => ({
               fecha: a.fecha, justificado: a.justificado === 1,
               horaIngresoManual: a.horaIngresoManual || undefined,

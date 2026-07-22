@@ -1132,27 +1132,22 @@ class Inventarios365Service {
     return { clientes, pagination, raw: data };
   }
 
-  async aperturasCajaDelMes(usuarioId: string, anioMes: string): Promise<Array<{ fecha: string; horaApertura: string; horaCierre?: string }>> {
-    if (!usuarioId) return [];
-    // Caché por usuario+mes (TTL 3 min): las aperturas no cambian al marcar ajustes
-    // locales, así el resumen se recalcula al instante sin re-paginar inventarios365.
-    const cacheKey = `aperturas-${usuarioId}-${anioMes}`;
+  /**
+   * Trae TODAS las cajas paginando UNA SOLA VEZ, con caché compartido (TTL 3 min).
+   * Antes cada trabajador re-paginaba la misma lista completa (N x hasta 60
+   * peticiones), lo que hacía lentísimo el panel de pagos de Asistencia.
+   */
+  private async cajasTodas(): Promise<any[]> {
+    const cacheKey = "cajas-todas";
     const cached = this.cacheInventario.get(cacheKey);
     if (cached && cached.expira > Date.now()) return cached.data as any;
 
-    const resultado: Array<{ fecha: string; horaApertura: string; horaCierre?: string }> = [];
+    const todas: any[] = [];
     let page = 1;
     const maxPages = 60;
     try {
       while (page <= maxPages) {
         const data = await this.get<any>(`/caja?page=${page}&buscar=&criterio=`);
-        if (page === 1) {
-          const arrDiag = data?.cajas ?? data?.data ?? data?.movimientos ?? (Array.isArray(data) ? data : null);
-          const ej = Array.isArray(arrDiag) ? arrDiag[0] : (arrDiag?.data?.[0] ?? null);
-          console.log(`[Inventarios365] caja keys:`, data && typeof data === "object" ? Object.keys(data).join(",") : typeof data);
-          console.log(`[Inventarios365] caja ejemplo:`, JSON.stringify(ej).substring(0, 400));
-        }
-        // Extraer el array de cajas (formatos posibles)
         const pag = data?.pagination ?? {};
         let arr: any[] = [];
         if (Array.isArray(data?.cajas)) arr = data.cajas;
@@ -1161,19 +1156,7 @@ class Inventarios365Service {
         else if (Array.isArray(data?.movimientos)) arr = data.movimientos;
         else if (Array.isArray(data)) arr = data;
 
-        for (const c of arr) {
-          // Filtrar por usuario (campo real: idusuario)
-          const uid = String(c.idusuario ?? "");
-          if (uid !== String(usuarioId)) continue;
-          // Fecha/hora de apertura (campo real: fechaApertura "YYYY-MM-DD HH:MM:SS")
-          const fhApertura = c.fechaApertura ?? "";
-          const fhCierre = c.fechaCierre ?? "";
-          const [fecha, horaA] = String(fhApertura).split(/[ T]/);
-          if (!fecha || !fecha.startsWith(anioMes)) continue; // solo el mes pedido
-          const [fechaC, horaC] = fhCierre ? String(fhCierre).split(/[ T]/) : [null, undefined];
-          resultado.push({ fecha, horaApertura: horaA || "00:00:00", horaCierre: horaC, fechaCierre: fechaC || undefined } as any);
-        }
-
+        todas.push(...arr);
         const lastPage = pag.last_page ?? pag.lastPage ?? 1;
         if (page >= lastPage || arr.length === 0) break;
         page++;
@@ -1181,8 +1164,25 @@ class Inventarios365Service {
     } catch (e) {
       console.error("[Inventarios365] Error leyendo cajas:", e);
     }
-    // Guardar en caché (TTL 3 min) para acelerar recálculos del resumen
-    this.cacheInventario.set(cacheKey, { data: resultado as any, expira: Date.now() + 3 * 60 * 1000 });
+    this.cacheInventario.set(cacheKey, { data: todas as any, expira: Date.now() + 3 * 60 * 1000 });
+    return todas;
+  }
+
+  async aperturasCajaDelMes(usuarioId: string, anioMes: string): Promise<Array<{ fecha: string; horaApertura: string; horaCierre?: string }>> {
+    if (!usuarioId) return [];
+    // Se filtra en memoria sobre la lista compartida: sin peticiones por trabajador.
+    const todas = await this.cajasTodas();
+    const resultado: Array<{ fecha: string; horaApertura: string; horaCierre?: string }> = [];
+    for (const c of todas) {
+      const uid = String(c.idusuario ?? "");
+      if (uid !== String(usuarioId)) continue;
+      const fhApertura = c.fechaApertura ?? "";
+      const fhCierre = c.fechaCierre ?? "";
+      const [fecha, horaA] = String(fhApertura).split(/[ T]/);
+      if (!fecha || !fecha.startsWith(anioMes)) continue; // solo el mes pedido
+      const [fechaC, horaC] = fhCierre ? String(fhCierre).split(/[ T]/) : [null, undefined];
+      resultado.push({ fecha, horaApertura: horaA || "00:00:00", horaCierre: horaC, fechaCierre: fechaC || undefined } as any);
+    }
     return resultado;
   }
 
