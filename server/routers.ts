@@ -2824,6 +2824,29 @@ const ventasRouter = router({
 
   // Lista de sucursales disponibles (para el filtro)
   // Diagnóstico temporal: ver qué gastos y sucursales hay (para depurar el reporte)
+  // Meses que tienen ventas registradas, para el selector de reportes.
+  // Devuelve el más reciente primero, con su total para dar contexto.
+  mesesDisponibles: protectedProcedure.query(async () => {
+    const { getDb } = await import("./db");
+    const db = await getDb();
+    if (!db) return [];
+    try {
+      const r: any = await db.execute(sql`
+        SELECT DATE_FORMAT(fecha, '%Y-%m') AS mes, COUNT(*) AS ventas, COALESCE(SUM(total),0) AS monto
+        FROM ventas WHERE fecha IS NOT NULL${FILTRO_NO_ANULADA}
+        GROUP BY DATE_FORMAT(fecha, '%Y-%m') ORDER BY mes DESC
+      `);
+      const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
+      return (filas as any[]).map((f) => ({
+        mes: String(f.mes),
+        ventas: Number(f.ventas) || 0,
+        monto: Number(f.monto) || 0,
+      }));
+    } catch {
+      return [];
+    }
+  }),
+
   sucursalesDisponibles: protectedProcedure.query(async () => {
     const { getDb } = await import("./db");
     const { sql } = await import("drizzle-orm");

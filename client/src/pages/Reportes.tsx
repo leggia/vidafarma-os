@@ -18,6 +18,16 @@ function rangoMes(offset: number) {
   return { desde: ymd(ini), hasta: ymd(fin) };
 }
 
+
+// "2026-05" → "MAYO 26" (etiqueta corta para el selector de meses)
+const MESES_ES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
+function etiquetaMes(mes: string): string {
+  const [a, m] = mes.split("-");
+  const idx = Number(m) - 1;
+  if (idx < 0 || idx > 11) return mes;
+  return `${MESES_ES[idx]} ${a.slice(2)}`;
+}
+
 export default function Reportes() {
   const [periodo, setPeriodo] = useState<"actual" | "anterior" | "custom">("actual");
   const r0 = rangoMes(0);
@@ -29,6 +39,7 @@ export default function Reportes() {
   const utils = trpc.useUtils();
   const estado = trpc.ventas.estado.useQuery();
   const sucursales = trpc.ventas.sucursalesDisponibles.useQuery();
+  const mesesDisponibles = trpc.ventas.mesesDisponibles.useQuery();
   const reportes = trpc.ventas.reportes.useQuery({ desde, hasta, sucursal: sucursal || undefined });
   const rentabilidad = trpc.ventas.rentabilidad.useQuery({ desde, hasta, sucursal: sucursal || undefined });
   // Rentabilidad real por sucursal: SIEMPRE mensual (sueldos, luz, alquiler son mensuales)
@@ -47,6 +58,18 @@ export default function Reportes() {
     setShowCustom(false);
     const r = rangoMes(p === "actual" ? 0 : -1);
     setDesde(r.desde); setHasta(r.hasta);
+    setMesRentabilidad(`${r.desde.slice(0, 7)}`);
+  }
+
+  // Elegir un mes completo del selector (los reportes se leen por mes).
+  function seleccionarMes(mes: string) {
+    const [a, m] = mes.split("-").map(Number);
+    const ultimo = new Date(a, m, 0).getDate();
+    setPeriodo("custom");
+    setDesde(`${mes}-01`);
+    setHasta(`${mes}-${String(ultimo).padStart(2, "0")}`);
+    // La rentabilidad por sucursal es mensual: que siga el mismo mes elegido
+    setMesRentabilidad(mes);
   }
 
   const rellenarHuecos = trpc.ventas.rellenarHuecos.useMutation({
@@ -258,7 +281,7 @@ export default function Reportes() {
             </button>
             <button onClick={() => { setShowCustom(!showCustom); setPeriodo("custom"); }}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition inline-flex items-center gap-1 ${showCustom ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              <Calendar className="h-3 w-3" /> Personalizado <ChevronDown className="h-3 w-3" />
+              <Calendar className="h-3 w-3" /> Otros meses <ChevronDown className="h-3 w-3" />
             </button>
           </div>
           {/* Filtro de sucursal */}
@@ -271,17 +294,36 @@ export default function Reportes() {
           )}
         </div>
 
-        {/* Rango personalizado desplegable */}
+        {/* Selector de MES: los reportes se leen por mes, así que en vez de un
+            rango de fechas suelto se listan los meses que tienen ventas. */}
         {showCustom && (
-          <div className="flex items-end gap-2 flex-wrap bg-card border rounded-lg p-3 shadow-sm">
-            <div>
-              <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Desde</label>
-              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="block h-8 text-xs rounded-md border px-2 mt-0.5" />
-            </div>
-            <div>
-              <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Hasta</label>
-              <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="block h-8 text-xs rounded-md border px-2 mt-0.5" />
-            </div>
+          <div className="bg-card border rounded-lg p-3 shadow-sm">
+            <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide block mb-1.5">
+              Elegir mes con reporte
+            </label>
+            {(mesesDisponibles.data?.length ?? 0) === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {mesesDisponibles.isLoading ? "Cargando meses…" : "No hay meses con ventas registradas todavía."}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {mesesDisponibles.data!.map((m: any) => {
+                  const activo = desde === `${m.mes}-01`;
+                  return (
+                    <button
+                      key={m.mes}
+                      onClick={() => seleccionarMes(m.mes)}
+                      className={`px-2.5 py-1.5 text-xs font-semibold rounded-md border transition ${
+                        activo ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                               : "bg-card hover:border-primary/50 text-foreground"}`}
+                      title={`Bs ${m.monto.toLocaleString("es-BO", { minimumFractionDigits: 2 })} · ${m.ventas} ventas`}
+                    >
+                      {etiquetaMes(m.mes)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
