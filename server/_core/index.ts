@@ -53,6 +53,9 @@ async function startServer() {
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
+  // Cuerpos XML/texto en crudo: los servicios de correo entrante pueden mandar la
+  // factura tal cual, sin envolverla en JSON.
+  app.use(express.text({ type: ["text/xml", "application/xml", "text/plain"], limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // Confiar en el proxy de Railway para HTTPS
   app.set("trust proxy", 1);
@@ -177,6 +180,83 @@ async function startServer() {
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
+    }
+  });
+
+  // ─── INGESTA DE FACTURAS XML ────────────────────────────────────────────────
+  // Punto de entrada para que las facturas lleguen SOLAS a la bandeja, sin que
+  // VidaFarma acceda a ningún buzón de correo. Sirve para:
+  //   · un servicio de correo entrante (reenvían las facturas y él las publica aquí)
+  //   · una automatización tipo Zapier/Make/n8n
+  //   · un script propio
+  // Protegido con un token compartido (variable de entorno INGESTA_TOKEN).
+  // Si el token no está configurado, el endpoint queda CERRADO (falla seguro).
+  app.post("/api/ingesta/factura", async (req: any, res) => {
+    try {
+      const esperado = process.env.INGESTA_TOKEN;
+      if (!esperado) {
+        return res.status(503).json({ ok: false, error: "Ingesta no configurada: falta la variable INGESTA_TOKEN en el servidor." });
+      }
+      const recibido = req.headers["x-ingesta-token"] || req.query?.token || req.body?.token;
+      if (recibido !== esperado) {
+        console.warn("[Ingesta] Intento con token inválido");
+        return res.status(401).json({ ok: false, error: "Token inválido" });
+      }
+
+      // El XML puede venir de varias formas según quién lo mande:
+      //  1. cuerpo crudo (text/xml)           2. { xml: "<...>" }
+      //  3. { xml: "<base64>" }               4. { attachments: [{ content, filename }] }
+      const b = req.body;
+      const candidatos: Array<{ contenido: string; nombre: string }> = [];
+      const aTexto = (v: string) => {
+        const s = String(v || "").trim();
+        if (s.startsWith("<")) return s;                      // ya es XML
+        try { return Buffer.from(s, "base64").toString("utf-8"); } catch { return s; }
+      };
+      if (typeof b === "string" && b.trim()) {
+        candidatos.push({ contenido: aTexto(b), nombre: "factura.xml" });
+      } else if (b && typeof b === "object") {
+        if (b.xml) candidatos.push({ contenido: aTexto(b.xml), nombre: b.filename || b.nombre || "factura.xml" });
+        if (Array.isArray(b.attachments)) {
+          for (const a of b.attachments) {
+            const cont = a?.content ?? a?.contenido ?? a?.data;
+            if (cont) candidatos.push({ contenido: aTexto(cont), nombre: a?.filename || a?.name || "factura.xml" });
+          }
+        }
+      }
+      if (candidatos.length === 0) {
+        return res.status(400).json({ ok: false, error: "No se recibió ninguna factura. Envía el XML en el cuerpo, en {xml} o en {attachments:[{content}]}." });
+      }
+
+      const { esFacturaXml, parsearFacturaXml } = await import("../factura-xml");
+      const { bandejaService } = await import("../bandeja");
+      const resultados = [];
+      for (const c of candidatos) {
+        if (!esFacturaXml(c.contenido, c.nombre)) {
+          resultados.push({ archivo: c.nombre, ok: false, motivo: "no es una factura XML del SIN" });
+          continue;
+        }
+        try {
+          const f = parsearFacturaXml(c.contenido);
+          if (f.items.length === 0) {
+            resultados.push({ archivo: c.nombre, ok: false, motivo: "el XML no contiene productos" });
+            continue;
+          }
+          const r = await bandejaService.ingresar(f, "correo");
+          resultados.push({
+            archivo: c.nombre, ok: true, id: r.id, duplicada: r.duplicada,
+            proveedor: f.razonSocialEmisor, factura: f.numeroFactura, productos: f.items.length,
+          });
+          console.log(`[Ingesta] ${r.duplicada ? "Ya estaba" : "Nueva"}: ${f.razonSocialEmisor} factura ${f.numeroFactura} (${f.items.length} productos)`);
+        } catch (e: any) {
+          resultados.push({ archivo: c.nombre, ok: false, motivo: e?.message || "error al procesar" });
+        }
+      }
+      const nuevas = resultados.filter((r) => r.ok && !(r as any).duplicada).length;
+      res.json({ ok: true, nuevas, resultados });
+    } catch (e: any) {
+      console.error("[Ingesta] Error:", e?.message);
+      res.status(500).json({ ok: false, error: e?.message });
     }
   });
 
