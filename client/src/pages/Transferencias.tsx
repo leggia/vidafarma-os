@@ -86,8 +86,15 @@ export default function Transferencias() {
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{t.referenceNumber || `Transferencia #${t.id}`}</p>
-                      <p className="text-xs text-muted-foreground truncate">{t.fromBranchName} → {t.toBranchName}</p>
-                      {t.itemCount > 0 && <p className="text-xs text-muted-foreground">{t.itemCount} producto{t.itemCount !== 1 ? "s" : ""}</p>}
+                      <p className="text-xs truncate">
+                        <span className="text-muted-foreground">De</span> <b>{t.fromBranchName}</b>
+                        <span className="text-muted-foreground"> a </span><b>{t.toBranchName}</b>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t.itemCount > 0
+                          ? `${t.itemCount} producto${t.itemCount !== 1 ? "s" : ""}${t.unidades ? ` · ${t.unidades} unidades` : ""} · Ver detalle`
+                          : "Ver detalle"}
+                      </p>
                     </div>
                   </button>
                   <div className="flex items-center gap-3 shrink-0">
@@ -142,13 +149,30 @@ export default function Transferencias() {
                 </div>
               )}
               {detalle.notes && <p className="text-xs text-muted-foreground">Nota: {detalle.notes}</p>}
+              {/* Origen y destino bien visibles: es el dato clave de una transferencia */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="border rounded p-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Origen (sale de)</p>
+                  <p className="text-sm font-bold leading-tight">{detalle.origen}</p>
+                </div>
+                <div className="border rounded p-2 bg-emerald-50 border-emerald-200">
+                  <p className="text-[10px] uppercase tracking-wider text-emerald-700">Destino (entra a)</p>
+                  <p className="text-sm font-bold leading-tight text-emerald-900">{detalle.destino}</p>
+                </div>
+              </div>
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Productos ({detalle.items.length})</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                  Productos ({detalle.items.length})
+                  {(() => {
+                    const u = detalle.items.reduce((s: number, it: any) => s + (Number(it.cantidad) || 0), 0);
+                    return u > 0 ? <span className="font-normal normal-case"> · {u} unidades en total</span> : null;
+                  })()}
+                </p>
                 <div className="border rounded divide-y">
                   {detalle.items.map((it, i) => (
-                    <div key={i} className="flex justify-between px-3 py-1.5 text-xs">
+                    <div key={i} className="flex justify-between px-3 py-1.5 text-xs gap-2">
                       <span className="truncate">{it.nombre}</span>
-                      <span className="font-bold shrink-0 ml-2">{it.cantidad}</span>
+                      <span className="font-bold shrink-0">{it.cantidad} u.</span>
                     </div>
                   ))}
                 </div>

@@ -232,10 +232,10 @@ export async function confirmPurchase(purchaseId: number, userId: number) {
 }
 
 // ─── Transfers ───
-export async function listTransfers(userId: number) {
+export async function listTransfers(userId: number, verTodas = false) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db
+  const base = db
     .select({
       id: transfers.id,
       referenceNumber: transfers.referenceNumber,
@@ -245,21 +245,51 @@ export async function listTransfers(userId: number) {
       createdAt: transfers.createdAt,
       fromBranchId: transfers.fromBranchId,
       toBranchId: transfers.toBranchId,
+      userId: transfers.userId,
     })
-    .from(transfers)
-    .where(eq(transfers.userId, userId))
-    .orderBy(desc(transfers.createdAt));
+    .from(transfers);
+  // Un admin ve el historial completo (todas las sucursales/usuarios); el resto
+  // solo las suyas.
+  const rows = verTodas
+    ? await base.orderBy(desc(transfers.createdAt))
+    : await base.where(eq(transfers.userId, userId)).orderBy(desc(transfers.createdAt));
 
-  // Get branch names
+  if (rows.length === 0) return [];
+
+  // Nombres de sucursal
   const branchIds = Array.from(new Set(rows.flatMap((r) => [r.fromBranchId, r.toBranchId])));
-  if (branchIds.length === 0) return [];
-  const branchRows = await db.select().from(branches).where(inArray(branches.id, branchIds));
-  const branchMap = Object.fromEntries(branchRows.map((b) => [b.id, b.name]));
+  let branchMap: Record<number, string> = {};
+  if (branchIds.length > 0) {
+    const branchRows = await db.select().from(branches).where(inArray(branches.id, branchIds));
+    branchMap = Object.fromEntries(branchRows.map((b) => [b.id, b.name]));
+  }
+
+  // Conteo de productos y unidades por transferencia (en UNA consulta), para
+  // mostrarlo en la lista sin abrir el detalle.
+  const ids = rows.map((r) => r.id);
+  const conteos = await db
+    .select({
+      transferId: transferItems.transferId,
+      productos: sql<number>`count(*)`,
+      unidades: sql<number>`coalesce(sum(${transferItems.quantity}), 0)`,
+    })
+    .from(transferItems)
+    .where(inArray(transferItems.transferId, ids))
+    .groupBy(transferItems.transferId);
+  const conteoMap = new Map<number, { productos: number; unidades: number }>();
+  for (const c of conteos as any[]) {
+    conteoMap.set(Number(c.transferId), {
+      productos: Number(c.productos) || 0,
+      unidades: Number(c.unidades) || 0,
+    });
+  }
 
   return rows.map((r) => ({
     ...r,
     fromBranchName: branchMap[r.fromBranchId] || "Desconocida",
     toBranchName: branchMap[r.toBranchId] || "Desconocida",
+    itemCount: conteoMap.get(r.id)?.productos ?? 0,
+    unidades: conteoMap.get(r.id)?.unidades ?? 0,
   }));
 }
 

@@ -1035,7 +1035,7 @@ INSTRUCCIONES GENERALES:
 // ─── Transfers Router ────────────────────────────────────────────────────────
 const transfersRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    return db.listTransfers(ctx.user.id);
+    return db.listTransfers(ctx.user.id, ctx.user.role === "admin");
   }),
 
   uploadAndExtract: protectedProcedure
