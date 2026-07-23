@@ -59,6 +59,28 @@ export function claveArticulo(nombre: string): string {
     .slice(0, 255);
 }
 
+/**
+ * Cada fuente nombra la misma sucursal de forma distinta: las ventas de 365 dicen
+ * "Sucursal Lanza", los almacenes dicen "Almacen Lanza", y las compras usan el
+ * nombre de la sucursal local. Si se guardaran tal cual, el kardex de un mismo
+ * lugar quedaría partido en varias etiquetas y no se podría filtrar.
+ *
+ * Esta función lleva cualquier variante al mismo almacén (id + nombre canónico).
+ * OJO con el orden: "Cobol" se evalúa ANTES que "Matriz", porque "Casa Matriz
+ * Cobol" contiene ambas palabras y es la sucursal Cobol, no la Casa Matriz.
+ */
+export function resolverSucursal(nombre?: string | null): { almacenId: number | null; sucursal: string | null } {
+  const n = String(nombre || "").toLowerCase();
+  if (!n.trim()) return { almacenId: null, sucursal: null };
+  if (n.includes("cobol")) return { almacenId: 4, sucursal: "Cobol" };
+  if (n.includes("lanza")) return { almacenId: 3, sucursal: "Lanza" };
+  if (n.includes("petrolera")) return { almacenId: 2, sucursal: "Petrolera" };
+  if (n.includes("matriz") || n.includes("principal") || n.includes("central")) {
+    return { almacenId: 1, sucursal: "Casa Matriz" };
+  }
+  return { almacenId: null, sucursal: String(nombre) }; // desconocida: se conserva tal cual
+}
+
 /** Etiqueta legible del tipo de movimiento (para la pantalla y los reportes). */
 export const ETIQUETA_TIPO: Record<string, string> = {
   venta: "Venta",
@@ -85,13 +107,16 @@ class KardexService {
     try {
       const valores = movs
         .filter((m) => m.articuloNombre && Number.isFinite(Number(m.cantidad)))
-        .map((m) => ({
+        .map((m) => {
+          // Normalizar la sucursal: cada fuente la nombra distinto
+          const suc = resolverSucursal(m.sucursal);
+          return {
           fecha: typeof m.fecha === "string" ? new Date(m.fecha) : m.fecha,
           articuloNombre: String(m.articuloNombre).slice(0, 500),
           articuloClave: claveArticulo(m.articuloNombre),
           articuloId: m.articuloId ?? null,
-          almacenId: m.almacenId ?? null,
-          sucursal: m.sucursal ?? null,
+          almacenId: m.almacenId ?? suc.almacenId,
+          sucursal: suc.sucursal,
           tipo: m.tipo,
           cantidad: String(Number(m.cantidad)),
           costoUnitario: m.costoUnitario != null ? String(m.costoUnitario) : null,
@@ -100,7 +125,8 @@ class KardexService {
           referenciaId: m.referenciaId != null ? String(m.referenciaId) : null,
           detalle: m.detalle ? String(m.detalle).slice(0, 300) : null,
           origen,
-        }));
+        };
+        });
       if (valores.length === 0) return 0;
 
       // Insertar ignorando duplicados (misma referencia + producto + tipo)
@@ -272,22 +298,27 @@ class KardexService {
     let quedaMas = false;
 
     // ── 1. VENTAS (salidas). Solo las válidas: las anuladas no movieron stock.
+    //    Se eligen las que AÚN NO están en el libro. Antes se usaba "id mayor al
+    //    último registrado", pero la sincronización en vivo ya mete las ventas
+    //    NUEVAS (id alto), así que ese criterio saltaba todo el histórico viejo y
+    //    no se importaba ninguna venta.
     try {
-      const yaHay = rows(await db.execute(sql`
-        SELECT COALESCE(MAX(CAST(referenciaId AS UNSIGNED)), 0) AS ultimo
-        FROM movimientos_stock WHERE referenciaTipo = 'venta'
-      `));
-      const ultimoId = Number(yaHay[0]?.ultimo) || 0;
       const filas = rows(await db.execute(sql`
         SELECT d.ventaId, d.articuloNombre, d.cantidad, d.precio, d.fecha,
                v.fechaHora, v.vendedor, v.nombreSucursal, v.numComprobante
         FROM ventas_detalle d
         JOIN ventas v ON v.id = d.ventaId
-        WHERE v.id > ${ultimoId} AND CAST(v.estado AS CHAR) = '1' AND d.fecha >= ${desde}
-        ORDER BY v.id ASC LIMIT ${lote}
+        WHERE CAST(v.estado AS CHAR) = '1' AND d.fecha >= ${desde}
+          AND NOT EXISTS (
+            SELECT 1 FROM movimientos_stock m
+            WHERE m.referenciaTipo = 'venta' AND m.referenciaId = CAST(v.id AS CHAR)
+          )
+        ORDER BY v.fechaHora ASC, v.id ASC LIMIT ${lote}
       `));
       if (filas.length > 0) {
         ventas = await this.registrar(filas.map((f: any) => ({
+          // La HORA real de la venta: es lo que ordena el kardex frente a un
+          // ajuste de inventario hecho el mismo día.
           fecha: f.fechaHora || f.fecha,
           articuloNombre: f.articuloNombre,
           sucursal: f.nombreSucursal,
@@ -314,7 +345,11 @@ class KardexService {
         LEFT JOIN users u ON u.id = p.userId
         LEFT JOIN branches b ON b.id = p.branchId
         WHERE p.createdAt >= ${desde}
-        ORDER BY p.id ASC LIMIT ${lote}
+          AND NOT EXISTS (
+            SELECT 1 FROM movimientos_stock m
+            WHERE m.referenciaTipo = 'compra' AND m.referenciaId = CAST(p.id AS CHAR)
+          )
+        ORDER BY p.createdAt ASC, p.id ASC LIMIT ${lote}
       `));
       if (filas.length > 0) {
         compras = await this.registrar(filas.map((f: any) => ({
@@ -344,7 +379,11 @@ class KardexService {
         LEFT JOIN branches bo ON bo.id = t.fromBranchId
         LEFT JOIN branches bd ON bd.id = t.toBranchId
         WHERE t.status = 'completed' AND t.createdAt >= ${desde}
-        ORDER BY t.id ASC LIMIT ${lote}
+          AND NOT EXISTS (
+            SELECT 1 FROM movimientos_stock m
+            WHERE m.referenciaTipo = 'transferencia' AND m.referenciaId = CAST(t.id AS CHAR)
+          )
+        ORDER BY t.createdAt ASC, t.id ASC LIMIT ${lote}
       `));
       const asientos: MovimientoNuevo[] = [];
       for (const f of filas as any[]) {
@@ -375,7 +414,12 @@ class KardexService {
         FROM inventario_proveedores ip
         JOIN inventario_sesiones s ON s.id = ip.sesionId
         WHERE ip.estado = 'completado' AND ip.conteos IS NOT NULL
-        ORDER BY ip.id ASC LIMIT 500
+          AND NOT EXISTS (
+            SELECT 1 FROM movimientos_stock m
+            WHERE m.referenciaTipo = 'inventario'
+              AND m.referenciaId = CONCAT(ip.sesionId, '-', ip.proveedorNombre)
+          )
+        ORDER BY ip.completadoEn ASC, ip.id ASC LIMIT 500
       `));
       const asientos: MovimientoNuevo[] = [];
       for (const f of filas as any[]) {

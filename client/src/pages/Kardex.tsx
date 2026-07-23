@@ -61,8 +61,9 @@ export default function Kardex() {
     { texto: busqueda },
     { enabled: busqueda.trim().length >= 2 && !productoSel },
   );
+  const [sucursalFiltro, setSucursalFiltro] = useState("");
   const kardex = trpc.ventas.kardexProducto.useQuery(
-    { producto: productoSel ?? "" },
+    { producto: productoSel ?? "", sucursal: sucursalFiltro || undefined },
     { enabled: !!productoSel },
   );
 
@@ -175,6 +176,21 @@ export default function Kardex() {
               {sugerencias.data?.length === 0 && !sugerencias.isFetching && (
                 <p className="text-xs text-muted-foreground">Sin movimientos para esa búsqueda.</p>
               )}
+            </div>
+          )}
+
+          {/* Filtro por sucursal: ya es confiable porque los nombres se normalizan */}
+          {productoSel && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Sucursal</span>
+              <select value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)}
+                className="h-8 rounded-md border bg-background px-2 text-xs">
+                <option value="">Todas</option>
+                <option value="Casa Matriz">Casa Matriz</option>
+                <option value="Petrolera">Petrolera</option>
+                <option value="Lanza">Lanza</option>
+                <option value="Cobol">Cobol</option>
+              </select>
             </div>
           )}
 
