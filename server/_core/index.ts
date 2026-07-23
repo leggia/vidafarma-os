@@ -408,6 +408,65 @@ async function startServer() {
     }
   });
 
+  // Explica por qué un producto no aparece en el kardex: compara lo que hay en
+  // ventas con lo que hay en el libro. Uso: /api/admin/diag-kardex?nombre=REFRIANEX
+  app.get("/api/admin/diag-kardex", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "DB no disponible" });
+      const nombre = String(req.query.nombre || "").trim();
+      if (nombre.length < 3) return res.status(400).json({ error: "nombre requerido (3+ letras)" });
+      const { claveArticulo } = await import("../kardex");
+      const clave = claveArticulo(nombre);
+      const like = "%" + nombre.toUpperCase() + "%";
+
+      const v: any = await db.execute(sql`
+        SELECT d.ventaId, d.articuloNombre, d.cantidad, d.fecha, d.nombreSucursal,
+               ven.estado, ven.vendedor
+        FROM ventas_detalle d JOIN ventas ven ON ven.id = d.ventaId
+        WHERE UPPER(d.articuloNombre) LIKE ${like}
+        ORDER BY d.ventaId DESC LIMIT 15
+      `);
+      const ventas = (Array.isArray(v) ? v[0] : v?.rows ?? v) as any[];
+
+      const m: any = await db.execute(sql`
+        SELECT id, fecha, articuloNombre, articuloClave, sucursal, tipo, cantidad,
+               usuario, referenciaTipo, referenciaId, origen
+        FROM movimientos_stock
+        WHERE articuloClave LIKE ${"%" + clave + "%"} OR UPPER(articuloNombre) LIKE ${like}
+        ORDER BY fecha DESC LIMIT 15
+      `);
+      const movimientos = (Array.isArray(m) ? m[0] : m?.rows ?? m) as any[];
+
+      const idsEnLibro = new Set(movimientos.filter((x: any) => x.referenciaTipo === "venta").map((x: any) => String(x.referenciaId)));
+      const faltantes = ventas.filter((x: any) => !idsEnLibro.has(String(x.ventaId)));
+
+      res.json({
+        buscado: nombre,
+        claveNormalizada: clave,
+        ventasEnBaseLocal: ventas.length,
+        movimientosEnKardex: movimientos.length,
+        ventasSinAsientoEnKardex: faltantes.length,
+        diagnostico:
+          ventas.length === 0
+            ? "La venta NO esta en la base local todavia: la sincronizacion con 365 aun no la trajo (corre cada hora)."
+            : movimientos.length === 0
+              ? "Las ventas existen pero el kardex no tiene asientos: falta correr 'Importar historico' en la pantalla de Kardex."
+              : faltantes.length > 0
+                ? "Hay ventas sin asiento en el kardex: corre 'Importar historico' para completarlas."
+                : "Todo cuadra: las ventas encontradas tienen su asiento en el kardex.",
+        ventas: ventas.map((x: any) => ({
+          ventaId: x.ventaId, producto: x.articuloNombre, cantidad: x.cantidad,
+          fecha: x.fecha, sucursal: x.nombreSucursal, estado: x.estado,
+          vendedor: x.vendedor, enKardex: idsEnLibro.has(String(x.ventaId)),
+        })),
+        movimientos,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+    }
+  });
+
   // Captura manual de cierres de caja (faltantes/sobrantes). GET para el navegador.
   app.get("/api/admin/capturar-cierres-caja", async (_req, res) => {
     try {

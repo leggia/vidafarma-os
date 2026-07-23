@@ -222,7 +222,7 @@ export async function repararDetallesFaltantes(limite = 15): Promise<{ reparadas
   // con el LIMIT. (La versión anterior con LEFT JOIN + GROUP BY agrupaba TODA la
   // tabla antes de limitar — atascaba la BD en producción.)
   const rs: any = await db.execute(sql`
-    SELECT v.id, v.fecha, v.nombreSucursal FROM ventas v
+    SELECT v.id, v.fecha, v.fechaHora, v.vendedor, v.numComprobante, v.nombreSucursal FROM ventas v
     WHERE v.total > 0
       AND NOT EXISTS (SELECT 1 FROM ventas_detalle d WHERE d.ventaId = v.id)
     LIMIT ${limite + 50}
@@ -240,6 +240,24 @@ export async function repararDetallesFaltantes(limite = 15): Promise<{ reparadas
            VALUES (${Number(v.id)}, ${d.articulo || "—"}, ${Number(d.cantidad) || 0}, ${Number(d.precio) || 0}, ${Number(d.descuento) || 0}, ${Number(d.subtotal) || 0}, ${String(v.fecha).slice(0, 10)}, ${v.nombreSucursal ?? null})
         `);
       }
+      // KARDEX: esta reparación también mueve stock desde el punto de vista del
+      // libro. Si no se registra aquí, esas ventas quedan fuera del kardex (era
+      // un hueco real: la venta aparecía en los reportes pero no en el kardex).
+      try {
+        const { kardex } = await import("./kardex");
+        await kardex.registrar(detalles.map((d: any) => ({
+          fecha: v.fechaHora || String(v.fecha).slice(0, 10),
+          articuloNombre: d.articulo || "—",
+          sucursal: v.nombreSucursal ?? null,
+          tipo: "venta" as const,
+          cantidad: -(Number(d.cantidad) || 0),
+          costoUnitario: Number(d.precio) || null,
+          usuario: v.vendedor ?? null,
+          referenciaTipo: "venta",
+          referenciaId: Number(v.id),
+          detalle: `Comprobante ${v.numComprobante ?? v.id}`,
+        })));
+      } catch { /* el kardex nunca debe tumbar la reparación */ }
       reparadas++;
       await new Promise((r) => setTimeout(r, 120));
     } catch { /* siguiente */ }
