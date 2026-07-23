@@ -62,7 +62,7 @@ export default function Kardex() {
     { enabled: busqueda.trim().length >= 2 && !productoSel },
   );
   const [sucursalFiltro, setSucursalFiltro] = useState("");
-  const [verSucursales, setVerSucursales] = useState(false);
+  const [verSucursales, setVerSucursales] = useState(true);
   const kardex = trpc.ventas.kardexProducto.useQuery(
     { producto: productoSel ?? "", sucursal: sucursalFiltro || undefined },
     { enabled: !!productoSel },
@@ -191,6 +191,29 @@ export default function Kardex() {
               {sugerencias.data?.length === 0 && !sugerencias.isFetching && (
                 <p className="text-xs text-muted-foreground">Sin movimientos para esa búsqueda.</p>
               )}
+            </div>
+          )}
+
+          {/* Selector de sucursal siempre visible: se puede filtrar sin abrir el
+              desglose. Las opciones salen de las sucursales que tienen datos. */}
+          {productoSel && kardex.data?.porSucursal && kardex.data.porSucursal.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              <button onClick={() => setSucursalFiltro("")}
+                className={`px-2.5 py-1 rounded-full border text-xs transition ${
+                  !sucursalFiltro ? "bg-primary text-primary-foreground border-primary font-semibold" : "hover:border-primary/50"}`}>
+                Todas
+              </button>
+              {kardex.data.porSucursal.map((s: any, i: number) => (
+                <button key={i}
+                  onClick={() => setSucursalFiltro(s.sucursal === "(sin sucursal)" ? "" : s.sucursal)}
+                  className={`px-2.5 py-1 rounded-full border text-xs transition ${
+                    sucursalFiltro === s.sucursal ? "bg-primary text-primary-foreground border-primary font-semibold" : "hover:border-primary/50"}`}>
+                  {s.sucursal}
+                  <span className={`ml-1 tabular-nums ${sucursalFiltro === s.sucursal ? "" : "text-muted-foreground"}`}>
+                    {s.stockActual ?? s.saldo}
+                  </span>
+                </button>
+              ))}
             </div>
           )}
 

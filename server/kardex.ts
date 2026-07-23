@@ -603,36 +603,65 @@ class KardexService {
    */
   async pendientes() {
     const db = await getDb();
-    if (!db) return { ventas: 0, compras: 0, transferencias: 0, ajustes: 0, total: 0 };
+    const cero = { ventas: 0, compras: 0, transferencias: 0, ajustes: 0, total: 0 };
+    if (!db) return cero;
     const contar = async (q: any) => {
       try { return Number(rows(await db.execute(q))[0]?.n) || 0; } catch { return 0; }
     };
+
+    // Solo cuentan las operaciones que REALMENTE producirían un asiento. Una
+    // venta sin líneas útiles, una transferencia de cantidad cero o un inventario
+    // donde todo cuadró no generan movimiento de stock, y contarlas como
+    // pendientes dejaba un aviso que no se apagaba nunca por más que se importara.
     const ventas = await contar(sql`
       SELECT COUNT(DISTINCT v.id) AS n FROM ventas v
       WHERE CAST(v.estado AS CHAR) = '1'
-        AND EXISTS (SELECT 1 FROM ventas_detalle d WHERE d.ventaId = v.id)
+        AND EXISTS (SELECT 1 FROM ventas_detalle d
+                    WHERE d.ventaId = v.id AND d.cantidad <> 0
+                      AND d.articuloNombre IS NOT NULL AND d.articuloNombre <> '')
         AND NOT EXISTS (SELECT 1 FROM movimientos_stock m
                         WHERE m.referenciaTipo = 'venta' AND m.referenciaId = CAST(v.id AS CHAR))
     `);
     const compras = await contar(sql`
       SELECT COUNT(*) AS n FROM purchases p
-      WHERE EXISTS (SELECT 1 FROM purchase_items i WHERE i.purchaseId = p.id)
+      WHERE EXISTS (SELECT 1 FROM purchase_items i
+                    WHERE i.purchaseId = p.id AND i.quantity > 0
+                      AND i.productName IS NOT NULL AND i.productName <> '')
         AND NOT EXISTS (SELECT 1 FROM movimientos_stock m
                         WHERE m.referenciaTipo = 'compra' AND m.referenciaId = CAST(p.id AS CHAR))
     `);
     const transferencias = await contar(sql`
       SELECT COUNT(*) AS n FROM transfers t
       WHERE t.status = 'completed'
+        AND EXISTS (SELECT 1 FROM transfer_items i
+                    WHERE i.transferId = t.id AND i.quantity > 0
+                      AND i.productName IS NOT NULL AND i.productName <> '')
         AND NOT EXISTS (SELECT 1 FROM movimientos_stock m
                         WHERE m.referenciaTipo = 'transferencia' AND m.referenciaId = CAST(t.id AS CHAR))
     `);
-    const ajustes = await contar(sql`
-      SELECT COUNT(*) AS n FROM inventario_proveedores ip
-      WHERE ip.estado = 'completado' AND ip.conteos IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM movimientos_stock m
-                        WHERE m.referenciaTipo = 'inventario'
-                          AND m.referenciaId = CONCAT(ip.sesionId, '-', ip.proveedorNombre))
-    `);
+
+    // Ajustes: hay que mirar DENTRO del JSON de conteos. Un inventario donde todo
+    // cuadró (todas las diferencias en cero) no mueve stock y por lo tanto no
+    // está pendiente de nada.
+    let ajustes = 0;
+    try {
+      const candidatos = rows(await db.execute(sql`
+        SELECT ip.conteos FROM inventario_proveedores ip
+        WHERE ip.estado = 'completado' AND ip.conteos IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM movimientos_stock m
+                          WHERE m.referenciaTipo = 'inventario'
+                            AND m.referenciaId = CONCAT(ip.sesionId, '-', ip.proveedorNombre))
+        LIMIT 1000
+      `));
+      for (const c of candidatos) {
+        let lista: any[] = [];
+        try {
+          lista = typeof c.conteos === "string" ? JSON.parse(c.conteos) : (c.conteos ?? []);
+        } catch { continue; }
+        if (lista.some((x: any) => Number(x?.diferencia ?? 0) !== 0)) ajustes++;
+      }
+    } catch { /* tabla ausente */ }
+
     return { ventas, compras, transferencias, ajustes, total: ventas + compras + transferencias + ajustes };
   }
 
