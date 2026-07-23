@@ -10,7 +10,7 @@
 import { and, desc, eq, ne } from "drizzle-orm";
 import { getDb } from "./db";
 import { bandejaFacturas } from "../drizzle/schema";
-import type { FacturaXmlResult } from "./factura-xml";
+import { detectarServicio, type FacturaXmlResult } from "./factura-xml";
 
 interface ItemBandeja {
   productName: string;
@@ -45,29 +45,37 @@ function calcularEstado(items: ItemBandeja[]): {
 }
 
 /**
- * NIT de la farmacia, para detectar facturas que llegaron por error y NO son
- * nuestras (importante ahora que entran solas desde el correo).
+ * NITs de la farmacia. Se factura a más de un NIT, así que se maneja una lista:
+ * cualquiera de ellos es "nuestro" y no genera aviso.
  *
- * Se toma de la variable de entorno NIT_FARMACIA si está configurada. Si no, se
- * APRENDE solo: el NIT que más se repite entre las facturas ya recibidas es, con
- * evidencia suficiente (3 o más), el de la farmacia. Mientras no haya evidencia,
- * no se marca nada como ajeno para no dar falsas alarmas.
+ * Se toman de la variable de entorno NIT_FARMACIA (separados por coma) si está
+ * configurada; si no, se usan los conocidos. Además se APRENDEN solos: cualquier
+ * NIT que ya se haya repetido 3 o más veces en la bandeja se considera propio,
+ * así un NIT nuevo deja de avisar por sí mismo tras unas facturas.
  */
-async function nitDeLaFarmacia(db: any): Promise<string | null> {
+const NITS_CONOCIDOS = ["6512529017", "8033811015"];
+
+async function nitsDeLaFarmacia(db: any): Promise<string[]> {
   const configurado = (process.env.NIT_FARMACIA || "").trim();
-  if (configurado) return configurado;
+  const base = configurado
+    ? configurado.split(/[,;\s]+/).map((n) => n.trim()).filter(Boolean)
+    : [...NITS_CONOCIDOS];
+
+  // Aprendidos: los que ya aparecieron varias veces son nuestros
   try {
     const { sql } = await import("drizzle-orm");
     const r: any = await db.execute(sql`
       SELECT nitCliente, COUNT(*) AS n FROM bandeja_facturas
       WHERE nitCliente IS NOT NULL AND nitCliente <> ''
-      GROUP BY nitCliente ORDER BY n DESC LIMIT 1
+      GROUP BY nitCliente HAVING n >= 3
     `);
     const filas = Array.isArray(r) ? r[0] : r?.rows ?? r;
-    const top = filas?.[0];
-    if (top && Number(top.n) >= 3) return String(top.nitCliente);
+    for (const f of (filas || []) as any[]) {
+      const nit = String(f.nitCliente);
+      if (!base.includes(nit)) base.push(nit);
+    }
   } catch { /* la columna puede no existir todavía */ }
-  return null;
+  return base;
 }
 
 class BandejaService {
@@ -99,11 +107,18 @@ class BandejaService {
     // ¿La factura viene a nombre de la farmacia? Si sabemos cuál es nuestro NIT y
     // el de la factura es otro, se marca para revisarla (no se rechaza: puede ser
     // un NIT nuevo o un error de tipeo del proveedor).
-    const nitNuestro = await nitDeLaFarmacia(db);
+    const nuestros = await nitsDeLaFarmacia(db);
     const nitFactura = (f.nitCliente || "").trim();
-    const esAjena = !!(nitNuestro && nitFactura && nitFactura !== nitNuestro);
+    const esAjena = !!(nitFactura && nuestros.length > 0 && !nuestros.includes(nitFactura));
     if (esAjena) {
-      console.warn(`[Bandeja] Factura a nombre de otro NIT (${nitFactura}, esperado ${nitNuestro}): ${f.razonSocialCliente ?? "?"}`);
+      console.warn(`[Bandeja] Factura a nombre de otro NIT (${nitFactura}, propios: ${nuestros.join("/")}): ${f.razonSocialCliente ?? "?"}`);
+    }
+
+    // ¿Es una factura de servicio (luz, internet, agua)? Eso es un GASTO, no una
+    // compra de mercadería: se avisa para que no se procese como productos.
+    const servicio = detectarServicio(f.tipoDocumento, f.razonSocialEmisor);
+    if (servicio) {
+      console.warn(`[Bandeja] Factura de ${servicio}: ${f.razonSocialEmisor} — corresponde a Gastos, no a Compras`);
     }
 
     const res = await db.insert(bandejaFacturas).values({
@@ -112,6 +127,7 @@ class BandejaService {
       razonSocialCliente: f.razonSocialCliente ?? null,
       nitCliente: f.nitCliente ?? null,
       ajena: esAjena ? 1 : 0,
+      servicioDetectado: servicio,
       numeroFactura: f.numeroFactura,
       cuf: f.cuf,
       fechaEmision: f.fechaEmision,

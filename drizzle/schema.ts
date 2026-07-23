@@ -210,6 +210,8 @@ export const bandejaFacturas = mysqlTable("bandeja_facturas", {
   razonSocialCliente: varchar("razonSocialCliente", { length: 255 }),
   nitCliente: varchar("nitCliente", { length: 30 }),
   ajena: int("ajena").notNull().default(0), // 1 = no parece ser de la farmacia
+  // Si no es mercadería sino un servicio (luz, internet, agua): guarda el rubro
+  servicioDetectado: varchar("servicioDetectado", { length: 60 }),
   numeroFactura: varchar("numeroFactura", { length: 60 }),
   cuf: varchar("cuf", { length: 100 }),
   fechaEmision: varchar("fechaEmision", { length: 40 }),

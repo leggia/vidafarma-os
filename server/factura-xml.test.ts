@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esFacturaXml, extraerPresentacion, extraerVencimiento, parsearFacturaXml } from "./factura-xml";
+import { detectarServicio, esFacturaXml, extraerPresentacion, extraerVencimiento, parsearFacturaXml } from "./factura-xml";
 
 // XML mínimo con la estructura real del SIN (2 productos).
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -129,5 +129,18 @@ describe("factura-xml", () => {
     // Envase compuesto: 25 sobres de 9 pastillas = 225 unidades
     expect(extraerPresentacion("CALMATOS PLÚS 25 sbrs. x 9 pastillas").unidadesPorEnvase).toBe(225);
     expect(extraerPresentacion("VASELINA sólida x 12 g.").presentacion).toBe("12 g");
+  });
+
+  it("avisa cuando la factura es de un servicio y no de mercadería", () => {
+    expect(detectarServicio("facturaElectronicaServicioBasico", "ELFEC S.A.")).toBe("servicio básico");
+    expect(detectarServicio("facturaElectronicaCompraVenta", "ELFEC S.A.")).toBe("electricidad");
+    expect(detectarServicio("facturaElectronicaCompraVenta", "COMTECO LTDA")).toBe("internet / teléfono");
+    expect(detectarServicio("facturaElectronicaCompraVenta", "SEMAPA")).toBe("agua");
+  });
+
+  it("no confunde a los proveedores de la farmacia con servicios", () => {
+    expect(detectarServicio("facturaElectronicaCompraVenta", "INDUSTRIA FARMACEUTICA BOLIVIANA IFARBO LTDA")).toBeNull();
+    expect(detectarServicio("facturaElectronicaCompraVenta", "DROGUERIA INTI S.A.")).toBeNull();
+    expect(detectarServicio("facturaElectronicaCompraVenta", "COFAR S.A.")).toBeNull();
   });
 });

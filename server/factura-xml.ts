@@ -63,6 +63,7 @@ export interface FacturaXmlResult {
   descuentoAdicional: number;          // descuento a nivel factura (si hay)
   descuentoTotalLineas: number;        // suma de descuentos por producto
   montoTotalSujetoIva: number;         // base imponible
+  tipoDocumento: string | null;        // elemento raíz: dice si es compra-venta, servicio básico, etc.
   // A quién está dirigida la factura: importante ahora que entran por correo,
   // para detectar una factura que no es de la farmacia.
   razonSocialCliente: string | null;
@@ -79,6 +80,44 @@ export interface FacturaXmlResult {
 export function esFacturaXml(contenido: string, fileName?: string): boolean {
   if (fileName && fileName.toLowerCase().endsWith(".xml")) return true;
   return /<facturaElectronica|<cabecera>[\s\S]*<detalle>/.test(contenido);
+}
+
+/**
+ * ¿La factura es de un SERVICIO (luz, agua, internet, teléfono, gas) en vez de
+ * mercadería para la farmacia? Esas facturas son un GASTO, no una compra de
+ * inventario, así que conviene avisar para que no se procesen como productos.
+ *
+ * Se detecta por dos vías:
+ *  1. El tipo de documento del SIN: los servicios básicos usan su propia
+ *     estructura (facturaElectronicaServicioBasico y similares).
+ *  2. El nombre del emisor: empresas de servicios conocidas y palabras clave.
+ * Devuelve el rubro detectado (para mostrarlo) o null si parece mercadería.
+ */
+export function detectarServicio(tipoDocumento: string | null, razonSocialEmisor: string | null): string | null {
+  const tipoRaiz = (tipoDocumento || "").toLowerCase();
+  if (/serviciobasico/.test(tipoRaiz)) return "servicio básico";
+  if (/telecomunicaciones/.test(tipoRaiz)) return "telecomunicaciones";
+
+  // 2. Emisor: empresas de servicios y palabras clave del rubro
+  const emisor = (razonSocialEmisor || "").toUpperCase();
+  if (!emisor) return null;
+  const EMPRESAS: Array<[RegExp, string]> = [
+    [/\bELFEC\b|\bDELAPAZ\b|\bCRE\b|\bELECTROPAZ\b|\bSEPSA\b/, "electricidad"],
+    [/\bSEMAPA\b|\bEPSAS\b|\bSAGUAPAC\b|\bCOSMOL\b/, "agua"],
+    [/\bCOMTECO\b|\bENTEL\b|\bTIGO\b|\bVIVA\b|\bAXS\b|\bNUEVATEL\b|\bCOTAS\b|\bCOTEL\b/, "internet / teléfono"],
+    [/\bYPFB\b|\bEMCAGAL\b/, "gas"],
+  ];
+  for (const [re, rubro] of EMPRESAS) if (re.test(emisor)) return rubro;
+
+  const CLAVES: Array<[RegExp, string]> = [
+    [/ELECTRICIDAD|ELECTRICA|ELÉCTRICA|ENERGIA|ENERGÍA/, "electricidad"],
+    [/AGUA POTABLE|SANEAMIENTO|ALCANTARILLADO/, "agua"],
+    [/TELECOMUNICAC|TELEFON|TELÉFON|INTERNET|CABLE/, "internet / teléfono"],
+    [/GAS NATURAL|GAS DOMICILIARIO/, "gas"],
+  ];
+  for (const [re, rubro] of CLAVES) if (re.test(emisor)) return rubro;
+
+  return null;
 }
 
 /**
@@ -196,6 +235,9 @@ export function extraerPresentacion(texto: string): { presentacion: string | nul
 }
 
 export function parsearFacturaXml(xml: string): FacturaXmlResult {
+  // Elemento raíz: distingue una factura de compra-venta de una de servicio básico
+  const raiz = xml.match(/<(factura[A-Za-z]*)[\s>]/);
+  const tipoDocumento = raiz ? raiz[1] : null;
   // Cabecera: tomar solo el bloque <cabecera> para no confundir con <detalle>
   const cabMatch = xml.match(/<cabecera>([\s\S]*?)<\/cabecera>/);
   const cab = cabMatch ? cabMatch[1] : xml;
@@ -274,6 +316,7 @@ export function parsearFacturaXml(xml: string): FacturaXmlResult {
     descuentoAdicional,
     descuentoTotalLineas: Number(descuentoTotalLineas.toFixed(2)),
     montoTotalSujetoIva,
+    tipoDocumento,
     razonSocialCliente,
     nitCliente,
     direccionEmisor,

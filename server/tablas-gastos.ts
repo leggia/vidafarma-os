@@ -109,6 +109,7 @@ export async function crearTablasGastos(): Promise<void> {
     "ALTER TABLE bandeja_facturas ADD COLUMN razonSocialCliente VARCHAR(255)",
     "ALTER TABLE bandeja_facturas ADD COLUMN nitCliente VARCHAR(30)",
     "ALTER TABLE bandeja_facturas ADD COLUMN ajena INT NOT NULL DEFAULT 0",
+    "ALTER TABLE bandeja_facturas ADD COLUMN servicioDetectado VARCHAR(60)",
   ];
   for (const m of migraciones) {
     try { await db.execute(sql.raw(m)); } catch { /* ya existe */ }

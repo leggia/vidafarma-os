@@ -94,8 +94,8 @@ export default function Bandeja() {
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between gap-2">
                     <button className="flex items-center gap-4 text-left flex-1 min-w-0" onClick={() => setLocation(`/bandeja/${f.id}`)}>
-                      <div className={`h-10 w-10 rounded flex items-center justify-center shrink-0 ${f.ajena ? "bg-amber-100" : "bg-foreground/5"}`}>
-                        {f.ajena
+                      <div className={`h-10 w-10 rounded flex items-center justify-center shrink-0 ${(f.ajena || f.servicioDetectado) ? "bg-amber-100" : "bg-foreground/5"}`}>
+                        {(f.ajena || f.servicioDetectado)
                           ? <AlertTriangle className="h-5 w-5 text-amber-600" />
                           : <FileText className="h-5 w-5 text-foreground/60" />}
                       </div>
@@ -108,6 +108,11 @@ export default function Bandeja() {
                           {f.itemsEmparejados}/{f.totalItems} emparejados · {f.itemsConVencimiento}/{f.totalItems} con vencimiento
                           {f.origen === "correo" && " · llegó por correo"}
                         </p>
+                        {f.servicioDetectado && (
+                          <p className="text-[11px] text-amber-700 font-medium truncate">
+                            ⚠ Factura de {f.servicioDetectado} — va a Gastos, no a Compras
+                          </p>
+                        )}
                         {f.ajena && (
                           <p className="text-[11px] text-amber-700 font-medium truncate">
                             ⚠ A nombre de {f.razonSocialCliente || "otro NIT"} — revisa si es de la farmacia
