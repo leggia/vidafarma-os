@@ -1039,14 +1039,60 @@ class Inventarios365Service {
 
       console.log(`[Inventarios365] Ajuste de inventario: ${productos.length} productos con diferencia${eliminados.length > 0 ? ` (${eliminados.length} omitidos por no existir ya en 365)` : ""}`);
       const resp = await this.post<any>("/ajuste/registrar-multiple", payload);
-      console.log(`[Inventarios365] Ajuste response:`, JSON.stringify(resp).substring(0, 200));
+      console.log(`[Inventarios365] Ajuste response:`, JSON.stringify(resp).substring(0, 300));
       this.invalidarCacheInventario(params.almacenId); // el stock cambió, refrescar caché
+
+      // 365 puede responder sin error y NO aplicar el ajuste. Antes se devolvía
+      // ok:true sin mirar la respuesta, así que la app decía "actualizado" aunque
+      // en 365 no cambiara nada. Ahora se revisa la respuesta y, sobre todo, se
+      // VERIFICA leyendo el stock real.
+      if (resp?.error) {
+        return { ok: false, ajustados: 0, mensaje: `365 rechazó el ajuste: ${resp.error}` };
+      }
+      if (resp?.success === false || resp?.status === false) {
+        return { ok: false, ajustados: 0, mensaje: resp?.message || resp?.mensaje || "365 rechazó el ajuste" };
+      }
+
+      // VERIFICACIÓN EN VIVO: releer el stock del almacén y comprobar que los
+      // productos ajustados quedaron con la cantidad contada.
+      let avisoVerificacion = "";
+      try {
+        const { obtenerStockAlmacen } = await import("./stock-cache");
+        const fresco = await obtenerStockAlmacen(params.almacenId, { ttlSeg: 0, fallbackCache: false });
+        const stockPorId = new Map<number, number>();
+        for (const p of (fresco.lista || []) as any[]) stockPorId.set(Number(p.id), Number(p.stock) || 0);
+
+        let coinciden = 0, verificables = 0;
+        const noAplicados: string[] = [];
+        for (const a of existentes) {
+          const actual = stockPorId.get(Number(a.productoId));
+          if (actual === undefined) continue; // no se pudo leer: no cuenta
+          verificables++;
+          if (actual === a.stockReal) coinciden++;
+          else noAplicados.push(`${a.productoId} (esperado ${a.stockReal}, quedó ${actual})`);
+        }
+        if (verificables > 0 && coinciden === 0) {
+          return {
+            ok: false, ajustados: 0,
+            mensaje: `365 aceptó el ajuste pero el stock NO cambió (verificado en vivo). Revisa en 365 y reintenta. Detalle: ${noAplicados.slice(0, 3).join(" · ")}`,
+          };
+        }
+        if (noAplicados.length > 0) {
+          avisoVerificacion = ` ⚠ ${noAplicados.length} no quedaron con la cantidad contada: ${noAplicados.slice(0, 3).join(" · ")}`;
+        } else if (verificables > 0) {
+          avisoVerificacion = " ✓ Verificado en 365.";
+        }
+      } catch (e: any) {
+        console.warn("[Inventarios365] No se pudo verificar el ajuste:", e?.message);
+        avisoVerificacion = " (no se pudo verificar contra 365)";
+      }
+
       const baseMsg = `${productos.length} producto(s) ajustados`;
       const msgEliminados = eliminados.length > 0
         ? ` · ${eliminados.length} NO se ajustaron porque ya no existen en el sistema (fueron eliminados): ${eliminados.map(e => e.productoId).join(", ")}`
         : "";
       return {
-        ok: true, ajustados: productos.length, mensaje: baseMsg + msgEliminados,
+        ok: true, ajustados: productos.length, mensaje: baseMsg + msgEliminados + avisoVerificacion,
         eliminados: eliminados.length > 0 ? eliminados.map(e => String(e.productoId)) : undefined,
       };
     } catch (error: any) {

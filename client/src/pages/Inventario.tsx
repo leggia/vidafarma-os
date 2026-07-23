@@ -350,14 +350,43 @@ export default function Inventario() {
         } else {
           toast.error(`Tu conteo quedó guardado a salvo, pero el ajuste en 365 falló: ${res.ajuste.mensaje}. Puedes reintentar desde la lista de proveedores sin volver a contar.`, { duration: 10000 });
         }
+      } else if (completar) {
+        // Sin ajuste: decir POR QUÉ, para no dar a entender que 365 se actualizó.
+        if (!ajustarStock) {
+          toast.warning(
+            "Proveedor completado, pero el stock de 365 NO se modificó: la opción \"Ajustar stock real\" está desactivada. Actívala y vuelve a completar si querías aplicar el conteo.",
+            { duration: 10000 },
+          );
+        } else if (conDif === 0) {
+          toast.success("Proveedor completado. Tu conteo coincide con el sistema, así que no había nada que ajustar en 365.", { duration: 6000 });
+        } else {
+          toast.success("Proveedor completado", { duration: 4000 });
+        }
       } else {
-        toast.success(completar ? "Proveedor completado" : "Progreso guardado", { duration: 4000 });
+        toast.success("Progreso guardado", { duration: 4000 });
       }
       const detalle = await utils.inventario.detalleSesion.fetch({ sesionId: sesionActiva.id });
       if (detalle) setSesionActiva((prev: any) => ({ ...prev, proveedores: detalle.proveedores }));
       await utils.inventario.listarSesiones.invalidate();
       // Refrescar el sobrante de caja por explicar: cada faltante contado lo descuenta
       await utils.inventario.diferenciasCaja.invalidate();
+
+      // Si se ajustó el stock, el listado de productos quedó desactualizado: hay
+      // que invalidarlo. Antes solo se refrescaba la sesión, así que al volver a
+      // buscar el producto seguía mostrando la cantidad anterior hasta recargar
+      // la página.
+      const seAjusto = completar && ajustarStock && res.ajuste?.ok;
+      if (seAjusto) {
+        await utils.inventario.listar.invalidate();
+        // El "Conteo puntual" guarda los productos en un caché local que solo se
+        // cargaba una vez: se actualiza en el acto con las cantidades contadas
+        // para que la búsqueda muestre el valor nuevo sin recargar.
+        const nuevoStock = new Map(conteos.map((c) => [c.articuloId, c.stockFisico]));
+        setCacheProductos((prev: any[]) => prev.map((p: any) =>
+          nuevoStock.has(p.id) ? { ...p, stock: nuevoStock.get(p.id) } : p));
+        setItems((prev: any[]) => prev.map((p: any) =>
+          nuevoStock.has(p.id) ? { ...p, stock: nuevoStock.get(p.id), fisico: null } : p));
+      }
       if (completar) { setVista("proveedores"); setProveedorActivo(null); setItems([]); }
     } catch (e: any) { toast.error("Error: " + (e.message || "")); }
   };
