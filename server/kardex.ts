@@ -193,6 +193,35 @@ class KardexService {
     const entradas = conSaldo.filter((m) => m.cantidad > 0).reduce((s, m) => s + m.cantidad, 0);
     const salidas = conSaldo.filter((m) => m.cantidad < 0).reduce((s, m) => s + Math.abs(m.cantidad), 0);
 
+    // DESGLOSE POR SUCURSAL: dónde está el saldo de este producto. Se calcula
+    // sobre TODAS las sucursales (ignora el filtro de sucursal a propósito), para
+    // poder comparar de un vistazo aunque se esté mirando una sola.
+    const filtrosSuc = [sql`articuloClave = ${clave}`];
+    if (opts?.desde) filtrosSuc.push(sql`DATE(fecha) >= ${opts.desde}`);
+    if (opts?.hasta) filtrosSuc.push(sql`DATE(fecha) <= ${opts.hasta}`);
+    let whereSuc = filtrosSuc[0];
+    for (let i = 1; i < filtrosSuc.length; i++) whereSuc = sql`${whereSuc} AND ${filtrosSuc[i]}`;
+
+    const porSucursal = rows(await db.execute(sql`
+      SELECT COALESCE(sucursal, '(sin sucursal)') AS sucursal, almacenId,
+             COALESCE(SUM(cantidad), 0) AS saldo,
+             COALESCE(SUM(CASE WHEN cantidad > 0 THEN cantidad ELSE 0 END), 0) AS entradas,
+             COALESCE(SUM(CASE WHEN cantidad < 0 THEN -cantidad ELSE 0 END), 0) AS salidas,
+             COUNT(*) AS movimientos,
+             MAX(fecha) AS ultimoMovimiento
+      FROM movimientos_stock WHERE ${whereSuc}
+      GROUP BY sucursal, almacenId
+      ORDER BY saldo DESC
+    `)).map((s: any) => ({
+      sucursal: s.sucursal,
+      almacenId: s.almacenId,
+      saldo: Math.round((Number(s.saldo) || 0) * 100) / 100,
+      entradas: Math.round((Number(s.entradas) || 0) * 100) / 100,
+      salidas: Math.round((Number(s.salidas) || 0) * 100) / 100,
+      movimientos: Number(s.movimientos) || 0,
+      ultimoMovimiento: s.ultimoMovimiento,
+    }));
+
     return {
       producto: movs[0]?.articuloNombre || nombre,
       clave,
@@ -201,6 +230,12 @@ class KardexService {
       entradas: Math.round(entradas * 100) / 100,
       salidas: Math.round(salidas * 100) / 100,
       saldoCalculado: Math.round(saldo * 100) / 100,
+      porSucursal,
+      // Suma de todas las sucursales: si se está filtrando por una, sirve para
+      // saber cuánto hay en total sin quitar el filtro.
+      saldoTotalTodasSucursales: Math.round(
+        porSucursal.reduce((t: number, s: any) => t + s.saldo, 0) * 100,
+      ) / 100,
     };
   }
 

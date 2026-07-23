@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   BookOpen, Search, Loader2, ArrowDownCircle, ArrowUpCircle,
-  ShieldCheck, Package, Filter, DownloadCloud, Scale,
+  ShieldCheck, Package, Filter, DownloadCloud, Scale, Building2,
 } from "lucide-react";
 
 // Color e ícono por tipo de movimiento
@@ -62,6 +62,7 @@ export default function Kardex() {
     { enabled: busqueda.trim().length >= 2 && !productoSel },
   );
   const [sucursalFiltro, setSucursalFiltro] = useState("");
+  const [verSucursales, setVerSucursales] = useState(false);
   const kardex = trpc.ventas.kardexProducto.useQuery(
     { producto: productoSel ?? "", sucursal: sucursalFiltro || undefined },
     { enabled: !!productoSel },
@@ -179,21 +180,6 @@ export default function Kardex() {
             </div>
           )}
 
-          {/* Filtro por sucursal: ya es confiable porque los nombres se normalizan */}
-          {productoSel && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Sucursal</span>
-              <select value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)}
-                className="h-8 rounded-md border bg-background px-2 text-xs">
-                <option value="">Todas</option>
-                <option value="Casa Matriz">Casa Matriz</option>
-                <option value="Petrolera">Petrolera</option>
-                <option value="Lanza">Lanza</option>
-                <option value="Cobol">Cobol</option>
-              </select>
-            </div>
-          )}
-
           {/* Kardex del producto */}
           {productoSel && kardex.isFetching && (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -213,9 +199,55 @@ export default function Kardex() {
                   </div>
                   <div className="ml-auto text-right shrink-0">
                     <p className="text-lg font-black tabular-nums">{kardex.data.saldoCalculado}</p>
-                    <p className="text-[10px] text-muted-foreground">saldo del libro</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {sucursalFiltro ? `saldo en ${sucursalFiltro}` : "saldo total"}
+                    </p>
                   </div>
                 </div>
+
+                {/* Saldo por sucursal: desglose desplegable, para ver dónde está
+                    el stock sin salir de la ficha del producto. */}
+                {kardex.data.porSucursal && kardex.data.porSucursal.length > 0 && (
+                  <div className="border rounded-md">
+                    <button
+                      onClick={() => setVerSucursales(!verSucursales)}
+                      className="w-full flex items-center justify-between px-2.5 py-2 text-xs hover:bg-muted/40 transition">
+                      <span className="font-medium flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        Saldo por sucursal
+                        {sucursalFiltro && <Badge variant="outline" className="text-[10px] px-1.5 py-0">viendo {sucursalFiltro}</Badge>}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {kardex.data.porSucursal.length} sucursales · total {kardex.data.saldoTotalTodasSucursales} {verSucursales ? "▲" : "▼"}
+                      </span>
+                    </button>
+                    {verSucursales && (
+                      <div className="border-t divide-y">
+                        {/* Ver todas */}
+                        <button onClick={() => setSucursalFiltro("")}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-muted/40 ${!sucursalFiltro ? "bg-primary/5 font-medium" : ""}`}>
+                          <span>Todas las sucursales</span>
+                          <span className="tabular-nums font-bold">{kardex.data.saldoTotalTodasSucursales}</span>
+                        </button>
+                        {kardex.data.porSucursal.map((s: any, i: number) => (
+                          <button key={i}
+                            onClick={() => setSucursalFiltro(s.sucursal === "(sin sucursal)" ? "" : s.sucursal)}
+                            className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs hover:bg-muted/40 ${sucursalFiltro === s.sucursal ? "bg-primary/5 font-medium" : ""}`}>
+                            <span className="min-w-0 text-left">
+                              <span className="block truncate">{s.sucursal}</span>
+                              <span className="block text-[10px] text-muted-foreground">
+                                entró {s.entradas} · salió {s.salidas} · {s.movimientos} mov.
+                              </span>
+                            </span>
+                            <span className={`tabular-nums font-bold shrink-0 ${s.saldo < 0 ? "text-red-600" : ""}`}>
+                              {s.saldo}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {kardex.data.movimientos.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-3">Sin movimientos registrados.</p>
